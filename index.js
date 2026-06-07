@@ -20,10 +20,8 @@ const client = new Client({
 const { BotLogs, COLOR: COLOR } = require('./bot_functions.js');
 const database = require('./database.js');
 
-// Initialize honeypot cache Map
 client.honeypots = new Map();
 
-// Express health check server for Render/UptimeRobot 24/7 hosting
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -65,10 +63,8 @@ client.once(Events.ClientReady, async (readyClient) => {
 	BotLogs('SYSTEM', `${COLOR.green}Connected to Discord!`);
 	BotLogs('SYSTEM', `${COLOR.green}---------------------------------------------------------------`);
 
-	// Initialize the database (checks connection, creates tables if SQL)
 	await database.initDatabase();
 
-	// Load honeypots cache asynchronously
 	try {
 		client.honeypots = await database.getAllHoneypots();
 		BotLogs('SYSTEM', `${COLOR.green}Honeypot configurations successfully cached. Loaded ${client.honeypots.size} channels.`);
