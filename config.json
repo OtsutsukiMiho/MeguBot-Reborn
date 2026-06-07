@@ -1,7 +1,8 @@
 {
     "version": "0.0.1",
-    "lastLoggedDate": "Tuesday, 12 May 2026",
+    "lastLoggedDate": "Sunday, 7 June 2026",
     "clientId": "1502765784789811251",
+    "online_ping": true,
     "logs": {
         "audio_queue_logs": false
     }
