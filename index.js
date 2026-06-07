@@ -30,6 +30,42 @@ app.get('/health', (req, res) => {
 	res.status(200).send('OK');
 });
 
+app.get('/api/health-stats', (req, res) => {
+	const uptimeMs = client.uptime !== null ? client.uptime : Math.floor(process.uptime() * 1000);
+	const readyTimestamp = client.readyTimestamp !== null ? client.readyTimestamp : (Date.now() - Math.floor(process.uptime() * 1000));
+	
+	let version = 'unknown';
+	try {
+		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+		version = config.version || 'unknown';
+	}
+	catch (error) {
+		// Ignore
+	}
+
+	const memory = process.memoryUsage();
+	const formatMemory = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+	res.json({
+		status: client.isReady() ? 'online' : 'offline',
+		uptime: uptimeMs,
+		readyTimestamp: readyTimestamp,
+		ping: client.ws.ping !== null ? client.ws.ping : 0,
+		version: version,
+		nodeVersion: process.version,
+		platform: process.platform,
+		memory: {
+			rss: formatMemory(memory.rss),
+			heapUsed: formatMemory(memory.heapUsed),
+			heapTotal: formatMemory(memory.heapTotal),
+		},
+	});
+});
+
+app.get('/', (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.listen(PORT, () => {
 	BotLogs('SYSTEM', `Express health check server running on port ${PORT}`);
 });

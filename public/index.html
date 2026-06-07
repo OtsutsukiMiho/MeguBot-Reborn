@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>MeguBot Reborn - Status</title>
+	<link rel="icon" type="image/png" href="https://discord.com/assets/c098941cf10fb9530a12.svg">
+	<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+	<style>
+		:root {
+			--bg-primary: #030712;
+			--bg-card: rgba(17, 24, 39, 0.7);
+			--border-color: rgba(255, 255, 255, 0.08);
+			--text-primary: #f3f4f6;
+			--text-secondary: #9ca3af;
+			--color-success: #10b981;
+			--color-accent: #6366f1;
+			--color-accent-alt: #06b6d4;
+			--glow-success: rgba(16, 185, 129, 0.4);
+		}
+
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
+
+		body {
+			background-color: var(--bg-primary);
+			background-image: 
+				radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+				radial-gradient(circle at 100% 100%, rgba(6, 182, 212, 0.15) 0%, transparent 50%),
+				radial-gradient(circle at 50% 50%, rgba(17, 24, 39, 1) 0%, #030712 100%);
+			color: var(--text-primary);
+			font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			padding: 2rem 1rem;
+		}
+
+		.dashboard {
+			width: 100%;
+			max-width: 650px;
+			background: var(--bg-card);
+			backdrop-filter: blur(16px);
+			-webkit-backdrop-filter: blur(16px);
+			border: 1px solid var(--border-color);
+			border-radius: 24px;
+			padding: 2.5rem;
+			box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.05);
+			transition: all 0.3s ease;
+		}
+
+		.dashboard:hover {
+			box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 50px rgba(99, 102, 241, 0.1);
+			border-color: rgba(99, 102, 241, 0.2);
+		}
+
+		.header {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			text-align: center;
+			margin-bottom: 2.5rem;
+		}
+
+		.status-badge {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.5rem;
+			background: rgba(16, 185, 129, 0.1);
+			border: 1px solid rgba(16, 185, 129, 0.2);
+			color: var(--color-success);
+			padding: 0.5rem 1rem;
+			border-radius: 9999px;
+			font-size: 0.8rem;
+			font-weight: 600;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+			margin-bottom: 1rem;
+			box-shadow: 0 0 15px rgba(16, 185, 129, 0.05);
+			transition: all 0.3s ease;
+		}
+
+		.status-dot {
+			width: 8px;
+			height: 8px;
+			background-color: var(--color-success);
+			border-radius: 50%;
+			box-shadow: 0 0 8px var(--color-success);
+			animation: pulse 2s infinite;
+		}
+
+		@keyframes pulse {
+			0% {
+				transform: scale(0.95);
+				box-shadow: 0 0 0 0 var(--glow-success);
+			}
+			70% {
+				transform: scale(1);
+				box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+			}
+			100% {
+				transform: scale(0.95);
+				box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+			}
+		}
+
+		.title {
+			font-size: 2rem;
+			font-weight: 700;
+			letter-spacing: -0.025em;
+			background: linear-gradient(135deg, var(--text-primary) 30%, #a5b4fc 100%);
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+			margin-bottom: 0.5rem;
+		}
+
+		.subtitle {
+			color: var(--text-secondary);
+			font-size: 0.95rem;
+		}
+
+		.grid {
+			display: grid;
+			grid-template-columns: repeat(2, 1fr);
+			gap: 1.25rem;
+		}
+
+		@media (max-width: 600px) {
+			.grid {
+				grid-template-columns: 1fr;
+			}
+		}
+
+		.card {
+			background: rgba(31, 41, 55, 0.2);
+			border: 1px solid var(--border-color);
+			border-radius: 16px;
+			padding: 1.5rem;
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+			transition: all 0.2s ease;
+		}
+
+		.card:hover {
+			background: rgba(31, 41, 55, 0.35);
+			border-color: rgba(99, 102, 241, 0.2);
+			transform: translateY(-2px);
+		}
+
+		.card-header {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			color: var(--text-secondary);
+			font-size: 0.85rem;
+			font-weight: 500;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+		}
+
+		.card-icon {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 28px;
+			height: 28px;
+			border-radius: 6px;
+			background: rgba(99, 102, 241, 0.1);
+			color: var(--color-accent);
+		}
+
+		.card-value {
+			font-size: 1.35rem;
+			font-weight: 600;
+			word-break: break-all;
+		}
+
+		.card-sub {
+			font-size: 0.8rem;
+			color: var(--text-secondary);
+		}
+
+		.footer {
+			margin-top: 2.5rem;
+			text-align: center;
+			font-size: 0.8rem;
+			color: var(--text-secondary);
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			gap: 0.75rem;
+		}
+
+		.footer-link {
+			color: var(--color-accent-alt);
+			text-decoration: none;
+			transition: color 0.2s ease;
+		}
+
+		.footer-link:hover {
+			color: var(--color-accent);
+			text-decoration: underline;
+		}
+
+		.divider {
+			width: 3px;
+			height: 3px;
+			background-color: var(--border-color);
+			border-radius: 50%;
+		}
+	</style>
+</head>
+<body>
+	<div class="dashboard">
+		<div class="header">
+			<div class="status-badge" id="status-badge">
+				<div class="status-dot" id="status-dot"></div>
+				<span id="status-badge-text">ALL SYSTEMS OPERATIONAL</span>
+			</div>
+			<h1 class="title">MeguBot Reborn</h1>
+			<p class="subtitle">Live status and health dashboard</p>
+		</div>
+
+		<div class="grid">
+			<!-- Uptime Card -->
+			<div class="card">
+				<div class="card-header">
+					<span class="card-icon">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+					</span>
+					Uptime
+				</div>
+				<div class="card-value" id="uptime-val">Calculated...</div>
+				<div class="card-sub" id="uptime-sub">Active since -</div>
+			</div>
+
+			<!-- Latency Card -->
+			<div class="card">
+				<div class="card-header">
+					<span class="card-icon">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"></path><path d="M7 20v-4"></path><path d="M12 20v-8"></path><path d="M17 20V8"></path><path d="M22 4v16"></path></svg>
+					</span>
+					API Latency
+				</div>
+				<div class="card-value" id="ping-val">- ms</div>
+				<div class="card-sub">WebSocket heartbeat</div>
+			</div>
+
+			<!-- Memory Usage -->
+			<div class="card">
+				<div class="card-header">
+					<span class="card-icon">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+					</span>
+					Memory (RSS)
+				</div>
+				<div class="card-value" id="mem-rss">- MB</div>
+				<div class="card-sub" id="mem-heap">Heap: - / -</div>
+			</div>
+
+			<!-- Bot Metadata -->
+			<div class="card">
+				<div class="card-header">
+					<span class="card-icon">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+					</span>
+					System
+				</div>
+				<div class="card-value" id="sys-node" style="font-size: 1.15rem; padding-top: 0.2rem;">Node -</div>
+				<div class="card-sub" id="sys-sub">Platform: - • v-</div>
+			</div>
+		</div>
+
+		<div class="footer">
+			<span>Hosted on Render</span>
+			<div class="divider"></div>
+			<span>Monitored by UptimeRobot</span>
+		</div>
+	</div>
+
+	<script>
+		let readyTimestamp = null;
+		let uptimeInterval = null;
+
+		function updateUptime() {
+			if (!readyTimestamp) return;
+			const now = Date.now();
+			const diff = now - readyTimestamp;
+			
+			const totalSeconds = Math.floor(diff / 1000);
+			const days = Math.floor(totalSeconds / 86400);
+			const hours = Math.floor((totalSeconds % 86400) / 3600);
+			const minutes = Math.floor((totalSeconds % 3600) / 60);
+			const seconds = totalSeconds % 60;
+			
+			const parts = [];
+			if (days > 0) parts.push(days + 'd');
+			if (hours > 0) parts.push(hours + 'h');
+			if (minutes > 0) parts.push(minutes + 'm');
+			parts.push(seconds + 's');
+			
+			document.getElementById('uptime-val').textContent = parts.join(' ');
+		}
+		
+		async function fetchStats() {
+			try {
+				const res = await fetch('/api/health-stats');
+				if (!res.ok) throw new Error('Network response not ok');
+				const data = await res.json();
+				
+				if (!readyTimestamp) {
+					readyTimestamp = data.readyTimestamp;
+					document.getElementById('uptime-sub').textContent = 'Active since ' + new Date(readyTimestamp).toLocaleString();
+					updateUptime();
+					if (!uptimeInterval) {
+						uptimeInterval = setInterval(updateUptime, 1000);
+					}
+				}
+				
+				const pingEl = document.getElementById('ping-val');
+				pingEl.textContent = data.ping + ' ms';
+				if (data.ping < 100) {
+					pingEl.style.color = 'var(--color-success)';
+				} else if (data.ping < 250) {
+					pingEl.style.color = '#f59e0b';
+				} else {
+					pingEl.style.color = '#ef4444';
+				}
+				
+				document.getElementById('mem-rss').textContent = data.memory.rss;
+				document.getElementById('mem-heap').textContent = 'Heap: ' + data.memory.heapUsed + ' / ' + data.memory.heapTotal;
+				
+				const badge = document.getElementById('status-badge');
+				const dot = document.getElementById('status-dot');
+				const badgeText = document.getElementById('status-badge-text');
+				
+				if (data.status === 'online') {
+					badge.style.background = 'rgba(16, 185, 129, 0.1)';
+					badge.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+					badge.style.color = 'var(--color-success)';
+					badgeText.textContent = 'ALL SYSTEMS OPERATIONAL';
+					dot.style.backgroundColor = 'var(--color-success)';
+				} else {
+					badge.style.background = 'rgba(239, 68, 68, 0.1)';
+					badge.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+					badge.style.color = '#ef4444';
+					badgeText.textContent = 'SYSTEM OUTAGE / DISCONNECTED';
+					dot.style.backgroundColor = '#ef4444';
+				}
+
+				document.getElementById('sys-node').textContent = 'Node ' + data.nodeVersion;
+				document.getElementById('sys-sub').textContent = 'Platform: ' + data.platform + ' • v' + data.version;
+			} catch (e) {
+				console.error('Failed to fetch stats:', e);
+			}
+		}
+		
+		fetchStats();
+		setInterval(fetchStats, 5000);
+	</script>
+</body>
+</html>
