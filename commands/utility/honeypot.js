@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, MessageFlags } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const database = require('../../database.js');
 const { BotLogs, COLOR } = require('../../bot_functions.js');
 
 module.exports = {
@@ -33,22 +32,7 @@ module.exports = {
 
 	async execute(interaction) {
 		const subcommand = interaction.options.getSubcommand();
-		const dbPath = `./database/variables/${interaction.guild.id}.json`;
-		const dir = path.dirname(dbPath);
-
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true });
-		}
-
-		let guildData = {};
-		if (fs.existsSync(dbPath)) {
-			try {
-				guildData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-			}
-			catch {
-				// Safely ignore or parse corrupted JSON
-			}
-		}
+		const guildId = interaction.guild.id;
 
 		if (!interaction.client.honeypots) {
 			interaction.client.honeypots = new Map();
@@ -56,10 +40,9 @@ module.exports = {
 
 		if (subcommand === 'set') {
 			const channel = interaction.options.getChannel('channel');
-			guildData.honeypot_channel_id = channel.id;
-			fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
+			await database.setGuildVar(guildId, 'honeypot_channel_id', channel.id);
 
-			interaction.client.honeypots.set(interaction.guild.id, channel.id);
+			interaction.client.honeypots.set(guildId, channel.id);
 
 			BotLogs(interaction.guild.name, `${COLOR.dark_purple}Honeypot channel set to: ${COLOR.gray}[${COLOR.white}#${channel.name} (${channel.id})${COLOR.gray}]`);
 
@@ -70,12 +53,8 @@ module.exports = {
 		}
 
 		if (subcommand === 'disable') {
-			if (guildData.honeypot_channel_id) {
-				delete guildData.honeypot_channel_id;
-				fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
-			}
-
-			interaction.client.honeypots.delete(interaction.guild.id);
+			await database.deleteGuildVar(guildId, 'honeypot_channel_id');
+			interaction.client.honeypots.delete(guildId);
 
 			BotLogs(interaction.guild.name, `${COLOR.dark_purple}Honeypot channel disabled`);
 
@@ -86,7 +65,7 @@ module.exports = {
 		}
 
 		if (subcommand === 'status') {
-			const currentChannelId = guildData.honeypot_channel_id || interaction.client.honeypots.get(interaction.guild.id);
+			const currentChannelId = await database.getGuildVar(guildId, 'honeypot_channel_id') || interaction.client.honeypots.get(guildId);
 			if (currentChannelId) {
 				return await interaction.reply({
 					content: `🛡️ **Honeypot Status:** Enabled\nDecoy Channel: <#${currentChannelId}> (\`${currentChannelId}\`)\n\n*Note: Real bots, webhook messages, administrators, and moderators will be bypassed.*`,

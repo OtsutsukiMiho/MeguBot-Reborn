@@ -1,8 +1,6 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-const { BotLogs, COLOR: COLOR } = require('../../bot_functions.js');
+const database = require('../../database.js');
+const { BotLogs, COLOR } = require('../../bot_functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -16,27 +14,10 @@ module.exports = {
 
 	async execute(interaction) {
 		const newName = interaction.options.getString('name');
+		const guildId = interaction.guild.id;
+		const userId = interaction.user.id;
 
-		const dbPath = `./database/nick/${interaction.guild.id}.json`;
-		
-		const dir = path.dirname(dbPath);
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true });
-		}
-
-		if (!fs.existsSync(dbPath)) {
-			let nick = {
-				users: []
-			};
-			fs.writeFileSync(dbPath, JSON.stringify(nick, null, 2));
-			BotLogs("SYSTEM", `${COLOR.dark_purple}Created a nickname database for guild ${COLOR.gray}[${COLOR.white}${interaction.guild.name} (${interaction.guild.id})${COLOR.gray}]`);
-		}
-
-		const rawData = fs.readFileSync(dbPath, 'utf8');
-		const jsonData = JSON.parse(rawData);
-
-		const userIndex = jsonData.users.findIndex(u => u.id === interaction.user.id);
-		const tempName = userIndex !== -1 ? jsonData.users[userIndex].name : "ไม่มีชื่อ";
+		const tempName = await database.getUserNick(guildId, userId);
 
 		if (!newName) {
 			return await interaction.reply({ 
@@ -45,13 +26,7 @@ module.exports = {
 			});
 		}
 
-		if (userIndex !== -1) {
-			jsonData.users[userIndex].name = newName;
-		} else {
-			jsonData.users.push({ id: interaction.user.id, name: newName });
-		}
-
-		fs.writeFileSync(dbPath, JSON.stringify(jsonData, null, 2));
+		await database.setUserNick(guildId, userId, newName);
 
 		BotLogs(interaction.guild.name, `${COLOR.dark_purple}Nickname Updated: ${COLOR.gray}[${COLOR.white}${interaction.user.tag}${COLOR.gray}] ${COLOR.dark_purple}changed their nickname from ${COLOR.gray}[${COLOR.white}${tempName}${COLOR.gray}] ${COLOR.dark_purple}to ${COLOR.gray}[${COLOR.white}${newName}${COLOR.gray}]`);
 

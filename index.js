@@ -18,28 +18,23 @@ const client = new Client({
 });
 
 const { BotLogs, COLOR: COLOR } = require('./bot_functions.js');
+const database = require('./database.js');
 
-// Initialize honeypot cache and load existing settings on startup
+// Initialize honeypot cache Map
 client.honeypots = new Map();
-try {
-	const varsDir = './database/variables';
-	if (fs.existsSync(varsDir)) {
-		const files = fs.readdirSync(varsDir).filter(file => file.endsWith('.json'));
-		for (const file of files) {
-			const guildId = path.basename(file, '.json');
-			const rawData = fs.readFileSync(path.join(varsDir, file), 'utf8');
-			if (rawData.trim()) {
-				const data = JSON.parse(rawData);
-				if (data.honeypot_channel_id) {
-					client.honeypots.set(guildId, data.honeypot_channel_id);
-				}
-			}
-		}
-	}
-}
-catch (error) {
-	BotLogs('SYSTEM', `${COLOR.red}Error initializing honeypot cache: ${error.toString()}`);
-}
+
+// Express health check server for Render/UptimeRobot 24/7 hosting
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/health', (req, res) => {
+	res.status(200).send('OK');
+});
+
+app.listen(PORT, () => {
+	BotLogs('SYSTEM', `Express health check server running on port ${PORT}`);
+});
 
 function autoJoinActiveVC(guild) {
 	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2);
@@ -69,6 +64,18 @@ client.once(Events.ClientReady, async (readyClient) => {
 	BotLogs('SYSTEM', `${COLOR.green}---------------------------------------------------------------`);
 	BotLogs('SYSTEM', `${COLOR.green}Connected to Discord!`);
 	BotLogs('SYSTEM', `${COLOR.green}---------------------------------------------------------------`);
+
+	// Initialize the database (checks connection, creates tables if SQL)
+	await database.initDatabase();
+
+	// Load honeypots cache asynchronously
+	try {
+		client.honeypots = await database.getAllHoneypots();
+		BotLogs('SYSTEM', `${COLOR.green}Honeypot configurations successfully cached. Loaded ${client.honeypots.size} channels.`);
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${COLOR.red}Error initializing honeypot cache: ${error.toString()}`);
+	}
 
 	for (const [guildId, guild] of readyClient.guilds.cache) {
 		const botMember = guild.members.me;
@@ -224,25 +231,11 @@ client.on(Events.ClientReady, async () => {
 
 const voiceStateProcessing = new Set();
 
-function getUserNick(guildId, userId) {
-	const dbPath = `./database/nick/${guildId}.json`;
-	if (fs.existsSync(dbPath)) {
-		try {
-			const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-			if (data.users && Array.isArray(data.users)) {
-				const user = data.users.find(u => u.id === userId);
-				if (user && user.name) return user.name;
-			}
-			else if (data[userId]) {
-				return data[userId];
-			}
-		}
-		catch (e) { }
-	}
-	return 'ใครไม่รู้';
+async function getUserNick(guildId, userId) {
+	return await database.getUserNick(guildId, userId);
 }
 
-client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	const guild = newState.guild || oldState.guild;
 	const botMember = guild.members.me;
 
@@ -252,17 +245,10 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
 	});
 
 	if (totalVoiceMembers === 0) {
-		const dbPath = `./database/variables/${guild.id}.json`;
-		if (fs.existsSync(dbPath)) {
-			try {
-				const guildData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-				if (guildData.old_vc_id) {
-					delete guildData.old_vc_id;
-					fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
-				}
-			}
-			catch (e) { }
+		try {
+			await database.deleteGuildVar(guild.id, 'old_vc_id');
 		}
+		catch (e) { }
 
 		const { clearQueue } = require('./audio_queue.js');
 		clearQueue(guild.id, guild.name);
@@ -275,24 +261,14 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
 	}
 
 	if (newState.member.id === client.user.id && newState.channelId && oldState.channelId !== newState.channelId) {
-		const dbPath = `./database/variables/${guild.id}.json`;
-		let guildData = {};
-
-		const dir = path.dirname(dbPath);
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true });
+		let oldVcId = null;
+		try {
+			oldVcId = await database.getGuildVar(guild.id, 'old_vc_id');
 		}
+		catch (e) { }
 
-		if (fs.existsSync(dbPath)) {
-			try {
-				guildData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-			}
-			catch (e) { }
-		}
-
-		if (!guildData.old_vc_id) {
-			guildData.old_vc_id = newState.channelId;
-			fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
+		if (!oldVcId) {
+			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
 
 			BotLogs(guild.name, `${COLOR.blue}Greeting VC ${COLOR.gray}[${COLOR.white}${newState.channel.name}${COLOR.gray}]`);
 
@@ -311,9 +287,8 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
 			};
 			addToQueue(guild.id, queue_constructor);
 		}
-		else if (guildData.old_vc_id !== newState.channelId) {
-			guildData.old_vc_id = newState.channelId;
-			fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
+		else if (oldVcId !== newState.channelId) {
+			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
 		}
 	}
 
@@ -355,7 +330,7 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
 	}
 
 	if (newState.channelId === currentChannel.id && oldState.channelId !== currentChannel.id && oldState.channelId !== guild.afkChannelId && newState.member.id !== client.user.id) {
-		const nick = getUserNick(guild.id, newState.member.id);
+		const nick = await getUserNick(guild.id, newState.member.id);
 		const { addToQueue, generateUUID } = require('./audio_queue.js');
 		const { getVoiceConnection } = require('@discordjs/voice');
 		const queue_constructor = {
@@ -393,7 +368,7 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
 			addToQueue(guild.id, queue_constructor);
 		}
 		else if (currentChannel.members.size > 2) {
-			const nick = getUserNick(guild.id, newState.member.id);
+			const nick = await getUserNick(guild.id, newState.member.id);
 			const queue_constructor = {
 				uuid: generateUUID(),
 				name: `${nick}บิดไปแล้ว`,
