@@ -43,7 +43,7 @@ module.exports = {
 
 		const text = interaction.options.getString('text');
 		const lang = interaction.options.getString('lang') || 'th';
-		const engine = interaction.options.getString('engine') || 'edge';
+		const engine = interaction.options.getString('engine') || 'google';
 
 		const connection = joinVoiceChannel({
 			channelId: voiceChannel.id,
