@@ -28,13 +28,12 @@ app.get('/api/health-stats', (req, res) => {
 			const rawData = fs.readFileSync(statsFilePath, 'utf8');
 			const parsed = JSON.parse(rawData);
 
-			// Verify if the status file is fresh (updated in the last 10 seconds)
 			if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp < 10000)) {
 				botStats = parsed;
 			}
 		}
 		catch {
-			// Ignore read/parse errors, treat as offline
+			// Ignore
 		}
 	}
 
@@ -55,7 +54,6 @@ app.get('/api/health-stats', (req, res) => {
 		});
 	}
 	else {
-		// Report bot as offline if statistics are missing or stale
 		res.json({
 			status: 'offline',
 			uptime: 0,

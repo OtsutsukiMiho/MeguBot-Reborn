@@ -429,7 +429,6 @@ client.on(Events.MessageCreate, async (message) => {
 	}
 });
 
-// Periodically write bot stats to a shared JSON file
 setInterval(() => {
 	try {
 		const uptimeMs = client.uptime !== null ? client.uptime : Math.floor(process.uptime() * 1000);

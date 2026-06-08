@@ -25,6 +25,5 @@ function startBot() {
 	});
 }
 
-// Start both processes managed under this supervisor
 startWeb();
 startBot();

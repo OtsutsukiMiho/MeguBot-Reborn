@@ -314,13 +314,23 @@
 				if (!res.ok) throw new Error('Network response not ok');
 				const data = await res.json();
 				
-				if (!readyTimestamp) {
-					readyTimestamp = data.readyTimestamp;
-					document.getElementById('uptime-sub').textContent = 'Active since ' + new Date(readyTimestamp).toLocaleString();
-					updateUptime();
-					if (!uptimeInterval) {
-						uptimeInterval = setInterval(updateUptime, 1000);
+				if (data.status === 'online') {
+					if (readyTimestamp !== data.readyTimestamp) {
+						readyTimestamp = data.readyTimestamp;
+						document.getElementById('uptime-sub').textContent = 'Active since ' + new Date(readyTimestamp).toLocaleString();
+						updateUptime();
+						if (!uptimeInterval) {
+							uptimeInterval = setInterval(updateUptime, 1000);
+						}
 					}
+				} else {
+					readyTimestamp = null;
+					if (uptimeInterval) {
+						clearInterval(uptimeInterval);
+						uptimeInterval = null;
+					}
+					document.getElementById('uptime-val').textContent = 'Offline';
+					document.getElementById('uptime-sub').textContent = 'Active since -';
 				}
 				
 				const pingEl = document.getElementById('ping-val');
