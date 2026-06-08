@@ -33,7 +33,7 @@ app.get('/health', (req, res) => {
 app.get('/api/health-stats', (req, res) => {
 	const uptimeMs = client.uptime !== null ? client.uptime : Math.floor(process.uptime() * 1000);
 	const readyTimestamp = client.readyTimestamp !== null ? client.readyTimestamp : (Date.now() - Math.floor(process.uptime() * 1000));
-	
+
 	let version = 'unknown';
 	try {
 		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -422,35 +422,58 @@ client.on(Events.MessageCreate, async (message) => {
 	if (!message.guild || message.author.bot || message.webhookId) return;
 
 	const honeypotChannelId = client.honeypots?.get(message.guild.id);
-	if (!honeypotChannelId || message.channel.id !== honeypotChannelId) return;
+	const isHoneypotChannel = honeypotChannelId && message.channel.id === honeypotChannelId;
 
-	if (
-		message.member.permissions.has(PermissionFlagsBits.Administrator) ||
-		message.member.permissions.has(PermissionFlagsBits.ManageGuild) ||
-		message.member.permissions.has(PermissionFlagsBits.BanMembers) ||
-		message.author.id === message.guild.ownerId
-	) {
+	if (isHoneypotChannel) {
+		if (
+			message.member.permissions.has(PermissionFlagsBits.Administrator) ||
+			message.member.permissions.has(PermissionFlagsBits.ManageGuild) ||
+			message.member.permissions.has(PermissionFlagsBits.BanMembers) ||
+			message.author.id === message.guild.ownerId
+		) {
+			return;
+		}
+
+		try {
+			await message.delete().catch(() => undefined);
+
+			await message.member.ban({
+				reason: 'Triggered Honeypot Trap (Sending message in decoy channel)',
+				deleteMessageSeconds: 7 * 24 * 60 * 60,
+			});
+
+			BotLogs(message.guild.name, `${COLOR.red}Honeypot Triggered! Banned user: ${COLOR.white}${message.author.tag} (${message.author.id})${COLOR.reset}`);
+
+			if (message.guild.systemChannel) {
+				await message.guild.systemChannel.send({
+					content: `🚨 **Honeypot Triggered!** Banned user **${message.author.tag}** (\`${message.author.id}\`) for sending a message in the decoy channel <#${message.channel.id}>.`,
+				}).catch(() => undefined);
+			}
+		}
+		catch (error) {
+			BotLogs(message.guild.name, `${COLOR.red}Failed to execute honeypot action on ${message.author.tag}: ${error.toString()}`);
+		}
 		return;
 	}
 
-	try {
-		await message.delete().catch(() => undefined);
-
-		await message.member.ban({
-			reason: 'Triggered Honeypot Trap (Sending message in decoy channel)',
-			deleteMessageSeconds: 7 * 24 * 60 * 60,
-		});
-
-		BotLogs(message.guild.name, `${COLOR.red}Honeypot Triggered! Banned user: ${COLOR.white}${message.author.tag} (${message.author.id})${COLOR.reset}`);
-
-		if (message.guild.systemChannel) {
-			await message.guild.systemChannel.send({
-				content: `🚨 **Honeypot Triggered!** Banned user **${message.author.tag}** (\`${message.author.id}\`) for sending a message in the decoy channel <#${message.channel.id}>.`,
-			}).catch(() => undefined);
+	const input = message.content.trim();
+	if (input.endsWith('=')) {
+		const expression = input.slice(0, -1).trim();
+		if (expression) {
+			const cleanExpr = expression.replace(/\^/g, '**');
+			const mathRegex = new RegExp('^[0-9+\\-*/%().\\s]+$');
+			if (mathRegex.test(cleanExpr) && /[0-9]/.test(cleanExpr)) {
+				try {
+					const result = Function('return (' + cleanExpr + ')')();
+					if (result !== undefined && !isNaN(result)) {
+						await message.reply(`🧮 **Result:** \`${result}\``);
+					}
+				}
+				catch {
+					// Ignore
+				}
+			}
 		}
-	}
-	catch (error) {
-		BotLogs(message.guild.name, `${COLOR.red}Failed to execute honeypot action on ${message.author.tag}: ${error.toString()}`);
 	}
 });
 
