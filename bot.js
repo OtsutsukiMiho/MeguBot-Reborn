@@ -173,6 +173,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				});
 			}
 		}
+		else if (interaction.customId.startsWith('leave_modal_')) {
+			const channelId = interaction.customId.split('_')[2];
+			const guildId = interaction.guild.id;
+			const template = interaction.fields.getTextInputValue('leave_message_input');
+
+			try {
+				await database.setGuildVar(guildId, 'leave_channel_id', channelId);
+				await database.setGuildVar(guildId, 'leave_message_template', template);
+
+				await interaction.reply({
+					content: `✅ **Leave message setup complete!**\n- Channel: <#${channelId}>\n- Template: \`\`\`${template}\`\`\``,
+					flags: MessageFlags.Ephemeral,
+				});
+				BotLogs(interaction.guild.name, `${COLOR.green}Leave message channel set to <#${channelId}> and template updated: ${COLOR.white}${template}`);
+			}
+			catch (error) {
+				BotLogs(interaction.guild.name, `${COLOR.red}Error saving leave template: ${error.toString()}`);
+				await interaction.reply({
+					content: '❌ **Error saving leave template.** Please try again.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+		}
 	}
 
 });
@@ -552,6 +575,31 @@ client.on(Events.GuildMemberAdd, async (member) => {
 	}
 	catch (error) {
 		BotLogs(member.guild.name, `${COLOR.red}Error executing welcome message for ${member.user.tag}: ${error.toString()}`);
+	}
+});
+
+client.on(Events.GuildMemberRemove, async (member) => {
+	const guildId = member.guild.id;
+
+	try {
+		const leaveChannelId = await database.getGuildVar(guildId, 'leave_channel_id');
+		const template = await database.getGuildVar(guildId, 'leave_message_template');
+		if (leaveChannelId && template) {
+			const channel = member.guild.channels.cache.get(leaveChannelId);
+			if (channel) {
+				const username = member.user ? member.user.username : member.id;
+				const formattedMessage = template
+					.replace(/{member}/g, `<@${member.id}>`)
+					.replace(/{username}/g, username)
+					.replace(/{server}/g, member.guild.name);
+
+				await channel.send(formattedMessage);
+				BotLogs(member.guild.name, `${COLOR.green}Leave message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+			}
+		}
+	}
+	catch (error) {
+		BotLogs(member.guild.name, `${COLOR.red}Error executing leave message for ${member.user ? member.user.tag : member.id}: ${error.toString()}`);
 	}
 });
 
