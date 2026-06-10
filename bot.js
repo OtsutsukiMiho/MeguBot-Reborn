@@ -23,6 +23,23 @@ const database = require('./database.js');
 
 client.honeypots = new Map();
 
+function getOrCreateConnection(guild, channel) {
+	let connection = getVoiceConnection(guild.id);
+	if ((!connection || connection.state.status === 'destroyed') && channel) {
+		try {
+			connection = joinVoiceChannel({
+				channelId: channel.id,
+				guildId: guild.id,
+				adapterCreator: guild.voiceAdapterCreator,
+			});
+		}
+		catch (error) {
+			BotLogs(guild.name, `${COLOR.red}Failed to establish voice connection: ${error.toString()}`);
+		}
+	}
+	return connection;
+}
+
 function autoJoinActiveVC(guild) {
 	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2);
 	for (const [, voiceChannel] of voiceChannels) {
@@ -319,7 +336,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 				voice: 'th-TH-PremwadeeNeural',
 				sender: client.user,
 				voice_channel: newState.channel,
-				connection: getVoiceConnection(guild.id),
+				connection: getOrCreateConnection(guild, newState.channel),
 			};
 			addToQueue(guild.id, queue_constructor);
 		}
@@ -377,7 +394,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			voice: 'th-TH-PremwadeeNeural',
 			sender: client.user,
 			voice_channel: currentChannel,
-			connection: getVoiceConnection(guild.id),
+			connection: getOrCreateConnection(guild, currentChannel),
 		};
 		BotLogs(guild.name, `${COLOR.blue}User ${COLOR.gray}[${COLOR.white}${newState.member.user.tag}${COLOR.gray}] ${COLOR.blue}joined VC ${COLOR.gray}[${COLOR.white}${newState.channel.name}${COLOR.gray}]`);
 		addToQueue(guild.id, queue_constructor);
@@ -396,7 +413,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 				voice: 'th-TH-PremwadeeNeural',
 				sender: client.user,
 				voice_channel: currentChannel,
-				connection: getVoiceConnection(guild.id),
+				connection: getOrCreateConnection(guild, currentChannel),
 			};
 			BotLogs(guild.name, `${COLOR.blue}User ${COLOR.gray}[${COLOR.white}${newState.member.user.tag}${COLOR.gray}] ${COLOR.blue}left VC ${COLOR.gray}[${COLOR.white}${oldState.channel.name}${COLOR.gray}]`);
 			addToQueue(guild.id, queue_constructor);
@@ -412,7 +429,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 				voice: 'th-TH-PremwadeeNeural',
 				sender: client.user,
 				voice_channel: currentChannel,
-				connection: getVoiceConnection(guild.id),
+				connection: getOrCreateConnection(guild, currentChannel),
 			};
 			BotLogs(guild.name, `${COLOR.blue}User ${COLOR.gray}[${COLOR.white}${newState.member.user.tag}${COLOR.gray}] ${COLOR.blue}left VC ${COLOR.gray}[${COLOR.white}${oldState.channel.name}${COLOR.gray}]`);
 			addToQueue(guild.id, queue_constructor);
@@ -431,7 +448,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			voice: 'th-TH-PremwadeeNeural',
 			sender: client.user,
 			voice_channel: currentChannel,
-			connection: getVoiceConnection(guild.id),
+			connection: getOrCreateConnection(guild, currentChannel),
 		};
 		BotLogs(guild.name, `${COLOR.blue}User ${COLOR.gray}[${COLOR.white}${newState.member.user.tag}${COLOR.gray}] ${COLOR.blue}started sharing screen in VC ${COLOR.gray}[${COLOR.white}${currentChannel.name}${COLOR.gray}]`);
 		addToQueue(guild.id, queue_constructor);

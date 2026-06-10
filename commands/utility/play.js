@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { joinVoiceChannel } = require('@discordjs/voice');
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +43,14 @@ module.exports = {
 		const voiceChannel = interaction.member.voice.channel;
 		if (!voiceChannel) {
 			return await interaction.reply({ content: '❌ You need to join a voice channel first!', flags: MessageFlags.Ephemeral });
+		}
+
+		const permissions = voiceChannel.permissionsFor(interaction.guild.members.me);
+		if (!permissions || !permissions.has(PermissionFlagsBits.Connect)) {
+			return await interaction.reply({ content: '❌ I do not have permission to join your voice channel!', flags: MessageFlags.Ephemeral });
+		}
+		if (!permissions.has(PermissionFlagsBits.Speak)) {
+			return await interaction.reply({ content: '❌ I do not have permission to speak in your voice channel!', flags: MessageFlags.Ephemeral });
 		}
 
 		const selectedSound = interaction.options.getString('sound');
