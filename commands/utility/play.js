@@ -6,7 +6,6 @@ const path = require('path');
 const { BotLogs, COLOR } = require('../../bot_functions.js');
 
 const soundsList = [
-	{ name: 'เรียกไอบอล (Fix)', value: 'ball_fix' },
 	{ name: 'เรียกไอบอล (Megu)', value: 'ball_megu' },
 	{ name: 'Lin Gan Gu', value: 'lingangu' },
 	{ name: 'Megatron', value: 'megatron' },
