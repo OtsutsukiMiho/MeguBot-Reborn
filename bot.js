@@ -24,7 +24,7 @@ client.honeypots = new Map();
 
 function autoJoinActiveVC(guild) {
 	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2);
-	for (const [channelId, voiceChannel] of voiceChannels) {
+	for (const [, voiceChannel] of voiceChannels) {
 		if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) continue;
 		if (voiceChannel.members.size >= 1 && !(voiceChannel.members.size === 1 && voiceChannel.members.has(guild.members.me.id))) {
 			try {
@@ -61,16 +61,15 @@ client.once(Events.ClientReady, async (readyClient) => {
 		BotLogs('SYSTEM', `${COLOR.red}Error initializing honeypot cache: ${error.toString()}`);
 	}
 
-	for (const [guildId, guild] of readyClient.guilds.cache) {
+	for (const [, guild] of readyClient.guilds.cache) {
 		const botMember = guild.members.me;
 		let joined = false;
 
 		if (botMember && botMember.voice && botMember.voice.channel) {
 			const voiceChannel = botMember.voice.channel;
 
-			if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) {
-			}
-			else if (voiceChannel.members.size > 1) {
+			if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) continue;
+			if (voiceChannel.members.size > 1) {
 				try {
 					joinVoiceChannel({
 						channelId: voiceChannel.id,
@@ -232,12 +231,13 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		try {
 			await database.deleteGuildVar(guild.id, 'old_vc_id');
 		}
-		catch (e) { }
+		catch {
+			// Ignore
+		}
 
 		const { clearQueue } = require('./audio_queue.js');
 		clearQueue(guild.id, guild.name);
 
-		const { getVoiceConnection } = require('@discordjs/voice');
 		const connection = getVoiceConnection(guild.id);
 		if (connection) {
 			connection.destroy();
@@ -249,7 +249,9 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		try {
 			oldVcId = await database.getGuildVar(guild.id, 'old_vc_id');
 		}
-		catch (e) { }
+		catch {
+			// Ignore
+		}
 
 		if (!oldVcId) {
 			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
@@ -286,7 +288,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	const currentChannel = botMember.voice.channel;
 
 	if (newState.channelId === guild.afkChannelId && oldState.channelId === currentChannel.id && newState.member.id !== botMember.id) {
-		newState.member.voice.setChannel(oldState.channel).catch(() => { });
+		newState.member.voice.setChannel(oldState.channel).catch(() => undefined);
 		BotLogs(guild.name, `${COLOR.blue}Moved ${COLOR.gray}[${COLOR.white}${newState.member.user.tag}${COLOR.gray}] ${COLOR.blue}back from AFK to ${COLOR.gray}[${COLOR.white}${oldState.channel.name}${COLOR.gray}]`);
 		return;
 	}
@@ -298,7 +300,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 				connection.destroy();
 			}
 			else {
-				botMember.voice.setChannel(null).catch(() => { });
+				botMember.voice.setChannel(null).catch(() => undefined);
 			}
 
 			const { clearQueue } = require('./audio_queue.js');
@@ -316,7 +318,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	if (newState.channelId === currentChannel.id && oldState.channelId !== currentChannel.id && oldState.channelId !== guild.afkChannelId && newState.member.id !== client.user.id) {
 		const nick = await getUserNick(guild.id, newState.member.id);
 		const { addToQueue, generateUUID } = require('./audio_queue.js');
-		const { getVoiceConnection } = require('@discordjs/voice');
 		const queue_constructor = {
 			uuid: generateUUID(),
 			name: `${nick} เข้าดิสมา`,
@@ -334,7 +335,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
 	if (oldState.channelId === currentChannel.id && newState.channelId !== currentChannel.id && newState.member.id !== client.user.id) {
 		const { addToQueue, generateUUID } = require('./audio_queue.js');
-		const { getVoiceConnection } = require('@discordjs/voice');
 
 		if (currentChannel.members.size === 2) {
 			const queue_constructor = {

@@ -9,34 +9,30 @@ module.exports = {
 
 	async execute(interaction) {
 		const app = await interaction.client.application.fetch();
-        const owner = app.owner;
-        let isOwner = false;
-        
-        if (owner.members) {
-            isOwner = owner.members.has(interaction.user.id);
-        } else {
-            isOwner = owner.id === interaction.user.id;
-        }
+		const owner = app.owner;
+		const isOwner = owner.members
+			? owner.members.has(interaction.user.id)
+			: owner.id === interaction.user.id;
 
-        if (!isOwner) {
-            return await interaction.reply({ 
-                content: `❌ You do not have permission to use this command.`, 
-                flags: MessageFlags.Ephemeral 
-            });
-        }
+		if (!isOwner) {
+			return await interaction.reply({
+				content: '❌ You do not have permission to use this command.',
+				flags: MessageFlags.Ephemeral,
+			});
+		}
 
-        await interaction.reply({ 
-            content: `✅ Restarting...`, 
-            flags: MessageFlags.Ephemeral 
-        });
+		await interaction.reply({
+			content: '✅ Restarting...',
+			flags: MessageFlags.Ephemeral,
+		});
 
-        const bot = interaction.client;
-        
-        BotLogs("SYSTEM", `${COLOR.yellow}Restarting...`);
+		const bot = interaction.client;
 
-        bot.destroy();
-        setTimeout(() => {
-            process.exit();
-        }, 2000);
+		BotLogs('SYSTEM', `${COLOR.yellow}Restarting...`);
+
+		bot.destroy();
+		setTimeout(() => {
+			process.exit();
+		}, 2000);
 	},
 };

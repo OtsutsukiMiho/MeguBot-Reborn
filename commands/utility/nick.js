@@ -9,7 +9,7 @@ module.exports = {
 		.addStringOption(option =>
 			option.setName('name')
 				.setDescription('Your new nickname')
-				.setRequired(false)
+				.setRequired(false),
 		),
 
 	async execute(interaction) {
@@ -20,9 +20,9 @@ module.exports = {
 		const tempName = await database.getUserNick(guildId, userId);
 
 		if (!newName) {
-			return await interaction.reply({ 
-				content: `Your current nickname is **${tempName}**`, 
-				flags: MessageFlags.Ephemeral 
+			return await interaction.reply({
+				content: `Your current nickname is **${tempName}**`,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 
@@ -30,9 +30,9 @@ module.exports = {
 
 		BotLogs(interaction.guild.name, `${COLOR.dark_purple}Nickname Updated: ${COLOR.gray}[${COLOR.white}${interaction.user.tag}${COLOR.gray}] ${COLOR.dark_purple}changed their nickname from ${COLOR.gray}[${COLOR.white}${tempName}${COLOR.gray}] ${COLOR.dark_purple}to ${COLOR.gray}[${COLOR.white}${newName}${COLOR.gray}]`);
 
-		return await interaction.reply({ 
-			content: `✅ Your new nickname is **${newName}**`, 
-			flags: MessageFlags.Ephemeral 
+		return await interaction.reply({
+			content: `✅ Your new nickname is **${newName}**`,
+			flags: MessageFlags.Ephemeral,
 		});
 	},
 };

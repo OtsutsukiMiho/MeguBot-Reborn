@@ -1,7 +1,7 @@
-const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
-const { createAudioPlayer, createAudioResource, joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { joinVoiceChannel } = require('@discordjs/voice');
 
-const { BotLogs, COLOR: COLOR } = require('../../bot_functions.js');
+const { BotLogs, COLOR } = require('../../bot_functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder().setName('join').setDescription('Connect to your current voice channel.'),
@@ -11,7 +11,7 @@ module.exports = {
 		const voiceChannel = interaction.member.voice.channel;
 		if (!voiceChannel) return await interaction.editReply('❌ You need to join a voice channel first!');
 
-		const connection = joinVoiceChannel({
+		joinVoiceChannel({
 			channelId: voiceChannel.id,
 			guildId: interaction.guild.id,
 			adapterCreator: interaction.guild.voiceAdapterCreator,
