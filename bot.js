@@ -368,6 +368,24 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			addToQueue(guild.id, queue_constructor);
 		}
 	}
+
+	if (newState.streaming && !oldState.streaming && newState.channelId === currentChannel.id && newState.member.id !== client.user.id) {
+		const nick = await getUserNick(guild.id, newState.member.id);
+		const { addToQueue, generateUUID } = require('./audio_queue.js');
+		const queue_constructor = {
+			uuid: generateUUID(),
+			name: `${nick}ได้ทำการแชร์จอ`,
+			lang: 'th',
+			type: 'GOOGLE_TTS',
+			guild: guild,
+			voice: 'th-TH-PremwadeeNeural',
+			sender: client.user,
+			voice_channel: currentChannel,
+			connection: getVoiceConnection(guild.id),
+		};
+		BotLogs(guild.name, `${COLOR.blue}User ${COLOR.gray}[${COLOR.white}${newState.member.user.tag}${COLOR.gray}] ${COLOR.blue}started sharing screen in VC ${COLOR.gray}[${COLOR.white}${currentChannel.name}${COLOR.gray}]`);
+		addToQueue(guild.id, queue_constructor);
+	}
 });
 
 client.on(Events.MessageCreate, async (message) => {
