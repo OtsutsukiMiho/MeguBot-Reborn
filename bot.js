@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 const client = new Client({
 	intents: [
@@ -15,6 +15,7 @@ const client = new Client({
 		GatewayIntentBits.DirectMessageReactions,
 		GatewayIntentBits.MessageContent,
 	],
+	partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 const { BotLogs, COLOR: COLOR } = require('./bot_functions.js');
@@ -145,6 +146,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 			BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
+		}
+	}
+
+	else if (interaction.isModalSubmit()) {
+		if (interaction.customId.startsWith('welcome_modal_')) {
+			const channelId = interaction.customId.split('_')[2];
+			const guildId = interaction.guild.id;
+			const template = interaction.fields.getTextInputValue('welcome_message_input');
+
+			try {
+				await database.setGuildVar(guildId, 'welcome_channel_id', channelId);
+				await database.setGuildVar(guildId, 'welcome_message_template', template);
+
+				await interaction.reply({
+					content: `✅ **Welcome message setup complete!**\n- Channel: <#${channelId}>\n- Template: \`\`\`${template}\`\`\``,
+					flags: MessageFlags.Ephemeral,
+				});
+				BotLogs(interaction.guild.name, `${COLOR.green}Welcome message channel set to <#${channelId}> and template updated: ${COLOR.white}${template}`);
+			}
+			catch (error) {
+				BotLogs(interaction.guild.name, `${COLOR.red}Error saving welcome template: ${error.toString()}`);
+				await interaction.reply({
+					content: '❌ **Error saving welcome template.** Please try again.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
 		}
 	}
 
@@ -484,5 +511,142 @@ setInterval(() => {
 		BotLogs('SYSTEM', `Error writing bot-stats.json: ${error.toString()}`);
 	}
 }, 3000);
+
+client.on(Events.GuildMemberAdd, async (member) => {
+	const guildId = member.guild.id;
+
+	try {
+		const autoRoleId = await database.getGuildVar(guildId, 'autorole_id');
+		if (autoRoleId) {
+			const role = member.guild.roles.cache.get(autoRoleId);
+			if (role) {
+				const botMember = member.guild.members.me;
+				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+					await member.roles.add(role);
+					BotLogs(member.guild.name, `${COLOR.green}Auto-role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${member.user.tag}`);
+				}
+				else {
+					BotLogs(member.guild.name, `${COLOR.yellow}Warning: Failed to assign auto-role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions or role too high)`);
+				}
+			}
+		}
+	}
+	catch (error) {
+		BotLogs(member.guild.name, `${COLOR.red}Error executing auto-role for ${member.user.tag}: ${error.toString()}`);
+	}
+
+	try {
+		const welcomeChannelId = await database.getGuildVar(guildId, 'welcome_channel_id');
+		const template = await database.getGuildVar(guildId, 'welcome_message_template');
+		if (welcomeChannelId && template) {
+			const channel = member.guild.channels.cache.get(welcomeChannelId);
+			if (channel) {
+				const formattedMessage = template
+					.replace(/{member}/g, `<@${member.id}>`)
+					.replace(/{server}/g, member.guild.name);
+
+				await channel.send(formattedMessage);
+				BotLogs(member.guild.name, `${COLOR.green}Welcome message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user.tag}`);
+			}
+		}
+	}
+	catch (error) {
+		BotLogs(member.guild.name, `${COLOR.red}Error executing welcome message for ${member.user.tag}: ${error.toString()}`);
+	}
+});
+
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+	if (reaction.partial) {
+		try {
+			await reaction.fetch();
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `Failed to fetch reaction partial: ${error.toString()}`);
+			return;
+		}
+	}
+
+	if (user.bot || !reaction.message.guild) return;
+
+	const guildId = reaction.message.guild.id;
+	const messageId = reaction.message.id;
+	const emojiKey = reaction.emoji.id || reaction.emoji.name;
+
+	try {
+		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
+		if (rawMap) {
+			const mappings = JSON.parse(rawMap);
+			const messageMappings = mappings[messageId];
+			if (messageMappings && messageMappings[emojiKey]) {
+				const roleId = messageMappings[emojiKey];
+				const guild = reaction.message.guild;
+				const role = guild.roles.cache.get(roleId);
+				if (role) {
+					const member = await guild.members.fetch(user.id).catch(() => undefined);
+					if (member) {
+						const botMember = guild.members.me;
+						if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+							await member.roles.add(role);
+							BotLogs(guild.name, `${COLOR.green}Reaction role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${user.tag} for emoji ${COLOR.white}${reaction.emoji.name}`);
+						}
+						else {
+							BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to assign reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
+						}
+					}
+				}
+			}
+		}
+	}
+	catch (error) {
+		BotLogs(reaction.message.guild.name, `${COLOR.red}Error assigning reaction role: ${error.toString()}`);
+	}
+});
+
+client.on(Events.MessageReactionRemove, async (reaction, user) => {
+	if (reaction.partial) {
+		try {
+			await reaction.fetch();
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `Failed to fetch reaction partial: ${error.toString()}`);
+			return;
+		}
+	}
+
+	if (user.bot || !reaction.message.guild) return;
+
+	const guildId = reaction.message.guild.id;
+	const messageId = reaction.message.id;
+	const emojiKey = reaction.emoji.id || reaction.emoji.name;
+
+	try {
+		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
+		if (rawMap) {
+			const mappings = JSON.parse(rawMap);
+			const messageMappings = mappings[messageId];
+			if (messageMappings && messageMappings[emojiKey]) {
+				const roleId = messageMappings[emojiKey];
+				const guild = reaction.message.guild;
+				const role = guild.roles.cache.get(roleId);
+				if (role) {
+					const member = await guild.members.fetch(user.id).catch(() => undefined);
+					if (member) {
+						const botMember = guild.members.me;
+						if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+							await member.roles.remove(role);
+							BotLogs(guild.name, `${COLOR.green}Reaction role removed: took ${COLOR.white}${role.name}${COLOR.green} from user ${COLOR.white}${user.tag} for emoji ${COLOR.white}${reaction.emoji.name}`);
+						}
+						else {
+							BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to remove reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
+						}
+					}
+				}
+			}
+		}
+	}
+	catch (error) {
+		BotLogs(reaction.message.guild.name, `${COLOR.red}Error removing reaction role: ${error.toString()}`);
+	}
+});
 
 client.login(process.env.BOT_TOKEN);
