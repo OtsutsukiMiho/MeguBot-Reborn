@@ -22,6 +22,7 @@ const { BotLogs, COLOR: COLOR } = require('./bot_functions.js');
 const database = require('./database.js');
 
 client.honeypots = new Map();
+client.ttsChannels = new Map();
 
 function getOrCreateConnection(guild, channel) {
 	let connection = getVoiceConnection(guild.id);
@@ -77,6 +78,14 @@ client.once(Events.ClientReady, async (readyClient) => {
 	}
 	catch (error) {
 		BotLogs('SYSTEM', `${COLOR.red}Error initializing honeypot cache: ${error.toString()}`);
+	}
+
+	try {
+		client.ttsChannels = await database.getAllTtsChannels();
+		BotLogs('SYSTEM', `${COLOR.green}TTS channel configurations successfully cached. Loaded ${client.ttsChannels.size} channels.`);
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${COLOR.red}Error initializing TTS channel cache: ${error.toString()}`);
 	}
 
 	for (const [, guild] of readyClient.guilds.cache) {
@@ -489,6 +498,53 @@ client.on(Events.MessageCreate, async (message) => {
 		}
 		catch (error) {
 			BotLogs(message.guild.name, `${COLOR.red}Failed to execute honeypot action on ${message.author.tag}: ${error.toString()}`);
+		}
+		return;
+	}
+
+	const ttsChannelId = client.ttsChannels?.get(message.guild.id);
+	if (ttsChannelId && message.channel.id === ttsChannelId) {
+		const voiceChannel = message.member?.voice.channel;
+		if (!voiceChannel) {
+			await message.react('🔇').catch(() => undefined);
+			return;
+		}
+
+		const botMember = message.guild.members.me;
+		const permissions = voiceChannel.permissionsFor(botMember);
+		if (!permissions || !permissions.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
+			await message.react('❌').catch(() => undefined);
+			return;
+		}
+
+		const connection = getOrCreateConnection(message.guild, voiceChannel);
+		if (!connection) {
+			await message.react('❌').catch(() => undefined);
+			return;
+		}
+
+		const cleanText = message.content.trim();
+		if (cleanText.length === 0) return;
+		if (cleanText.length > 200) {
+			await message.react('⚠️').catch(() => undefined);
+			return;
+		}
+
+		const { addToQueue, generateUUID } = require('./audio_queue.js');
+		const entry = {
+			uuid: generateUUID(),
+			name: cleanText,
+			lang: 'th',
+			type: 'GOOGLE_TTS',
+			guild: message.guild,
+			sender: message.author,
+			voice_channel: voiceChannel,
+			connection: connection,
+		};
+
+		const result = addToQueue(message.guild.id, entry);
+		if (!result.success) {
+			await message.react('❌').catch(() => undefined);
 		}
 		return;
 	}

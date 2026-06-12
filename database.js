@@ -42,7 +42,7 @@ async function initDatabase() {
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}Failed to connect to PostgreSQL: ${error.message}. Falling back to local JSON database.`);
-			pool = null; 
+			pool = null;
 		}
 	}
 
@@ -111,7 +111,9 @@ async function setGuildVar(guildId, key, value) {
 			try {
 				guildData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
 			}
-			catch {}
+			catch {
+				// Ignore
+			}
 		}
 		guildData[key] = value;
 		fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
@@ -137,7 +139,9 @@ async function deleteGuildVar(guildId, key) {
 			try {
 				guildData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
 			}
-			catch {}
+			catch {
+				// Ignore
+			}
 			if (guildData[key] !== undefined) {
 				delete guildData[key];
 				fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
@@ -175,7 +179,9 @@ async function getUserNick(guildId, userId) {
 					return data[userId];
 				}
 			}
-			catch {}
+			catch {
+				// Ignore
+			}
 		}
 		return 'ใครไม่รู้';
 	}
@@ -206,7 +212,9 @@ async function setUserNick(guildId, userId, name) {
 					nick = { users: [] };
 				}
 			}
-			catch {}
+			catch {
+				// Ignore
+			}
 		}
 		const userIndex = nick.users.findIndex(u => u.id === userId);
 		if (userIndex !== -1) {
@@ -224,7 +232,7 @@ async function getAllHoneypots() {
 	if (pool) {
 		try {
 			const res = await pool.query(
-				"SELECT guild_id, variables->>'honeypot_channel_id' AS honeypot_id FROM guild_variables WHERE variables->>'honeypot_channel_id' IS NOT NULL",
+				'SELECT guild_id, variables->>\'honeypot_channel_id\' AS honeypot_id FROM guild_variables WHERE variables->>\'honeypot_channel_id\' IS NOT NULL',
 			);
 			for (const row of res.rows) {
 				if (row.honeypot_id) {
@@ -259,6 +267,46 @@ async function getAllHoneypots() {
 	return honeypots;
 }
 
+async function getAllTtsChannels() {
+	const ttsChannels = new Map();
+	if (pool) {
+		try {
+			const res = await pool.query(
+				'SELECT guild_id, variables->>\'tts_channel_id\' AS tts_id FROM guild_variables WHERE variables->>\'tts_channel_id\' IS NOT NULL',
+			);
+			for (const row of res.rows) {
+				if (row.tts_id) {
+					ttsChannels.set(row.guild_id, row.tts_id);
+				}
+			}
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in getAllTtsChannels: ${error.message}`);
+		}
+	}
+	else {
+		try {
+			if (fs.existsSync(VARS_DIR)) {
+				const files = fs.readdirSync(VARS_DIR).filter(file => file.endsWith('.json'));
+				for (const file of files) {
+					const guildId = path.basename(file, '.json');
+					const rawData = fs.readFileSync(path.join(VARS_DIR, file), 'utf8');
+					if (rawData.trim()) {
+						const data = JSON.parse(rawData);
+						if (data.tts_channel_id) {
+							ttsChannels.set(guildId, data.tts_channel_id);
+						}
+					}
+				}
+			}
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Error initializing tts channel cache (local): ${error.message}`);
+		}
+	}
+	return ttsChannels;
+}
+
 module.exports = {
 	initDatabase,
 	getGuildVar,
@@ -267,4 +315,5 @@ module.exports = {
 	getUserNick,
 	setUserNick,
 	getAllHoneypots,
+	getAllTtsChannels,
 };
