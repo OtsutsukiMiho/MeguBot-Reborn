@@ -447,6 +447,28 @@ async function updateReminderTime(id, nextTimeMs) {
 	}
 }
 
+async function clearAllReminders() {
+	if (pool) {
+		try {
+			await pool.query('DELETE FROM reminders');
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in clearAllReminders: ${error.message}`);
+		}
+	}
+	else {
+		const filePath = './database/reminders.json';
+		if (fs.existsSync(filePath)) {
+			try {
+				fs.writeFileSync(filePath, JSON.stringify([], null, 2), 'utf8');
+			}
+			catch (error) {
+				BotLogs('SYSTEM', `${COLOR.red}Error clearing reminders in local DB: ${error.message}`);
+			}
+		}
+	}
+}
+
 module.exports = {
 	initDatabase,
 	getGuildVar,
@@ -460,4 +482,5 @@ module.exports = {
 	getActiveReminders,
 	deleteReminder,
 	updateReminderTime,
+	clearAllReminders,
 };
