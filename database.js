@@ -37,6 +37,21 @@ async function initDatabase() {
 					PRIMARY KEY (guild_id, user_id)
 				);
 			`);
+			await client.query(`
+				CREATE TABLE IF NOT EXISTS reminders (
+					id SERIAL PRIMARY KEY,
+					user_id VARCHAR(30) NOT NULL,
+					guild_id VARCHAR(30) NOT NULL,
+					channel_id VARCHAR(30) NOT NULL,
+					reminder_time BIGINT NOT NULL,
+					message TEXT NOT NULL,
+					triggered BOOLEAN DEFAULT FALSE,
+					recurring BOOLEAN DEFAULT FALSE
+				);
+			`);
+			await client.query(`
+				ALTER TABLE reminders ADD COLUMN IF NOT EXISTS recurring BOOLEAN DEFAULT FALSE;
+			`).catch(() => undefined);
 			client.release();
 			BotLogs('SYSTEM', `${COLOR.green}PostgreSQL tables verified/created successfully.`);
 		}
@@ -307,6 +322,131 @@ async function getAllTtsChannels() {
 	return ttsChannels;
 }
 
+async function addReminder(userId, guildId, channelId, timeMs, messageText, recurring = false) {
+	if (pool) {
+		try {
+			await pool.query(
+				'INSERT INTO reminders (user_id, guild_id, channel_id, reminder_time, message, recurring) VALUES ($1, $2, $3, $4, $5, $6)',
+				[userId, guildId, channelId, timeMs, messageText, recurring],
+			);
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in addReminder: ${error.message}`);
+		}
+	}
+	else {
+		const filePath = './database/reminders.json';
+		let reminders = [];
+		if (fs.existsSync(filePath)) {
+			try {
+				reminders = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+			}
+			catch {
+				reminders = [];
+			}
+		}
+		const newReminder = {
+			id: Date.now() + Math.random().toString(36).substr(2, 9),
+			user_id: userId,
+			guild_id: guildId,
+			channel_id: channelId,
+			reminder_time: timeMs,
+			message: messageText,
+			triggered: false,
+			recurring: recurring,
+		};
+		reminders.push(newReminder);
+		fs.writeFileSync(filePath, JSON.stringify(reminders, null, 2), 'utf8');
+	}
+}
+
+async function getActiveReminders() {
+	if (pool) {
+		try {
+			const res = await pool.query(
+				'SELECT id, user_id, guild_id, channel_id, reminder_time, message, recurring FROM reminders WHERE triggered = FALSE',
+			);
+			return res.rows.map(row => ({
+				id: row.id,
+				user_id: row.user_id,
+				guild_id: row.guild_id,
+				channel_id: row.channel_id,
+				reminder_time: Number(row.reminder_time),
+				message: row.message,
+				recurring: row.recurring,
+			}));
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in getActiveReminders: ${error.message}`);
+			return [];
+		}
+	}
+	else {
+		const filePath = './database/reminders.json';
+		if (fs.existsSync(filePath)) {
+			try {
+				const reminders = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+				return reminders.filter(r => !r.triggered);
+			}
+			catch {
+				return [];
+			}
+		}
+		return [];
+	}
+}
+
+async function deleteReminder(id) {
+	if (pool) {
+		try {
+			await pool.query('DELETE FROM reminders WHERE id = $1', [id]);
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in deleteReminder: ${error.message}`);
+		}
+	}
+	else {
+		const filePath = './database/reminders.json';
+		if (fs.existsSync(filePath)) {
+			try {
+				let reminders = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+				reminders = reminders.filter(r => r.id !== id);
+				fs.writeFileSync(filePath, JSON.stringify(reminders, null, 2), 'utf8');
+			}
+			catch (error) {
+				BotLogs('SYSTEM', `${COLOR.red}Error deleting reminder in local DB: ${error.message}`);
+			}
+		}
+	}
+}
+
+async function updateReminderTime(id, nextTimeMs) {
+	if (pool) {
+		try {
+			await pool.query('UPDATE reminders SET reminder_time = $2 WHERE id = $1', [id, nextTimeMs]);
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in updateReminderTime: ${error.message}`);
+		}
+	}
+	else {
+		const filePath = './database/reminders.json';
+		if (fs.existsSync(filePath)) {
+			try {
+				const reminders = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+				const rem = reminders.find(r => r.id === id);
+				if (rem) {
+					rem.reminder_time = nextTimeMs;
+					fs.writeFileSync(filePath, JSON.stringify(reminders, null, 2), 'utf8');
+				}
+			}
+			catch (error) {
+				BotLogs('SYSTEM', `${COLOR.red}Error updating reminder time in local DB: ${error.message}`);
+			}
+		}
+	}
+}
+
 module.exports = {
 	initDatabase,
 	getGuildVar,
@@ -316,4 +456,8 @@ module.exports = {
 	setUserNick,
 	getAllHoneypots,
 	getAllTtsChannels,
+	addReminder,
+	getActiveReminders,
+	deleteReminder,
+	updateReminderTime,
 };

@@ -118,6 +118,70 @@ client.once(Events.ClientReady, async (readyClient) => {
 			autoJoinActiveVC(guild);
 		}
 	}
+
+	setInterval(async () => {
+		try {
+			const now = Date.now();
+			const activeReminders = await database.getActiveReminders();
+			for (const r of activeReminders) {
+				if (now >= r.reminder_time) {
+					if (r.recurring) {
+						const nextTime = r.reminder_time + 86400000;
+						await database.updateReminderTime(r.id, nextTime);
+					}
+					else {
+						await database.deleteReminder(r.id);
+					}
+
+					const guild = client.guilds.cache.get(r.guild_id);
+					if (!guild) continue;
+
+					const channel = guild.channels.cache.get(r.channel_id);
+					if (channel) {
+						await channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`).catch(() => undefined);
+					}
+
+					const member = await guild.members.fetch(r.user_id).catch(() => undefined);
+					const botMember = guild.members.me;
+
+					if (member && member.voice && member.voice.channel && botMember && botMember.voice && botMember.voice.channel && member.voice.channel.id === botMember.voice.channel.id) {
+						const { addToQueue, generateUUID } = require('./audio_queue.js');
+						let connection = getVoiceConnection(guild.id);
+						if (!connection || connection.state.status === 'destroyed') {
+							try {
+								connection = joinVoiceChannel({
+									channelId: botMember.voice.channel.id,
+									guildId: guild.id,
+									adapterCreator: guild.voiceAdapterCreator,
+								});
+							}
+							catch {
+								// Ignore
+							}
+						}
+
+						if (connection) {
+							const nick = await database.getUserNick(guild.id, r.user_id);
+							const entry = {
+								uuid: generateUUID(),
+								name: `เตือนความจำคุณ ${nick} ${r.message}`,
+								lang: 'th',
+								type: 'GOOGLE_TTS',
+								guild: guild,
+								sender: client.user,
+								voice_channel: botMember.voice.channel,
+								connection: connection,
+							};
+							addToQueue(guild.id, entry);
+						}
+					}
+				}
+			}
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `Error in reminders interval: ${error.toString()}`);
+		}
+	}, 5000);
 });
 
 client.commands = new Collection();
