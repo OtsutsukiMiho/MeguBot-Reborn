@@ -142,11 +142,13 @@ module.exports = {
 			if (recurring) {
 				return await interaction.reply({
 					content: `✅ **Recurring reminder set!** I will remind you about: "${messageInput}" every day at **${timeInput.toLowerCase().replace(' everyday', '')}** (next: <t:${targetTimestampSeconds}:R>).`,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 			else {
 				return await interaction.reply({
 					content: `✅ **Reminder set!** I will remind you about: "${messageInput}" <t:${targetTimestampSeconds}:R> (<t:${targetTimestampSeconds}:f>).`,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 		}
