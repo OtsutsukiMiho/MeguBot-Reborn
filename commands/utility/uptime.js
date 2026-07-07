@@ -10,7 +10,8 @@ module.exports = {
 
 	async execute(interaction) {
 		const client = interaction.client;
-		const uptimeMs = client.uptime;
+		const readyTimestamp = client.customReadyTimestamp || client.readyTimestamp;
+		const uptimeMs = Date.now() - readyTimestamp;
 
 		const totalSeconds = Math.floor(uptimeMs / 1000);
 		const days = Math.floor(totalSeconds / 86400);
@@ -26,7 +27,7 @@ module.exports = {
 
 		const uptimeString = timeParts.join(', ');
 
-		const readyTimestampSeconds = Math.floor(client.readyTimestamp / 1000);
+		const readyTimestampSeconds = Math.floor(readyTimestamp / 1000);
 
 		let version = 'unknown';
 		try {

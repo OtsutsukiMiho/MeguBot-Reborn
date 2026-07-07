@@ -18,6 +18,21 @@ const client = new Client({
 	partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
+let customReadyTimestamp = Date.now();
+try {
+	if (fs.existsSync('./database/restart_flag.json')) {
+		const flagData = JSON.parse(fs.readFileSync('./database/restart_flag.json', 'utf8'));
+		if (flagData.is_restarting && flagData.original_ready_timestamp) {
+			customReadyTimestamp = flagData.original_ready_timestamp;
+		}
+		fs.writeFileSync('./database/restart_flag.json', JSON.stringify({ is_restarting: false }, null, 4));
+	}
+}
+catch {
+	// Ignore
+}
+client.customReadyTimestamp = customReadyTimestamp;
+
 const { BotLogs, COLOR: COLOR } = require('./bot_functions.js');
 const database = require('./database.js');
 
@@ -528,6 +543,25 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	}
 });
 
+function formatAbbreviation(value) {
+	if (typeof value !== 'number' || isNaN(value)) return null;
+
+	const absVal = Math.abs(value);
+	if (absVal >= 1000000000000) {
+		return (value / 1000000000000).toFixed(2).replace(/\.00$/, '') + 't';
+	}
+	if (absVal >= 1000000000) {
+		return (value / 1000000000).toFixed(2).replace(/\.00$/, '') + 'b';
+	}
+	if (absVal >= 1000000) {
+		return (value / 1000000).toFixed(2).replace(/\.00$/, '') + 'm';
+	}
+	if (absVal >= 1000) {
+		return (value / 1000).toFixed(2).replace(/\.00$/, '') + 'k';
+	}
+	return null;
+}
+
 client.on(Events.MessageCreate, async (message) => {
 	if (!message.guild || message.author.bot || message.webhookId) return;
 
@@ -614,16 +648,67 @@ client.on(Events.MessageCreate, async (message) => {
 	}
 
 	const input = message.content.trim();
+
+	const currencyRegex = /^(\d+(?:\.\d+)?)\s*([a-zA-Z]{3})(?:\s+(?:to\s+)?([a-zA-Z]{3}))?\s*=$/;
+	const currencyMatch = input.match(currencyRegex);
+	if (currencyMatch) {
+		const amount = parseFloat(currencyMatch[1]);
+		const fromCurrency = currencyMatch[2].toUpperCase();
+		let toCurrency = currencyMatch[3] ? currencyMatch[3].toUpperCase() : null;
+
+		if (!toCurrency) {
+			toCurrency = fromCurrency === 'THB' ? 'USD' : 'THB';
+		}
+
+		try {
+			const response = await fetch(`https://open.er-api.com/v6/latest/${fromCurrency}`);
+			if (!response.ok) throw new Error('API response not OK');
+
+			const data = await response.json();
+			if (data.result === 'success' && data.rates && data.rates[toCurrency]) {
+				const rate = data.rates[toCurrency];
+				const converted = (amount * rate).toFixed(2);
+
+				const formattedAmount = amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+				const formattedConverted = parseFloat(converted).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+				await message.reply(`💱 **Currency Conversion:**\n\`${formattedAmount} ${fromCurrency}\` = \`${formattedConverted} ${toCurrency}\` (Rate: \`${rate.toFixed(4)}\`)`);
+			}
+		}
+		catch (error) {
+			BotLogs(message.guild.name, `Currency conversion error: ${error.toString()}`);
+		}
+		return;
+	}
+
 	if (input.endsWith('=')) {
 		const expression = input.slice(0, -1).trim();
 		if (expression) {
-			const cleanExpr = expression.replace(/\^/g, '**');
+			let cleanExpr = expression.replace(/\^/g, '**');
+
+			cleanExpr = cleanExpr.replace(/(\d+(?:\.\d+)?)\s*([kmbt])/gi, (match, num, unit) => {
+				const val = parseFloat(num);
+				const u = unit.toLowerCase();
+				switch (u) {
+				case 'k': return (val * 1000).toString();
+				case 'm': return (val * 1000000).toString();
+				case 'b': return (val * 1000000000).toString();
+				case 't': return (val * 1000000000000).toString();
+				default: return match;
+				}
+			});
+
 			const mathRegex = new RegExp('^[0-9+\\-*/%().\\s]+$');
 			if (mathRegex.test(cleanExpr) && /[0-9]/.test(cleanExpr)) {
 				try {
 					const result = Function('return (' + cleanExpr + ')')();
 					if (result !== undefined && !isNaN(result)) {
-						await message.reply(`🧮 **Result:** \`${result}\``);
+						const abbrev = formatAbbreviation(result);
+						const formattedFull = result.toLocaleString('en-US', { maximumFractionDigits: 4 });
+						const replyText = abbrev
+							? `🧮 **Result:** \`${formattedFull}\` (\`${abbrev}\`)`
+							: `🧮 **Result:** \`${formattedFull}\``;
+						await message.reply(replyText);
 					}
 				}
 				catch {
@@ -636,8 +721,8 @@ client.on(Events.MessageCreate, async (message) => {
 
 setInterval(() => {
 	try {
-		const uptimeMs = client.uptime !== null ? client.uptime : Math.floor(process.uptime() * 1000);
-		const readyTimestamp = client.readyTimestamp !== null ? client.readyTimestamp : (Date.now() - Math.floor(process.uptime() * 1000));
+		const readyTimestamp = client.customReadyTimestamp || (client.readyTimestamp !== null ? client.readyTimestamp : (Date.now() - Math.floor(process.uptime() * 1000)));
+		const uptimeMs = Date.now() - readyTimestamp;
 
 		let version = 'unknown';
 		try {

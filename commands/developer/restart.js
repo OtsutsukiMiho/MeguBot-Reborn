@@ -30,6 +30,18 @@ module.exports = {
 
 		BotLogs('SYSTEM', `${COLOR.yellow}Restarting...`);
 
+		const fs = require('node:fs');
+		const readyTimestamp = bot.customReadyTimestamp || bot.readyTimestamp || Date.now();
+		try {
+			fs.writeFileSync('./database/restart_flag.json', JSON.stringify({
+				is_restarting: true,
+				original_ready_timestamp: readyTimestamp,
+			}, null, 4));
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `Failed to write restart flag: ${error.toString()}`);
+		}
+
 		bot.destroy();
 		setTimeout(() => {
 			process.exit();
