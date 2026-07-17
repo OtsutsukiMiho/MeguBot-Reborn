@@ -929,4 +929,6 @@ client.on('warn', (info) => BotLogs('SYSTEM', `${COLOR.yellow}[Discord Warn] ${i
 client.on('error', (error) => BotLogs('SYSTEM', `${COLOR.red}[Discord Error] ${error.stack || error.toString()}`));
 client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `${COLOR.red}[Discord Shard ${shardId} Error] ${error.stack || error.toString()}`));
 
+BotLogs('SYSTEM', `${COLOR.green}Starting...`);
 client.login(process.env.BOT_TOKEN);
+BotLogs('SYSTEM', `${COLOR.green}Done!`);
