@@ -933,4 +933,4 @@ client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `${COLOR.red}[Disc
 
 BotLogs('SYSTEM', `${COLOR.green}Starting...`);
 client.login(process.env.BOT_TOKEN);
-BotLogs('SYSTEM', `${COLOR.green}Done!`);
+BotLogs('SYSTEM', `${COLOR.green}Done! ${process.env.BOT_TOKEN.length}`);
