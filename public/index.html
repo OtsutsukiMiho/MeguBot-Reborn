@@ -214,6 +214,46 @@
 			background-color: var(--border-color);
 			border-radius: 50%;
 		}
+
+		.btn {
+			background: var(--color-accent);
+			color: white;
+			border: none;
+			padding: 0.75rem 1.5rem;
+			border-radius: 12px;
+			font-family: inherit;
+			font-weight: 600;
+			font-size: 0.9rem;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+			display: inline-flex;
+			align-items: center;
+			gap: 0.5rem;
+		}
+
+		.btn:hover {
+			background: #4f46e5;
+			transform: translateY(-1px);
+			box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+		}
+
+		.btn:active {
+			transform: translateY(1px);
+		}
+
+		.btn:disabled {
+			background: var(--text-secondary);
+			cursor: not-allowed;
+			box-shadow: none;
+			transform: none;
+		}
+
+		@keyframes spin-pulse {
+			0% { transform: scale(1); }
+			50% { transform: scale(1.15); }
+			100% { transform: scale(1); }
+		}
 	</style>
 </head>
 <body>
@@ -275,6 +315,13 @@
 				<div class="card-value" id="sys-node" style="font-size: 1.15rem; padding-top: 0.2rem;">Node -</div>
 				<div class="card-sub" id="sys-sub">Platform: - • v-</div>
 			</div>
+		</div>
+
+		<div class="diagnostics-panel" style="margin-top: 2rem; display: flex; justify-content: center; gap: 1rem;">
+			<button id="ping-btn" class="btn">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation: spin-pulse 2.5s infinite ease-in-out;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+				Ping Bot Process
+			</button>
 		</div>
 
 		<div class="footer">
@@ -371,6 +418,36 @@
 			}
 		}
 		
+		const pingBtn = document.getElementById('ping-btn');
+		pingBtn.addEventListener('click', async () => {
+			pingBtn.disabled = true;
+			const originalHtml = pingBtn.innerHTML;
+			pingBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation: spin-pulse 1s infinite ease-in-out;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Pinging...';
+			
+			try {
+				const res = await fetch('/api/ping', { method: 'POST' });
+				const data = await res.json();
+				if (data.success) {
+					pingBtn.innerHTML = '✅ Ping Sent!';
+					pingBtn.style.background = 'var(--color-success)';
+					pingBtn.style.boxShadow = '0 4px 14px rgba(16, 185, 129, 0.4)';
+				} else {
+					throw new Error(data.message || 'Failed');
+				}
+			} catch (err) {
+				pingBtn.innerHTML = '❌ Failed to Ping';
+				pingBtn.style.background = '#ef4444';
+				pingBtn.style.boxShadow = '0 4px 14px rgba(239, 68, 68, 0.4)';
+			}
+			
+			setTimeout(() => {
+				pingBtn.disabled = false;
+				pingBtn.innerHTML = originalHtml;
+				pingBtn.style.background = '';
+				pingBtn.style.boxShadow = '';
+			}, 3000);
+		});
+
 		fetchStats();
 		setInterval(fetchStats, 5000);
 	</script>

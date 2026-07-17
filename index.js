@@ -9,6 +9,14 @@ function startWeb() {
 	BotLogs('SYSTEM', `${COLOR.cyan}Starting Web Server process...`);
 	webProcess = fork(path.join(__dirname, 'web.js'));
 
+	webProcess.on('message', (message) => {
+		if (message.type === 'ping_bot') {
+			if (botProcess && botProcess.connected) {
+				botProcess.send({ type: 'ping' });
+			}
+		}
+	});
+
 	webProcess.on('exit', (code, signal) => {
 		BotLogs('SYSTEM', `${COLOR.red}Web Server process exited with code ${code} (signal: ${signal}). Restarting in 3 seconds...`);
 		setTimeout(startWeb, 3000);

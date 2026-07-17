@@ -71,6 +71,17 @@ app.get('/api/health-stats', (req, res) => {
 	}
 });
 
+app.post('/api/ping', (req, res) => {
+	BotLogs('SYSTEM', 'Manual Ping Triggered from Web Client! Forwarding to Bot Process...');
+	if (process.send) {
+		process.send({ type: 'ping_bot' });
+		res.json({ success: true, message: 'Ping command sent to bot process successfully.' });
+	}
+	else {
+		res.status(500).json({ success: false, message: 'No IPC channel with main process.' });
+	}
+});
+
 app.get('/', (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

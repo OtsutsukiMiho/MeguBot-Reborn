@@ -1,0 +1,13 @@
+{
+  "status": "online",
+  "uptime": 48267,
+  "readyTimestamp": 1784283651633,
+  "ping": 278,
+  "version": "0.0.1",
+  "timestamp": 1784283699900,
+  "memory": {
+    "rss": "83.0 MB",
+    "heapUsed": "21.7 MB",
+    "heapTotal": "24.3 MB"
+  }
+}

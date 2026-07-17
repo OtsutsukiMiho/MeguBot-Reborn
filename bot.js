@@ -919,4 +919,10 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 	}
 });
 
+process.on('message', (msg) => {
+	if (msg && msg.type === 'ping') {
+		BotLogs('SYSTEM', `${COLOR.green}Received Ping IPC from Web Server! Bot is alive and responsive!`);
+	}
+});
+
 client.login(process.env.BOT_TOKEN);
