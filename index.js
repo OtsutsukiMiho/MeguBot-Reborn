@@ -7,7 +7,7 @@ let botProcess = null;
 
 function startWeb() {
 	BotLogs('SYSTEM', `${COLOR.cyan}Starting Web Server process...`);
-	webProcess = fork(path.join(__dirname, 'web.js'));
+	webProcess = fork(path.join(__dirname, 'web.js'), [], { stdio: 'inherit' });
 
 	webProcess.on('message', (message) => {
 		if (message.type === 'ping_bot') {
@@ -25,7 +25,7 @@ function startWeb() {
 
 function startBot() {
 	BotLogs('SYSTEM', `${COLOR.cyan}Starting Discord Bot process...`);
-	botProcess = fork(path.join(__dirname, 'bot.js'));
+	botProcess = fork(path.join(__dirname, 'bot.js'), [], { stdio: 'inherit' });
 
 	botProcess.on('exit', (code, signal) => {
 		BotLogs('SYSTEM', `${COLOR.red}Discord Bot process exited with code ${code} (signal: ${signal}). Restarting in 3 seconds...`);
