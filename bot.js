@@ -919,9 +919,31 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 	}
 });
 
-process.on('message', (msg) => {
+process.on('message', async (msg) => {
 	if (msg && msg.type === 'ping') {
 		BotLogs('SYSTEM', `${COLOR.green}Received Ping IPC from Web Server! Bot is alive and responsive!`);
+
+		const token = process.env.BOT_TOKEN;
+		BotLogs('SYSTEM', `[Diagnostics] BOT_TOKEN length: ${token ? token.length : 0}`);
+		if (!token) {
+			BotLogs('SYSTEM', '[Diagnostics] BOT_TOKEN is empty or undefined!');
+			return;
+		}
+
+		try {
+			BotLogs('SYSTEM', '[Diagnostics] Querying Discord Gateway API...');
+			const res = await fetch('https://discord.com/api/v10/gateway/bot', {
+				headers: {
+					Authorization: `Bot ${token}`,
+				},
+			});
+			const text = await res.text();
+			BotLogs('SYSTEM', `[Diagnostics] Discord Gateway response status: ${res.status}`);
+			BotLogs('SYSTEM', `[Diagnostics] Discord Gateway response body: ${text}`);
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `[Diagnostics] Discord Gateway request failed: ${error.stack || error.toString()}`);
+		}
 	}
 });
 
