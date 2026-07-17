@@ -925,4 +925,13 @@ process.on('message', (msg) => {
 	}
 });
 
+client.on('warn', (info) => BotLogs('SYSTEM', `[Discord Gateway Warn] ${info}`));
+client.on('error', (error) => BotLogs('SYSTEM', `[Discord Gateway Error] ${error.stack || error.toString()}`));
+client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `[Discord Shard ${shardId} Error] ${error.stack || error.toString()}`));
+client.on('debug', (info) => {
+	if (info.includes('connect') || info.includes('identif') || info.includes('rate') || info.includes('session') || info.includes('close') || info.includes('disconnect')) {
+		BotLogs('SYSTEM', `[Discord Gateway Debug] ${info}`);
+	}
+});
+
 client.login(process.env.BOT_TOKEN);
