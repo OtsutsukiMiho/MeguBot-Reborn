@@ -919,41 +919,14 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 	}
 });
 
-process.on('message', async (msg) => {
+process.on('message', (msg) => {
 	if (msg && msg.type === 'ping') {
-		BotLogs('SYSTEM', `${COLOR.green}Received Ping IPC from Web Server! Bot is alive and responsive!`);
-
-		const token = process.env.BOT_TOKEN;
-		BotLogs('SYSTEM', `[Diagnostics] BOT_TOKEN length: ${token ? token.length : 0}`);
-		if (!token) {
-			BotLogs('SYSTEM', '[Diagnostics] BOT_TOKEN is empty or undefined!');
-			return;
-		}
-
-		try {
-			BotLogs('SYSTEM', '[Diagnostics] Querying Discord Gateway API...');
-			const res = await fetch('https://discord.com/api/v10/gateway/bot', {
-				headers: {
-					Authorization: `Bot ${token}`,
-				},
-			});
-			const text = await res.text();
-			BotLogs('SYSTEM', `[Diagnostics] Discord Gateway response status: ${res.status}`);
-			BotLogs('SYSTEM', `[Diagnostics] Discord Gateway response body: ${text}`);
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `[Diagnostics] Discord Gateway request failed: ${error.stack || error.toString()}`);
-		}
+		BotLogs('SYSTEM', `${COLOR.green}Received Ping IPC from Web Server! Bot is alive and responsive! (Ready: ${client.isReady()})`);
 	}
 });
 
-client.on('warn', (info) => BotLogs('SYSTEM', `[Discord Gateway Warn] ${info}`));
-client.on('error', (error) => BotLogs('SYSTEM', `[Discord Gateway Error] ${error.stack || error.toString()}`));
-client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `[Discord Shard ${shardId} Error] ${error.stack || error.toString()}`));
-client.on('debug', (info) => {
-	if (info.includes('connect') || info.includes('identif') || info.includes('rate') || info.includes('session') || info.includes('close') || info.includes('disconnect')) {
-		BotLogs('SYSTEM', `[Discord Gateway Debug] ${info}`);
-	}
-});
+client.on('warn', (info) => BotLogs('SYSTEM', `${COLOR.yellow}[Discord Warn] ${info}`));
+client.on('error', (error) => BotLogs('SYSTEM', `${COLOR.red}[Discord Error] ${error.stack || error.toString()}`));
+client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `${COLOR.red}[Discord Shard ${shardId} Error] ${error.stack || error.toString()}`));
 
 client.login(process.env.BOT_TOKEN);
