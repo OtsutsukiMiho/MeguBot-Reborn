@@ -1,7 +1,9 @@
-require('dotenv').config();
-
 const fs = require('node:fs');
 const path = require('node:path');
+
+if (fs.existsSync('.env')) {
+	require('dotenv').config();
+}
 const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 const client = new Client({
