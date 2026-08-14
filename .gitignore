@@ -1,20 +1,31 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Next.js Build Outputs
+.next/
+out/
+build/
+dist/
 
 # Dependencies
 node_modules/
 
 # Environment variables
 .env
+.env*.local
 
-# Bot data
-database/
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS generated files
+# Database & Local Bot Data
+backend/database/data/
+bot-stats.json
+temp/
+.agents/
+sounds/temp*
+
+# OS & Editor files
 .DS_Store
 .DS_Store?
 ._*
@@ -23,3 +34,9 @@ database/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+.vscode/
+.idea/
+
+# Markdown Files (keep README.md)
+*.md
+!README.md

@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const { joinVoiceChannel } = require('@discordjs/voice');
-const { addToQueue, generateUUID } = require('../../audio_queue.js');
-const { BotLogs, COLOR } = require('../../bot_functions.js');
+const { addToQueue, generateUUID } = require('../../backend/bot/audio_queue.js');
+const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()

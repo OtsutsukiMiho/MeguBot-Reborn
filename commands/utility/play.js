@@ -3,7 +3,7 @@ const { joinVoiceChannel } = require('@discordjs/voice');
 const fs = require('fs');
 const path = require('path');
 
-const { BotLogs, COLOR } = require('../../bot_functions.js');
+const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 
 const soundsList = [
 	{ name: 'เรียกไอบอล (Megu)', value: 'ball_megu' },
@@ -67,7 +67,7 @@ module.exports = {
 			return await interaction.reply({ content: `❌ Error: Could not find the file for \`${selectedSound}\`.`, flags: MessageFlags.Ephemeral });
 		}
 
-		const { addToQueue, generateUUID } = require('../../audio_queue.js');
+		const { addToQueue, generateUUID } = require('../../backend/bot/audio_queue.js');
 
 		const entry = {
 			uuid: generateUUID(),

@@ -1,7 +1,8 @@
 require('dotenv').config();
 
 const { REST, Routes } = require('discord.js');
-const { clientId, token } = require('./config.json');
+const config = require('./config.json');
+const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -9,7 +10,7 @@ const commands = [];
 const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
 
-const bot_functions = require('./bot_functions.js');
+const bot_functions = require('./backend/bot/bot_functions.js');
 const BotLogs = bot_functions.BotLogs;
 const COLOR = bot_functions.COLOR;
 

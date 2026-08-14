@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
-const { BotLogs, COLOR } = require('../../bot_functions.js');
+const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()

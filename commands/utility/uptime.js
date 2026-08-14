@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
-const { BotLogs, COLOR } = require('../../bot_functions.js');
+const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
