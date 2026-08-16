@@ -1,99 +1,131 @@
 'use client';
 
 /**
- * Megu herself, drawn as vector so she stays crisp from a 20px favicon-sized
- * chip up to a hero. Colours come from the original artwork: navy body, gold
- * crown with a violet gem, rose ears and tongue, cyan-ringed eyes.
+ * The Megu mark.
+ *
+ * One silhouette that reads two ways: ears on top say cat, the tail at the
+ * lower left says speech bubble. That is the product in a shape — Megu is the
+ * thing that says the awkward part so none of the group has to — and it is the
+ * part of this mark that cannot be copied, because it is tied to what the bot
+ * is for rather than to how it is drawn.
+ *
+ * Expression lives in one edge. A full circle stares; a circle with a flat lid
+ * across the top is calm and unbothered. Every earlier attempt failed by adding
+ * features — a crown, goggles, fangs — when the fix was to have almost nothing
+ * that can be drawn wrong. Two shapes and a lid carry all six moods.
+ *
+ * Three colours, all already in the palette: navy body, cream face, gold dot.
+ * The dot is not decoration — it is the status light, and it is the only thing
+ * besides the eyes that changes between moods.
  */
-export default function MeguMark({ size = 64, crown = true, mood = 'happy', className = '' }) {
-	const asleep = mood === 'asleep';
+
+const DOT = {
+	calm: '#F0B92A',
+	happy: '#7FE0C4',
+	alert: '#E24A5B',
+	asking: '#F0B92A',
+	asleep: '#8E94A6',
+	wink: '#F0B92A',
+};
+
+export default function MeguMark({ size = 64, mood = 'calm', className = '', title }) {
+	const m = DOT[mood] ? mood : 'calm';
+	// Below about 32px the lid and the mouth stop being shapes and start being
+	// grey mush, so the mark drops to its two most robust features.
+	const tiny = size < 32;
+
+	const eyes = () => {
+		if (tiny || m === 'alert') {
+			return (
+				<>
+					<circle cx="76" cy="112" r="14" fill="#F4F2EC" />
+					<circle cx="124" cy="112" r="14" fill="#F4F2EC" />
+					{!tiny && (
+						<>
+							<circle cx="70" cy="106" r="4" fill="#212862" />
+							<circle cx="118" cy="106" r="4" fill="#212862" />
+						</>
+					)}
+				</>
+			);
+		}
+		if (m === 'happy') {
+			return (
+				<g stroke="#F4F2EC" strokeWidth="9" strokeLinecap="round" fill="none">
+					<path d="M64 118 Q76 100 88 118" />
+					<path d="M112 118 Q124 100 136 118" />
+				</g>
+			);
+		}
+		if (m === 'asleep') {
+			return (
+				<g stroke="#F4F2EC" strokeWidth="9" strokeLinecap="round" fill="none">
+					<path d="M64 108 Q76 124 88 108" />
+					<path d="M112 108 Q124 124 136 108" />
+				</g>
+			);
+		}
+		if (m === 'wink') {
+			return (
+				<>
+					<path d="M63 105 L89 105 L89 112 A13 13 0 0 1 63 112 Z" fill="#F4F2EC" />
+					<path d="M112 116 Q124 100 136 116" stroke="#F4F2EC" strokeWidth="9" strokeLinecap="round" fill="none" />
+				</>
+			);
+		}
+		return (
+			<>
+				<path d="M63 105 L89 105 L89 112 A13 13 0 0 1 63 112 Z" fill="#F4F2EC" />
+				<path d="M111 105 L137 105 L137 112 A13 13 0 0 1 111 112 Z" fill="#F4F2EC" />
+				<circle cx="70" cy="99" r="3.4" fill="#FFFFFF" opacity=".55" />
+				<circle cx="118" cy="99" r="3.4" fill="#FFFFFF" opacity=".55" />
+			</>
+		);
+	};
 
 	return (
 		<svg
 			className={className}
 			width={size}
 			height={size}
-			viewBox="0 0 200 200"
+			viewBox="-6 -4 212 212"
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 			role="img"
-			aria-label="Megu"
+			aria-label={title || 'Megu'}
 		>
 			<defs>
-				<radialGradient id="megu-face" cx="42%" cy="34%" r="78%">
-					<stop offset="0%" stopColor="#2B3277" />
-					<stop offset="100%" stopColor="#181C4C" />
-				</radialGradient>
-				<linearGradient id="megu-crown" x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0%" stopColor="#FFDE45" />
-					<stop offset="100%" stopColor="#E8A712" />
+				<linearGradient id="megu-body" x1="0.1" y1="0" x2="0.6" y2="1">
+					<stop offset="0%" stopColor="#3D4795" />
+					<stop offset="100%" stopColor="#212862" />
 				</linearGradient>
 			</defs>
 
-			<g stroke="#0D1030" strokeWidth="4.5" strokeLinejoin="round">
-				<path d="M42 96 L36 30 L88 62 Z" fill="url(#megu-face)" />
-				<path d="M158 96 L164 30 L112 62 Z" fill="url(#megu-face)" />
-				<path d="M50 84 L44 44 L80 66 Z" fill="#F2569B" stroke="none" />
-				<path d="M150 84 L156 44 L120 66 Z" fill="#F2569B" stroke="none" />
+			{/* Ears meet exactly at the head's centre line; the tail leaves from the
+			    lower left. Neither is ever dropped, at any size — they are the two
+			    things that make this mark itself. */}
+			<g fill="url(#megu-body)">
+				<path d="M44 64 L57 13 Q59 6 65 11 L104 58 Z" />
+				<path d="M156 64 L143 13 Q141 6 135 11 L96 58 Z" />
+				<rect x="30" y="54" width="140" height="118" rx="50" />
+				<path d="M60 166 L33 197 Q28 202 33 200 L82 180 Z" />
 			</g>
 
-			<g stroke="#B8306F" strokeWidth="2.4" opacity=".55" strokeLinecap="round">
-				<path d="M52 78 L72 66" /><path d="M50 68 L69 58" /><path d="M49 58 L64 51" />
-				<path d="M148 78 L128 66" /><path d="M150 68 L131 58" /><path d="M151 58 L136 51" />
-			</g>
+			{eyes()}
 
-			<circle cx="100" cy="112" r="70" fill="url(#megu-face)" stroke="#0D1030" strokeWidth="5" />
+			{!tiny && m !== 'asleep' && m !== 'asking' && (
+				<path d="M92 140 Q100 148 108 140" stroke="#F4F2EC" strokeWidth="6.5" strokeLinecap="round" fill="none" />
+			)}
 
-			{crown && (
-				<g stroke="#0D1030" strokeWidth="4" strokeLinejoin="round">
-					<path d="M62 58 L70 22 L86 42 L100 14 L114 42 L130 22 L138 58 Z" fill="url(#megu-crown)" />
-					<ellipse cx="100" cy="46" rx="11" ry="16" fill="#8E8BF0" stroke="#0D1030" strokeWidth="3" />
-					<circle cx="70" cy="20" r="5.5" fill="#4C4AE0" strokeWidth="3" />
-					<circle cx="100" cy="12" r="5.5" fill="#4C4AE0" strokeWidth="3" />
-					<circle cx="130" cy="20" r="5.5" fill="#4C4AE0" strokeWidth="3" />
+			{!tiny && m === 'asking' && (
+				<g fill="#F4F2EC">
+					<circle cx="86" cy="141" r="4" />
+					<circle cx="100" cy="141" r="4" />
+					<circle cx="114" cy="141" r="4" />
 				</g>
 			)}
 
-			<g stroke="#E8EEF2" strokeWidth="2.6" strokeLinecap="round" opacity=".8">
-				<path d="M8 108 L46 116" /><path d="M12 132 L48 132" /><path d="M20 154 L52 144" />
-				<path d="M192 108 L154 116" /><path d="M188 132 L152 132" /><path d="M180 154 L148 144" />
-			</g>
-
-			{asleep ? (
-				<g stroke="#7FE0EE" strokeWidth="6" strokeLinecap="round" fill="none">
-					<path d="M62 104 q14 14 28 0" />
-					<path d="M110 104 q14 14 28 0" />
-				</g>
-			) : (
-				<>
-					<ellipse cx="76" cy="104" rx="26" ry="30" fill="#0C1030" />
-					<ellipse cx="124" cy="104" rx="26" ry="30" fill="#0C1030" />
-					<ellipse cx="76" cy="104" rx="19" ry="23" fill="#7FE0EE" />
-					<ellipse cx="124" cy="104" rx="19" ry="23" fill="#7FE0EE" />
-					<ellipse cx="76" cy="104" rx="14" ry="19" fill="#FFFFFF" />
-					<ellipse cx="124" cy="104" rx="14" ry="19" fill="#FFFFFF" />
-					<ellipse cx="76" cy="105" rx="8" ry="14" fill="#0C1030" />
-					<ellipse cx="124" cy="105" rx="8" ry="14" fill="#0C1030" />
-					<circle cx="80" cy="96" r="3" fill="#FFFFFF" opacity=".9" />
-					<circle cx="128" cy="96" r="3" fill="#FFFFFF" opacity=".9" />
-				</>
-			)}
-
-			<path d="M92 138 L108 138 L100 146 Z" fill="#0C1030" />
-
-			{!asleep && (
-				<g>
-					<path
-						d="M78 150 q22 -6 44 0 q-4 26 -22 38 q-18 -12 -22 -38 Z"
-						fill="#F2557A"
-						stroke="#0D1030"
-						strokeWidth="3"
-						strokeLinejoin="round"
-					/>
-					<path d="M80 148 L86 164 L92 148 Z" fill="#FFFFFF" />
-					<path d="M120 148 L114 164 L108 148 Z" fill="#FFFFFF" />
-				</g>
-			)}
+			<circle cx="150" cy="76" r={tiny ? 11 : 10} fill={DOT[m]} />
 		</svg>
 	);
 }

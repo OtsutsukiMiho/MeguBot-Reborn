@@ -1787,3 +1787,301 @@ textarea.form-control {
 .server-card-btn {
 	width: 100%;
 }
+
+/* ------------------------------------------------------- language switch */
+
+.lang-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: .1rem;
+	padding: .15rem;
+	border-radius: 99px;
+	background: var(--sunk);
+	border: 1px solid var(--line);
+}
+
+.lang-switch button {
+	font-family: var(--font-body);
+	font-size: .74rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .04em;
+	line-height: 1;
+	color: var(--muted);
+	background: none;
+	border: none;
+	border-radius: 99px;
+	padding: .3rem .55rem;
+	cursor: pointer;
+	transition: background .15s var(--ease), color .15s var(--ease);
+}
+
+.lang-switch button:hover {
+	color: var(--ink);
+}
+
+.lang-switch button[aria-pressed='true'] {
+	background: var(--surface);
+	color: var(--ink);
+	box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+/* The two scripts do not sit on the line the same way — Thai carries marks
+   above and below and needs leading that would read as loose in Latin. */
+.stage[lang='en'] h1 { line-height: .98; }
+.stage[lang='th'] h1 { line-height: 1.14; }
+
+/* ==========================================================================
+   The landing page
+
+   Two ideas carry it, and neither is an effect.
+
+   One: the hero owns its own palette. It is a deep navy field with cream on
+   it, fixed in both themes, so it never has to be re-checked against a
+   flipping background and never lands in the low-contrast middle that the
+   earlier attempts kept finding. A landing page is allowed one confident
+   colour field; the working pages below it stay on the editorial system.
+
+   Two: motion is driven by scroll, not by a timer. Things arrive because the
+   reader moved, which is the difference between a page that feels alive and a
+   page that animates at you. Where `animation-timeline` is unsupported the
+   same keyframes run once on load, so the fallback is "it appears" rather
+   than "it is missing".
+   ========================================================================== */
+
+.stage {
+	position: relative;
+	/* The hero breaks the column to reach the viewport edge, so the page has to
+	   clip sideways. `clip` rather than `hidden`: `hidden` would make this a
+	   scroll container and break the console's sticky sidebar. */
+	overflow-x: clip;
+}
+
+/* ------------------------------------------------------------- the field */
+
+.hero-field {
+	--hero-ground: #1A2050;
+	--hero-ink: #F5F3EC;
+	--hero-dim: #AEB6D8;
+	--hero-gold: #F5C542;
+
+	position: relative;
+	isolation: isolate;
+	/* Full bleed out of the 1060px column, then re-inset the text so it stays
+	   on the same measure as everything below it. */
+	margin-inline: calc(50% - 50vw);
+	padding-inline: max(1.5rem, calc(50vw - 530px));
+	padding-block: clamp(3.5rem, 9vw, 7rem) clamp(4rem, 10vw, 8rem);
+	background: var(--hero-ground);
+	color: var(--hero-ink);
+	overflow: hidden;
+}
+
+/* Two lights inside the field. Contained by the panel's own overflow, so they
+   can be generous without ever reaching an edge they should not. */
+.hero-field::before,
+.hero-field::after {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	pointer-events: none;
+	border-radius: 50%;
+	filter: blur(70px);
+}
+
+.hero-field::before {
+	width: 46rem;
+	height: 34rem;
+	top: -14rem;
+	left: -10rem;
+	background: radial-gradient(closest-side, rgba(96, 118, 232, .55), transparent);
+}
+
+.hero-field::after {
+	width: 34rem;
+	height: 28rem;
+	right: -8rem;
+	bottom: -12rem;
+	background: radial-gradient(closest-side, rgba(245, 197, 66, .3), transparent);
+}
+
+.hero-field .hero-block {
+	border-bottom: none;
+	padding: 0;
+	overflow: visible;
+}
+
+.hero-field h1 {
+	color: var(--hero-ink);
+	font-size: clamp(2.6rem, 7.4vw, 4.9rem);
+	letter-spacing: -.04em;
+	max-width: 13ch;
+}
+
+/* The accent word is a flat colour on a field that can carry it. The previous
+   version tried to build depth out of stacked shadows and only ever produced a
+   smear; a field this dark lets one clean colour do the same job. */
+.hero-field h1 em {
+	font-style: normal;
+	color: var(--hero-gold);
+}
+
+.hero-field .lede {
+	color: var(--hero-dim);
+	max-width: 46ch;
+}
+
+.hero-field .eyebrow {
+	color: var(--hero-dim);
+}
+
+.hero-field .btn-secondary {
+	background: transparent;
+	border-color: rgba(245, 243, 236, .32);
+	color: var(--hero-ink);
+}
+
+.hero-field .btn-secondary:hover:not(:disabled) {
+	border-color: var(--hero-ink);
+	background: rgba(245, 243, 236, .08);
+}
+
+/* --------------------------------------------------------------- the mark */
+
+.megu-stage {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: min(340px, 74vw);
+	aspect-ratio: 1;
+}
+
+.megu-flat,
+.megu-canvas {
+	grid-area: 1 / 1;
+	width: 100%;
+	height: 100%;
+}
+
+/* The flat vector ships in the HTML and stays underneath: it is what is on
+   screen before the first frame, and what remains if WebGL is unavailable. */
+.megu-canvas {
+	position: relative;
+	z-index: 1;
+	animation: fade-in .7s var(--ease) .1s backwards;
+}
+
+.megu-stage::after {
+	content: '';
+	position: absolute;
+	left: 50%;
+	bottom: 4%;
+	width: 54%;
+	height: 1.4rem;
+	transform: translateX(-50%);
+	background: radial-gradient(closest-side, rgba(8, 10, 30, .55), transparent);
+	filter: blur(10px);
+	z-index: 0;
+}
+
+/* --------------------------------------------------------------- motion */
+
+@keyframes fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes rise-in {
+	from { opacity: 0; transform: translateY(26px); }
+	to { opacity: 1; transform: none; }
+}
+
+@keyframes rise-in-sm {
+	from { opacity: 0; transform: translateY(14px); }
+	to { opacity: 1; transform: none; }
+}
+
+/* On load, in order. `--i` is the position in the sequence, so a block can be
+   reordered in the markup without re-timing every delay by hand. */
+.enter {
+	animation: rise-in .8s var(--ease) both;
+	animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+/* Everything below the fold arrives because the reader scrolled to it. */
+.reveal {
+	animation: rise-in .8s var(--ease) both;
+}
+
+@supports (animation-timeline: view()) {
+	.reveal {
+		animation-timeline: view();
+		animation-range: entry 2% cover 26%;
+		animation-delay: 0s;
+	}
+
+	.reveal-stagger > * {
+		animation: rise-in-sm .8s var(--ease) both;
+		animation-timeline: view();
+		animation-range: entry 0% cover 24%;
+	}
+}
+
+/* The glows drift slower than the content they sit behind. Small enough to
+   read as depth rather than as something moving. */
+@supports (animation-timeline: scroll()) {
+	.hero-field::before,
+	.hero-field::after {
+		animation: drift linear both;
+		animation-timeline: scroll();
+		animation-range: 0 90vh;
+	}
+}
+
+@keyframes drift {
+	to { transform: translateY(5rem); }
+}
+
+/* --------------------------------------------------------------- surfaces */
+
+/* Cards that respond. The lift is small on purpose: at this size a card that
+   jumps reads as a bug, and a card that does nothing reads as an image. */
+.lift {
+	transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
+}
+
+.lift:hover {
+	transform: translateY(-3px);
+	border-color: var(--line-2);
+	box-shadow: 0 18px 30px -18px color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.flow-step .flow-index {
+	color: var(--line-2);
+}
+
+/* ------------------------------------------------------------------ quiet */
+
+@media (prefers-reduced-motion: reduce) {
+	.enter,
+	.reveal,
+	.reveal-stagger > *,
+	.megu-canvas,
+	.hero-field::before,
+	.hero-field::after {
+		animation: none;
+		opacity: 1;
+		transform: none;
+	}
+
+	.lift:hover {
+		transform: none;
+	}
+}
+
+@media (max-width: 780px) {
+	.hero-field::before,
+	.hero-field::after {
+		filter: blur(50px);
+		opacity: .8;
+	}
+}

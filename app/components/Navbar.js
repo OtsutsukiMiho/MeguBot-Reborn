@@ -5,11 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import MeguMark from './MeguMark';
 import ThemeToggle from './ThemeToggle';
+import { useLang, LANGS } from './LangProvider';
 
 export default function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDev, setIsDev] = useState(false);
 	const pathname = usePathname();
+	const { lang, setLang } = useLang();
 
 	useEffect(() => {
 		fetch('/api/auth/me')
@@ -68,6 +70,19 @@ export default function Navbar() {
 				</div>
 
 				<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+					<div className="lang-switch" role="group" aria-label="Language">
+						{LANGS.map(l => (
+							<button
+								key={l.code}
+								type="button"
+								lang={l.code}
+								aria-pressed={lang === l.code}
+								onClick={() => setLang(l.code)}
+							>
+								{l.label}
+							</button>
+						))}
+					</div>
 					<ThemeToggle />
 					{user ? (
 						<div className="user-profile-badge">

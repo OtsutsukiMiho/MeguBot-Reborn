@@ -1,6 +1,7 @@
 import './globals.css';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import { LangProvider } from './components/LangProvider';
 
 export const metadata = {
 	title: {
@@ -12,9 +13,15 @@ export const metadata = {
 	authors: [{ name: 'Megux Corp' }],
 	creator: 'Megux Corp',
 	publisher: 'Megux Corp',
+	// SVG first: it is 700 bytes against icon.png's 1.4 MB and stays crisp at
+	// every size. The png is kept only for the platforms that still refuse SVG
+	// favicons, and is still the old artwork until someone exports a new one.
 	icons: {
-		icon: '/icon.png',
-		shortcut: '/icon.png',
+		icon: [
+			{ url: '/icon.svg', type: 'image/svg+xml' },
+			{ url: '/icon.png', type: 'image/png' },
+		],
+		shortcut: '/icon.svg',
 		apple: '/icon.png',
 	},
 };
@@ -25,7 +32,7 @@ export default function RootLayout({ children }) {
 		// server HTML and the client tree differ on <html> by design.
 		<html lang="th" suppressHydrationWarning>
 			<head>
-				<link rel="icon" type="image/png" href="/icon.png" />
+				<link rel="icon" type="image/svg+xml" href="/icon.svg" />
 				<link rel="preconnect" href="https://fonts.googleapis.com" />
 				<link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
 				<link
@@ -43,11 +50,13 @@ export default function RootLayout({ children }) {
 				/>
 			</head>
 			<body>
-				<Navbar />
-				<main className="container">
-					{children}
-				</main>
-				<Footer />
+				<LangProvider>
+					<Navbar />
+					<main className="container">
+						{children}
+					</main>
+					<Footer />
+				</LangProvider>
 			</body>
 		</html>
 	);
