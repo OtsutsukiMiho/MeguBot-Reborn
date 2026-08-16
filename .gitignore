@@ -43,6 +43,7 @@ desktop.ini
 *.md
 !README.md
 !HANDOFF.md
+!CHANGES.md
 
 # Local env backups
 .env.backup*
