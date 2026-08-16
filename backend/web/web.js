@@ -22,6 +22,7 @@ catch {
 
 const app = express();
 const PORT = process.env.EXPRESS_PORT || process.env.PORT || 3001;
+const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${process.env.NEXT_PORT || 3000}`;
 
 app.use(express.json({ strict: false }));
 app.use(express.urlencoded({ extended: true }));
@@ -1188,7 +1189,7 @@ app.post('/api/developer/action', requireDeveloper, async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-	res.redirect('http://localhost:3000');
+	res.redirect(FRONTEND_URL);
 });
 
 app.listen(PORT, () => {
