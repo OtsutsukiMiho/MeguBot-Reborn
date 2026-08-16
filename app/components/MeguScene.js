@@ -56,9 +56,11 @@ function partToPathData(p) {
 	return `M ${cx - rx} ${cy} a ${rx} ${ry} 0 1 0 ${rx * 2} 0 a ${rx} ${ry} 0 1 0 ${-rx * 2} 0 Z`;
 }
 
-export default function MeguScene({ className = '' }) {
+export default function MeguScene({ className = '', onReady }) {
 	const hostRef = useRef(null);
 	const [failed, setFailed] = useState(false);
+	const readyRef = useRef(onReady);
+	readyRef.current = onReady;
 
 	useEffect(() => {
 		const host = hostRef.current;
@@ -228,6 +230,10 @@ export default function MeguScene({ className = '' }) {
 			else {
 				raf = requestAnimationFrame(frame);
 			}
+
+			// Announced only after a frame exists, so the flat mark underneath is
+			// never hidden before there is something to hide it behind.
+			if (readyRef.current) readyRef.current();
 
 			cleanup = () => {
 				cancelAnimationFrame(raf);

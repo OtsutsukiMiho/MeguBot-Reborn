@@ -28,6 +28,7 @@ const COPY = {
 		ctaIn: 'ไปที่กิจกรรมของฉัน',
 		ctaOut: 'เริ่มใช้ฟรีด้วย Discord',
 		ctaServers: 'ตั้งค่าบอทในเซิร์ฟเวอร์',
+		scrollCue: 'เลื่อนดู',
 		steps: [
 			{ word: 'ถาม', h: 'ว่างวันไหนบ้าง', p: 'แปะลิงก์ในกลุ่มครั้งเดียว เพื่อนกดตอบได้เลย ไม่ต้องสมัคร ไม่ต้องโหลดแอป แล้ว Megu ไล่ตามคนที่ยังไม่ตอบให้เอง' },
 			{ word: 'ฟันธง', h: 'สรุปเสาร์ทุ่มนึง', p: 'ไม่มีใครอยากเป็นคนเคาะเพราะกลัวดูเผด็จการ ให้ Megu พูดแทน เขาไม่ใช่คน เลยไม่มีใครโกรธ' },
@@ -58,6 +59,7 @@ const COPY = {
 		ctaIn: 'Go to my activities',
 		ctaOut: 'Start free with Discord',
 		ctaServers: 'Set up the bot on a server',
+		scrollCue: 'Scroll',
 		steps: [
 			{ word: 'ASK', h: 'Who is free, and when', p: 'Drop one link in the group chat. Your friends answer in a tap — no signup, no app to install. Megu goes after whoever has not replied.' },
 			{ word: 'SETTLE', h: 'Saturday, seven. Done.', p: 'Nobody wants to be the one who calls it and looks bossy. Let Megu say it — it is not a person, so nobody takes it personally.' },
@@ -83,6 +85,7 @@ const COPY = {
 
 export default function HomePage() {
 	const [user, setUser] = useState(null);
+	const [sceneUp, setSceneUp] = useState(false);
 	const { lang } = useLang();
 
 	useEffect(() => {
@@ -102,7 +105,7 @@ export default function HomePage() {
 			{/* The one colour field on the site. It carries its own palette rather
 			    than the theme's, so the contrast here is the same at midnight as
 			    at noon and never has to be re-checked against a flipping ground. */}
-			<section className="hero-field">
+			<section className="hero-field band band-dark">
 				<div className="hero-block">
 					<div className="hero-copy">
 						<span className="eyebrow enter" style={{ '--i': 0 }}>{t.eyebrow}</span>
@@ -121,12 +124,19 @@ export default function HomePage() {
 						</div>
 					</div>
 
-					{/* The flat mark ships in the HTML; the WebGL scene lands on top of
-					    it once it is ready, and simply never arrives if it cannot. */}
-					<div className="hero-portrait megu-stage enter" style={{ '--i': 2 }}>
+					{/* The flat mark ships in the HTML so there is something on screen
+					    immediately and something left if WebGL never arrives. Once the
+					    scene has rendered a frame the flat one is hidden — navy on navy,
+					    it was showing through as a shadow behind the model. */}
+					<div className={`hero-portrait megu-stage enter${sceneUp ? ' scene-up' : ''}`} style={{ '--i': 2 }}>
 						<MeguMark size={340} className="megu-flat" />
-						<MeguScene className="megu-canvas" />
+						<MeguScene className="megu-canvas" onReady={() => setSceneUp(true)} />
 					</div>
+				</div>
+
+				<div className="scroll-cue" aria-hidden="true">
+					{t.scrollCue}
+					<span />
 				</div>
 			</section>
 
@@ -143,7 +153,7 @@ export default function HomePage() {
 				))}
 			</div>
 
-			<section className="server-side">
+			<section className="server-side band band-dark">
 				<div className="section-head reveal">
 					<span className="eyebrow">{t.serverEyebrow}</span>
 					<h2>{t.serverH2}</h2>
@@ -162,7 +172,7 @@ export default function HomePage() {
 				<Link href="/servers" className="btn btn-secondary btn-lg reveal">{t.serverCta}</Link>
 			</section>
 
-			<section className="closing reveal">
+			<section className="closing band band-dark reveal">
 				<h2>{t.closeH2}</h2>
 				<p className="lede">{t.closeLede}</p>
 				<div className="hero-actions">

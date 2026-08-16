@@ -164,6 +164,13 @@
 }
 
 body {
+	/* The landing hero bleeds to the viewport edge with 50vw margins, and 50vw
+	   counts the scrollbar. Clipping here absorbs that overshoot. Clipping any
+	   closer to the hero cuts the bleed itself — a clip on the page wrapper is
+	   what pinned the field back to the column and sliced the first letter off
+	   the headline. `clip`, not `hidden`: hidden would make the body a scroll
+	   container and strand the console's sticky sidebar. */
+	overflow-x: clip;
 	background: var(--paper);
 	color: var(--ink);
 	font-family: var(--font-body);
@@ -257,8 +264,8 @@ input, textarea, select, button {
 	align-items: center;
 	padding: 0 1.5rem;
 	background: color-mix(in srgb, var(--paper) 92%, transparent);
-	backdrop-filter: blur(10px);
 	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
 	border-bottom: 1px solid var(--line);
 }
 
@@ -1732,8 +1739,8 @@ textarea.form-control {
 .server-card-badges .server-role-badge,
 .server-card-badges .server-status-badge {
 	background: color-mix(in srgb, var(--surface) 88%, transparent);
-	backdrop-filter: blur(6px);
 	-webkit-backdrop-filter: blur(6px);
+	backdrop-filter: blur(6px);
 }
 
 .server-card-avatar-wrapper {
@@ -1833,51 +1840,63 @@ textarea.form-control {
 /* ==========================================================================
    The landing page
 
-   Two ideas carry it, and neither is an effect.
+   Three ideas, and none of them is an effect.
 
-   One: the hero owns its own palette. It is a deep navy field with cream on
-   it, fixed in both themes, so it never has to be re-checked against a
-   flipping background and never lands in the low-contrast middle that the
-   earlier attempts kept finding. A landing page is allowed one confident
-   colour field; the working pages below it stay on the editorial system.
+   ONE — the page has a rhythm. Dark, light, dark, dark. A landing page that is
+   one colour for four screens reads as a document; alternating bands give the
+   reader a sense of having travelled, which is most of what "immersive"
+   actually means.
 
-   Two: motion is driven by scroll, not by a timer. Things arrive because the
-   reader moved, which is the difference between a page that feels alive and a
-   page that animates at you. Where `animation-timeline` is unsupported the
-   same keyframes run once on load, so the fallback is "it appears" rather
-   than "it is missing".
+   TWO — the bands own their palettes. Each dark band carries fixed cream on
+   fixed navy in both themes, so its contrast is decided once and never
+   re-litigated against a flipping background. Only the light band follows the
+   theme. Nothing is ever left in the low-contrast middle.
+
+   THREE — motion answers the reader. Everything below the fold is driven by
+   `animation-timeline`, so it arrives because they scrolled, not because a
+   timer fired. Where that is unsupported the same keyframes run once on load:
+   the fallback is "it appears", never "it is missing". All of it stops under
+   `prefers-reduced-motion`.
    ========================================================================== */
 
 .stage {
 	position: relative;
-	/* The hero breaks the column to reach the viewport edge, so the page has to
-	   clip sideways. `clip` rather than `hidden`: `hidden` would make this a
-	   scroll container and break the console's sticky sidebar. */
-	overflow-x: clip;
 }
 
-/* ------------------------------------------------------------- the field */
+/* Shared by every full-bleed band. The column is 1060 wide, so the padding
+   re-inserts the text onto that measure after the margins have escaped it. */
+.band {
+	margin-inline: calc(50% - 50vw);
+	padding-inline: max(1.5rem, calc(50vw - 530px));
+}
+
+/* ------------------------------------------------------------ the hero */
 
 .hero-field {
-	--hero-ground: #1A2050;
-	--hero-ink: #F5F3EC;
-	--hero-dim: #AEB6D8;
-	--hero-gold: #F5C542;
+	--hero-ground: #171D4A;
+	--hero-ink: #F6F4ED;
+	--hero-dim: #B3BADB;
+	--hero-gold: #F7C948;
 
 	position: relative;
 	isolation: isolate;
-	/* Full bleed out of the 1060px column, then re-inset the text so it stays
-	   on the same measure as everything below it. */
-	margin-inline: calc(50% - 50vw);
-	padding-inline: max(1.5rem, calc(50vw - 530px));
-	padding-block: clamp(3.5rem, 9vw, 7rem) clamp(4rem, 10vw, 8rem);
-	background: var(--hero-ground);
+	/* Full height, minus the bar it sits under. `svh` rather than `vh` so a
+	   phone's collapsing address bar does not crop the buttons. */
+	min-height: calc(100svh - var(--nav-h));
+	display: grid;
+	align-content: center;
+	padding-block: clamp(3rem, 7vw, 6rem) clamp(5rem, 9vw, 8rem);
 	color: var(--hero-ink);
 	overflow: hidden;
+
+	/* The band dissolves into the page rather than stopping at a ruled line.
+	   Fading to `--paper` means it meets whatever the theme is underneath. */
+	background:
+		linear-gradient(to bottom, transparent 76%, var(--paper) 99%),
+		var(--hero-ground);
 }
 
-/* Two lights inside the field. Contained by the panel's own overflow, so they
-   can be generous without ever reaching an edge they should not. */
+/* Two lights. Contained by the band's own overflow, so they can be generous. */
 .hero-field::before,
 .hero-field::after {
 	content: '';
@@ -1885,41 +1904,39 @@ textarea.form-control {
 	z-index: -1;
 	pointer-events: none;
 	border-radius: 50%;
-	filter: blur(70px);
+	filter: blur(80px);
 }
 
 .hero-field::before {
-	width: 46rem;
-	height: 34rem;
-	top: -14rem;
-	left: -10rem;
-	background: radial-gradient(closest-side, rgba(96, 118, 232, .55), transparent);
+	width: 52rem;
+	height: 38rem;
+	top: -16rem;
+	left: -12rem;
+	background: radial-gradient(closest-side, rgba(104, 126, 245, .5), transparent);
 }
 
 .hero-field::after {
-	width: 34rem;
-	height: 28rem;
-	right: -8rem;
-	bottom: -12rem;
-	background: radial-gradient(closest-side, rgba(245, 197, 66, .3), transparent);
+	width: 36rem;
+	height: 30rem;
+	right: -10rem;
+	bottom: -6rem;
+	background: radial-gradient(closest-side, rgba(247, 201, 72, .26), transparent);
 }
 
 .hero-field .hero-block {
 	border-bottom: none;
 	padding: 0;
 	overflow: visible;
+	align-items: center;
 }
 
 .hero-field h1 {
 	color: var(--hero-ink);
-	font-size: clamp(2.6rem, 7.4vw, 4.9rem);
-	letter-spacing: -.04em;
+	font-size: clamp(2.7rem, 7.6vw, 5.2rem);
+	letter-spacing: -.042em;
 	max-width: 13ch;
 }
 
-/* The accent word is a flat colour on a field that can carry it. The previous
-   version tried to build depth out of stacked shadows and only ever produced a
-   smear; a field this dark lets one clean colour do the same job. */
 .hero-field h1 em {
 	font-style: normal;
 	color: var(--hero-gold);
@@ -1927,22 +1944,72 @@ textarea.form-control {
 
 .hero-field .lede {
 	color: var(--hero-dim);
-	max-width: 46ch;
+	font-size: clamp(1rem, 1.5vw, 1.15rem);
+	max-width: 44ch;
 }
 
 .hero-field .eyebrow {
 	color: var(--hero-dim);
 }
 
-.hero-field .btn-secondary {
+/* On a dark band the outline button has to borrow the band's ink, not the
+   theme's, or it inverts into invisibility when the theme flips. */
+.band-dark .btn-secondary {
 	background: transparent;
-	border-color: rgba(245, 243, 236, .32);
+	border-color: rgba(246, 244, 237, .34);
 	color: var(--hero-ink);
 }
 
-.hero-field .btn-secondary:hover:not(:disabled) {
+.band-dark .btn-secondary:hover:not(:disabled) {
 	border-color: var(--hero-ink);
-	background: rgba(245, 243, 236, .08);
+	background: rgba(246, 244, 237, .09);
+}
+
+/* ------------------------------------------------------------- scroll cue */
+
+.scroll-cue {
+	position: absolute;
+	left: 50%;
+	bottom: clamp(1.4rem, 4vw, 2.6rem);
+	transform: translateX(-50%);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: .5rem;
+	font-size: .72rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .16em;
+	text-transform: uppercase;
+	color: var(--hero-dim);
+	pointer-events: none;
+}
+
+.scroll-cue span {
+	display: block;
+	width: 1px;
+	height: 2.4rem;
+	background: linear-gradient(to bottom, transparent, var(--hero-dim));
+	transform-origin: top;
+	animation: cue 2.4s var(--ease) infinite;
+}
+
+@keyframes cue {
+	0% { transform: scaleY(0); opacity: 0; }
+	40% { transform: scaleY(1); opacity: 1; }
+	100% { transform: scaleY(1); opacity: 0; }
+}
+
+/* The cue is only true while there is something below the fold to scroll to. */
+@supports (animation-timeline: scroll()) {
+	.scroll-cue {
+		animation: fade-out linear both;
+		animation-timeline: scroll();
+		animation-range: 0 22vh;
+	}
+}
+
+@keyframes fade-out {
+	to { opacity: 0; }
 }
 
 /* --------------------------------------------------------------- the mark */
@@ -1951,7 +2018,7 @@ textarea.form-control {
 	position: relative;
 	display: grid;
 	place-items: center;
-	width: min(340px, 74vw);
+	width: min(370px, 76vw);
 	aspect-ratio: 1;
 }
 
@@ -1962,25 +2029,179 @@ textarea.form-control {
 	height: 100%;
 }
 
-/* The flat vector ships in the HTML and stays underneath: it is what is on
-   screen before the first frame, and what remains if WebGL is unavailable. */
 .megu-canvas {
 	position: relative;
 	z-index: 1;
-	animation: fade-in .7s var(--ease) .1s backwards;
+	animation: fade-in .8s var(--ease) .15s backwards;
 }
 
-.megu-stage::after {
+/* Once the scene has a frame the flat mark has done its job. Left visible it
+   sits navy-on-navy behind the model and reads as a smudge. */
+.scene-up .megu-flat {
+	visibility: hidden;
+}
+
+/* The mark drifts up as the hero leaves, so the two planes separate. */
+@supports (animation-timeline: scroll()) {
+	.megu-stage {
+		animation: mark-drift linear both;
+		animation-timeline: scroll();
+		animation-range: 0 90vh;
+	}
+}
+
+@keyframes mark-drift {
+	to { transform: translateY(-3.5rem) scale(.94); }
+}
+
+/* ------------------------------------------------------------ light band */
+
+.flow {
+	padding-block: clamp(4rem, 9vw, 7rem) clamp(3rem, 7vw, 5rem);
+	gap: 0 1.5rem;
+}
+
+.flow-step {
+	position: relative;
+	border-left: none;
+	padding-left: 0;
+	padding-right: 1.4rem;
+}
+
+/* A hairline joins the four steps into one sequence instead of four columns.
+   It stops at the last, because a line leaving the final step promises a
+   fifth that does not exist. */
+.flow-step:not(:last-child)::after {
 	content: '';
 	position: absolute;
-	left: 50%;
-	bottom: 4%;
-	width: 54%;
-	height: 1.4rem;
-	transform: translateX(-50%);
-	background: radial-gradient(closest-side, rgba(8, 10, 30, .55), transparent);
-	filter: blur(10px);
-	z-index: 0;
+	top: .9rem;
+	right: .7rem;
+	width: 100%;
+	height: 1px;
+	background: linear-gradient(to right, var(--line-2), transparent);
+	z-index: -1;
+}
+
+.flow-step .flow-index {
+	font-size: clamp(2.4rem, 5vw, 3.4rem);
+	color: var(--line-2);
+}
+
+.flow-step h3 {
+	font-size: clamp(1.2rem, 2vw, 1.45rem);
+}
+
+@media (max-width: 780px) {
+	.flow-step::after {
+		display: none;
+	}
+}
+
+/* ------------------------------------------------------------- dark band */
+
+.server-side {
+	--hero-ink: #F6F4ED;
+	--hero-dim: #B3BADB;
+
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	padding-block: clamp(4rem, 9vw, 7rem);
+	color: var(--hero-ink);
+	background:
+		linear-gradient(to bottom, var(--paper), transparent 14%, transparent 86%, var(--paper)),
+		#141A44;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
+.server-side::before {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	pointer-events: none;
+	width: 44rem;
+	height: 32rem;
+	right: -14rem;
+	top: -8rem;
+	border-radius: 50%;
+	filter: blur(80px);
+	background: radial-gradient(closest-side, rgba(104, 126, 245, .34), transparent);
+}
+
+.server-side h2,
+.closing h2 {
+	font-size: clamp(1.8rem, 4.6vw, 2.9rem);
+	letter-spacing: -.035em;
+}
+
+.server-side h2 {
+	color: var(--hero-ink);
+}
+
+.server-side .lede,
+.server-side .eyebrow {
+	color: var(--hero-dim);
+}
+
+/* Cards on a dark band cannot use the theme's surface tokens — those go white
+   in light mode and the band would grow holes. */
+.capabilities {
+	gap: .9rem;
+	margin-bottom: clamp(1.8rem, 3vw, 2.4rem);
+}
+
+.server-side .capability {
+	background: rgba(255, 255, 255, .055);
+	border: 1px solid rgba(246, 244, 237, .13);
+	border-radius: 14px;
+	-webkit-backdrop-filter: blur(14px);
+	backdrop-filter: blur(14px);
+	padding: 1.2rem 1.3rem 1.35rem;
+	transition: transform .3s var(--ease), background .3s var(--ease), border-color .3s var(--ease);
+}
+
+.server-side .capability:hover {
+	transform: translateY(-3px);
+	background: rgba(255, 255, 255, .085);
+	border-color: rgba(246, 244, 237, .26);
+}
+
+.server-side .capability h3 {
+	color: var(--hero-ink);
+}
+
+.server-side .capability p {
+	color: var(--hero-dim);
+}
+
+/* ---------------------------------------------------------- closing band */
+
+.closing {
+	--hero-ink: #F6F4ED;
+	--hero-dim: #B3BADB;
+
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	padding-block: clamp(4rem, 9vw, 7rem);
+	margin-bottom: -3rem;
+	color: var(--hero-ink);
+	background: linear-gradient(to bottom, var(--paper), #171D4A 22%);
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 1.1rem;
+}
+
+.closing h2 {
+	color: var(--hero-ink);
+}
+
+.closing .lede {
+	color: var(--hero-dim);
+	max-width: 52ch;
 }
 
 /* --------------------------------------------------------------- motion */
@@ -1991,60 +2212,52 @@ textarea.form-control {
 }
 
 @keyframes rise-in {
-	from { opacity: 0; transform: translateY(26px); }
+	from { opacity: 0; transform: translateY(30px); }
 	to { opacity: 1; transform: none; }
 }
 
 @keyframes rise-in-sm {
-	from { opacity: 0; transform: translateY(14px); }
+	from { opacity: 0; transform: translateY(16px); }
 	to { opacity: 1; transform: none; }
 }
 
 /* On load, in order. `--i` is the position in the sequence, so a block can be
-   reordered in the markup without re-timing every delay by hand. */
+   moved in the markup without re-timing every delay by hand. */
 .enter {
-	animation: rise-in .8s var(--ease) both;
-	animation-delay: calc(var(--i, 0) * 90ms);
+	animation: rise-in .85s var(--ease) both;
+	animation-delay: calc(var(--i, 0) * 100ms);
 }
 
-/* Everything below the fold arrives because the reader scrolled to it. */
 .reveal {
-	animation: rise-in .8s var(--ease) both;
+	animation: rise-in .85s var(--ease) both;
 }
 
 @supports (animation-timeline: view()) {
 	.reveal {
 		animation-timeline: view();
-		animation-range: entry 2% cover 26%;
+		animation-range: entry 2% cover 28%;
 		animation-delay: 0s;
 	}
 
 	.reveal-stagger > * {
-		animation: rise-in-sm .8s var(--ease) both;
+		animation: rise-in-sm .85s var(--ease) both;
 		animation-timeline: view();
-		animation-range: entry 0% cover 24%;
+		animation-range: entry 0% cover 26%;
 	}
-}
 
-/* The glows drift slower than the content they sit behind. Small enough to
-   read as depth rather than as something moving. */
-@supports (animation-timeline: scroll()) {
+	/* The glows travel slower than the words in front of them. */
 	.hero-field::before,
 	.hero-field::after {
 		animation: drift linear both;
 		animation-timeline: scroll();
-		animation-range: 0 90vh;
+		animation-range: 0 100vh;
 	}
 }
 
 @keyframes drift {
-	to { transform: translateY(5rem); }
+	to { transform: translateY(6rem); }
 }
 
-/* --------------------------------------------------------------- surfaces */
-
-/* Cards that respond. The lift is small on purpose: at this size a card that
-   jumps reads as a bug, and a card that does nothing reads as an image. */
 .lift {
 	transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
 }
@@ -2055,10 +2268,6 @@ textarea.form-control {
 	box-shadow: 0 18px 30px -18px color-mix(in srgb, var(--ink) 45%, transparent);
 }
 
-.flow-step .flow-index {
-	color: var(--line-2);
-}
-
 /* ------------------------------------------------------------------ quiet */
 
 @media (prefers-reduced-motion: reduce) {
@@ -2066,6 +2275,9 @@ textarea.form-control {
 	.reveal,
 	.reveal-stagger > *,
 	.megu-canvas,
+	.megu-stage,
+	.scroll-cue,
+	.scroll-cue span,
 	.hero-field::before,
 	.hero-field::after {
 		animation: none;
@@ -2073,15 +2285,24 @@ textarea.form-control {
 		transform: none;
 	}
 
-	.lift:hover {
+	.lift:hover,
+	.server-side .capability:hover {
 		transform: none;
 	}
 }
 
 @media (max-width: 780px) {
+	.hero-field {
+		min-height: auto;
+		padding-block: clamp(2.5rem, 8vw, 4rem) clamp(4rem, 12vw, 6rem);
+	}
+
 	.hero-field::before,
 	.hero-field::after {
-		filter: blur(50px);
-		opacity: .8;
+		filter: blur(56px);
+	}
+
+	.scroll-cue {
+		display: none;
 	}
 }
