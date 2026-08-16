@@ -12,6 +12,9 @@ import { useLang } from './components/LangProvider';
 // stays — there is no broken state to fall back from.
 const MeguScene = dynamic(() => import('./components/MeguScene'), { ssr: false });
 
+// Decoration that reads the viewport, so it has nothing to say on the server.
+const MeguCompanion = dynamic(() => import('./components/MeguCompanion'), { ssr: false });
+
 /**
  * Every string on the landing page, both languages, in one object.
  *
@@ -100,8 +103,18 @@ export default function HomePage() {
 	const t = COPY[lang];
 	const [h1a, h1accent, h1b] = t.h1;
 
+	// The card's light follows the pointer. Written straight to the element as
+	// custom properties rather than through state, because this fires on every
+	// pointer move and a re-render per frame would be a poor trade for a glow.
+	const spot = (e) => {
+		const r = e.currentTarget.getBoundingClientRect();
+		e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
+		e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
+	};
+
 	return (
 		<div className="stage" lang={lang}>
+			<MeguCompanion />
 			{/* The one colour field on the site. It carries its own palette rather
 			    than the theme's, so the contrast here is the same at midnight as
 			    at noon and never has to be re-checked against a flipping ground. */}
@@ -147,7 +160,7 @@ export default function HomePage() {
 							{String(i + 1).padStart(2, '0')}
 							<span className="word">{s.word}</span>
 						</span>
-						<h3>{s.h}</h3>
+						<h3><span className="wipe">{s.h}</span></h3>
 						<p>{s.p}</p>
 					</div>
 				))}
@@ -156,13 +169,13 @@ export default function HomePage() {
 			<section className="server-side band band-dark">
 				<div className="section-head reveal">
 					<span className="eyebrow">{t.serverEyebrow}</span>
-					<h2>{t.serverH2}</h2>
+					<h2><span className="wipe">{t.serverH2}</span></h2>
 					<p className="lede">{t.serverLede}</p>
 				</div>
 
 				<div className="capabilities reveal-stagger">
 					{t.caps.map(c => (
-						<article className="capability lift" key={c.h}>
+						<article className="capability lift spotlight" key={c.h} onPointerMove={spot}>
 							<h3>{c.h}</h3>
 							<p>{c.p}</p>
 						</article>
@@ -173,7 +186,7 @@ export default function HomePage() {
 			</section>
 
 			<section className="closing band band-dark reveal">
-				<h2>{t.closeH2}</h2>
+				<h2><span className="wipe">{t.closeH2}</span></h2>
 				<p className="lede">{t.closeLede}</p>
 				<div className="hero-actions">
 					{user

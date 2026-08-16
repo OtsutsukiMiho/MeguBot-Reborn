@@ -2306,3 +2306,145 @@ textarea.form-control {
 		display: none;
 	}
 }
+
+/* ==========================================================================
+   Character
+
+   The page had motion but no personality: everything arrived the same way, so
+   nothing was memorable. What follows gives each kind of element its own way
+   of entering, and gives the reader one thing that responds to them.
+
+   Everything here is decoration. All of it is switched off under
+   prefers-reduced-motion, and none of it touches a colour token, so the
+   contrast measured on the bands still holds.
+   ========================================================================== */
+
+/* ------------------------------------------------------ the companion */
+
+/* Megu, fixed to the viewport and drifting as the page scrolls. `--travel` and
+   `--spin` are written by MeguCompanion on every frame; everything else is
+   the CSS side of the same idea. */
+.megu-companion {
+	position: fixed;
+	left: clamp(1rem, calc(50vw - 640px), 4rem);
+	top: 26vh;
+	z-index: 40;
+	pointer-events: none;
+	opacity: 0;
+	transform: translate3d(0, var(--travel, 0), 0) rotate(var(--spin, 0deg)) scale(.86);
+	transition: opacity .5s var(--ease), scale .5s var(--ease);
+	filter: drop-shadow(0 14px 22px color-mix(in srgb, var(--ink) 30%, transparent));
+	will-change: transform;
+}
+
+.megu-companion.is-shown {
+	opacity: 1;
+	scale: 1;
+}
+
+/* It sits in the margin beside the column. If there is no margin there is no
+   companion — it would land on the words. */
+@media (max-width: 1100px) {
+	.megu-companion {
+		display: none;
+	}
+}
+
+/* ---------------------------------------------------------- text wipes */
+
+/* A heading uncovering itself reads as deliberate in a way a fade never does.
+   The mask does the work, so the glyphs are never faded — full contrast the
+   entire time, which a fading heading cannot claim. */
+.wipe {
+	display: inline-block;
+	clip-path: inset(0 100% 0 0);
+	animation: wipe-in 1s var(--ease) both;
+}
+
+@keyframes wipe-in {
+	to { clip-path: inset(0 0 0 0); }
+}
+
+/* ------------------------------------------------------------ numerals */
+
+/* The step numbers arrive with some weight behind them rather than sliding in
+   like the body copy — they are the loudest thing in the light band. */
+@keyframes numeral-in {
+	from { opacity: 0; transform: translateY(28px) scale(.86); }
+	to { opacity: 1; transform: none; }
+}
+
+.flow-step .flow-index {
+	animation: numeral-in .9s var(--ease) both;
+}
+
+.flow-step .word {
+	animation: rise-in-sm .8s var(--ease) .12s both;
+}
+
+/* --------------------------------------------------------- card cursor */
+
+/* The cards carry a light that follows the pointer. `--mx`/`--my` are written
+   by the pointer handler; with no pointer the gradient sits off-card and the
+   card is simply itself. */
+.spotlight {
+	position: relative;
+	overflow: hidden;
+}
+
+.spotlight::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity .35s var(--ease);
+	background: radial-gradient(
+		14rem circle at var(--mx, -20%) var(--my, -20%),
+		rgba(255, 255, 255, .12),
+		transparent 70%
+	);
+}
+
+.spotlight:hover::before {
+	opacity: 1;
+}
+
+/* ------------------------------------------------------------ scroll-driven */
+
+@supports (animation-timeline: view()) {
+	.wipe {
+		animation-timeline: view();
+		animation-range: entry 8% cover 34%;
+	}
+
+	.flow-step .flow-index,
+	.flow-step .word {
+		animation-timeline: view();
+		animation-range: entry 0% cover 30%;
+	}
+}
+
+/* ------------------------------------------------------------------ quiet */
+
+@media (prefers-reduced-motion: reduce) {
+	.megu-companion {
+		display: none;
+	}
+
+	.wipe {
+		animation: none;
+		clip-path: none;
+	}
+
+	.flow-step .flow-index,
+	.flow-step .word {
+		animation: none;
+		opacity: 1;
+		transform: none;
+	}
+
+	.spotlight::before {
+		display: none;
+	}
+}
