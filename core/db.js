@@ -29,9 +29,21 @@ function getPool() {
 	}
 
 	// A local container has no TLS to negotiate; forcing ssl there just fails.
+	//
+	// The cap matters more than it looks. index.js forks two processes, both of
+	// them open this pool and both also open the legacy bot's, so pg's default
+	// of 10 per pool is forty connections against one database — and a web
+	// process that crash-loops would keep opening more. Five each is generous
+	// for a workload of short reads and writes, the idle timeout hands
+	// connections back instead of holding them for the process lifetime, and
+	// the connect timeout turns an unreachable database into an error rather
+	// than a queue of callers waiting forever.
 	pool = new Pool({
 		connectionString: url,
 		ssl: isLocal(url) ? false : { rejectUnauthorized: false },
+		max: Number(process.env.PG_POOL_MAX) || 5,
+		idleTimeoutMillis: 10_000,
+		connectionTimeoutMillis: 8_000,
 	});
 
 	pool.on('error', (err) => {

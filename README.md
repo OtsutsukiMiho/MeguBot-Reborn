@@ -39,7 +39,9 @@ tests/                 npm test
 scripts/               seed-demo, db-audit, contrast-audit
 ```
 
-รายละเอียดการออกแบบและสิ่งที่ยังไม่ได้ทำ อ่าน [HANDOFF.md](HANDOFF.md)
+- [DATABASE.md](DATABASE.md) — ตั้งค่าฐานข้อมูลบน Supabase ตั้งแต่ศูนย์ ทำตามได้เลยโดยไม่ต้องอ่านไฟล์อื่น
+- [HANDOFF.md](HANDOFF.md) — รายละเอียดการออกแบบและสิ่งที่ยังไม่ได้ทำ
+- [CHANGES.md](CHANGES.md) — สาขานี้เปลี่ยนอะไรเทียบกับ main สำหรับคนรีวิว PR
 
 ## ตรวจสอบ
 
