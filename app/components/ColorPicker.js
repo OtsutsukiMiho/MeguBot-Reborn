@@ -22,12 +22,14 @@ const DISCORD_ROLE_PALETTE = [
 ];
 
 export default function ColorPicker({
-	color = '#99aab5',
+	// A hex literal, not a token: this value is shown in the hex field and sent
+	// to Discord as the role colour.
+	color = '#9ca3af',
 	onChange,
 	roleName = 'Role Preview',
 	label = 'Role Color',
 }) {
-	const [inputHex, setInputHex] = useState(color || '#99aab5');
+	const [inputHex, setInputHex] = useState(color || '#9ca3af');
 
 	useEffect(() => {
 		if (color) setInputHex(color);
@@ -47,7 +49,7 @@ export default function ColorPicker({
 		if (onChange) onChange(hex);
 	};
 
-	const activeColor = inputHex && inputHex.startsWith('#') ? inputHex : '#99aab5';
+	const activeColor = inputHex && inputHex.startsWith('#') ? inputHex : 'var(--muted)';
 
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -108,7 +110,7 @@ export default function ColorPicker({
 								height: '28px',
 								borderRadius: '6px',
 								background: swatch.hex,
-								border: isSelected ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.15)',
+								border: isSelected ? '2px solid var(--ink)' : '1px solid var(--line-2)',
 								boxShadow: isSelected ? `0 0 10px ${swatch.hex}, 0 0 0 2px rgba(255,255,255,0.8)` : 'none',
 								cursor: 'pointer',
 								transform: isSelected ? 'scale(1.1)' : 'scale(1)',

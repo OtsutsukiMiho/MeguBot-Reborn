@@ -1,23 +1,160 @@
-:root {
-	--bg-primary: #0b0f17;
-	--bg-card: rgba(18, 24, 38, 0.85);
-	--bg-card-hover: rgba(26, 35, 54, 0.95);
-	--border-color: rgba(255, 255, 255, 0.08);
-	--border-color-hover: rgba(99, 102, 241, 0.35);
-	--text-primary: #f9fafb;
-	--text-secondary: #9ca3af;
-	--text-muted: #6b7280;
-	--color-success: #10b981;
-	--color-accent: #4f46e5;
-	--color-accent-hover: #4338ca;
-	--color-accent-gold: #d97706;
-	--color-discord: #4f46e5;
-	--color-discord-hover: #4338ca;
-	--glow-success: rgba(16, 185, 129, 0.25);
+/* ==========================================================================
+   Megu
 
-	--font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-	--font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-	--font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+   An Operate surface: someone opens a link in a group chat to answer one
+   question — am I free, am I going, what do I owe — and leaves. The interface
+   should get out of the way of that.
+
+   So the page is neutrals almost everywhere. Colour appears only where it
+   carries meaning: what you owe, what is settled, what still needs an answer.
+   Navy is the single accent. Gold survives as one small mark beside Megu's
+   name, because it is Megu's own, and nowhere else.
+
+   Thai leads the typography. A display face without Thai coverage is
+   disqualified here no matter how it looks in Latin.
+   ========================================================================== */
+
+:root {
+	--paper: #F7F6F3;
+	--surface: #FFFFFF;
+	--surface-2: #FBFAF8;
+	--sunk: #F1EFEA;
+
+	/* Neutrals carry a trace of the navy so the greys never read as dead. */
+	--ink: #16181F;
+	--ink-2: #3A3E4C;
+	--muted: #5B6070;
+	--faint: #6E7382;
+
+	--line: #E4E1DA;
+	--line-2: #C4C0B5;
+
+	/* Megu's own colours. Fixed across themes, because anything filled with
+	   these carries white text on top. */
+	--brand: #2A3357;
+	--brand-hover: #38446E;
+	--brand-gold: #9A7A22;
+	--on-brand: #FFFFFF;
+
+	/* One accent and three signals, deliberately desaturated. These are read,
+	   not admired. */
+	--accent: #2F3A63;
+	--accent-soft: #EDEEF3;
+	--gold: #715714;
+
+	--due: #9E2843;
+	--due-soft: #F8EDEF;
+	--settled: #166047;
+	--settled-soft: #E9F1ED;
+
+	/* The audit log labels twenty-odd event types that have to be told apart at
+	   a glance, which the neutral ramp cannot do. It is the one place hue is
+	   decorative rather than meaningful, and therefore the one place needing an
+	   explicit pair per theme: dark enough to read on paper, light enough on
+	   ink. The originals were picked for a dark-only page and fell to roughly
+	   2:1 the moment a light theme existed. --cat-tint is how much of the same
+	   hue backs the badge, so both halves move together. */
+	--cat-pink: #A11D68;
+	--cat-purple: #6B2FB5;
+	--cat-violet: #5B3BC4;
+	--cat-blue: #1D4ED8;
+	--cat-cyan: #0E6E84;
+	--cat-orange: #9A4A11;
+	--cat-neutral: #55596A;
+	--cat-tint: 12%;
+
+	--font-display: 'Anuphan', 'IBM Plex Sans Thai', 'Leelawadee UI', Tahoma, sans-serif;
+	--font-body: 'IBM Plex Sans Thai', 'Anuphan', -apple-system, 'Segoe UI', 'Leelawadee UI', Tahoma, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+	/* Light text on a dark ground optically gains weight, so the dark theme
+	   sets each of these one step lower to land at the same apparent weight. */
+	--w-body: 400;
+	--w-medium: 500;
+	--w-strong: 600;
+	--w-heavy: 600;
+
+	--r-sm: 6px;
+	--r: 10px;
+
+	--nav-h: 64px;
+	--ease: cubic-bezier(.22, .61, .36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--paper: #15161B;
+		--surface: #1C1E25;
+		--surface-2: #21232B;
+		--sunk: #191A21;
+
+		--ink: #EDECE8;
+		--ink-2: #C2C5D0;
+		--muted: #969CAB;
+		--faint: #868B9A;
+
+		--line: #2B2D36;
+		--line-2: #3F424E;
+
+		--accent: #A5AECF;
+		--accent-soft: #23262F;
+		--gold: #C6A863;
+
+		--due: #E88497;
+		--due-soft: #2A1D22;
+		--settled: #71C6A4;
+		--settled-soft: #172520;
+		--cat-pink: #F0A0C8;
+		--cat-purple: #C9A6F2;
+		--cat-violet: #B0A8F5;
+		--cat-blue: #9DB8F5;
+		--cat-cyan: #7FD0E0;
+		--cat-orange: #F0B183;
+		--cat-neutral: #A8ADBC;
+		--cat-tint: 18%;
+
+		--w-body: 350;
+		--w-medium: 450;
+		--w-strong: 550;
+		--w-heavy: 550;
+	}
+}
+
+:root[data-theme='dark'] {
+	--paper: #15161B;
+	--surface: #1C1E25;
+	--surface-2: #21232B;
+	--sunk: #191A21;
+
+	--ink: #EDECE8;
+	--ink-2: #C2C5D0;
+	--muted: #969CAB;
+	--faint: #868B9A;
+
+	--line: #2B2D36;
+	--line-2: #3F424E;
+
+	--accent: #A5AECF;
+	--accent-soft: #23262F;
+	--gold: #C6A863;
+
+	--due: #E88497;
+	--due-soft: #2A1D22;
+	--settled: #71C6A4;
+	--settled-soft: #172520;
+		--cat-pink: #F0A0C8;
+		--cat-purple: #C9A6F2;
+		--cat-violet: #B0A8F5;
+		--cat-blue: #9DB8F5;
+		--cat-cyan: #7FD0E0;
+		--cat-orange: #F0B183;
+		--cat-neutral: #A8ADBC;
+		--cat-tint: 18%;
+
+	--w-body: 350;
+	--w-medium: 450;
+	--w-strong: 550;
+	--w-heavy: 550;
 }
 
 * {
@@ -27,345 +164,1331 @@
 }
 
 body {
-	background-color: var(--bg-primary);
-	background-image: 
-		radial-gradient(circle at 50% 0%, rgba(79, 70, 229, 0.08) 0%, transparent 60%),
-		radial-gradient(circle at 100% 100%, rgba(15, 23, 42, 1) 0%, #0b0f17 100%);
-	color: var(--text-primary);
+	background: var(--paper);
+	color: var(--ink);
 	font-family: var(--font-body);
+	font-size: 16px;
+	font-weight: var(--w-body);
+	line-height: 1.65;
 	min-height: 100vh;
 	display: flex;
 	flex-direction: column;
-	padding-top: 72px;
+	padding-top: var(--nav-h);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4, h5, h6, .hero-title, .features-header h2, .brand-megubot, .brand-reborn, .tab-btn, .btn {
-	font-family: var(--font-heading);
-	letter-spacing: -0.02em;
+h1, h2, h3 {
+	font-family: var(--font-display);
+	font-weight: var(--w-heavy);
+	line-height: 1.2;
+	letter-spacing: -.015em;
+	text-wrap: balance;
+	color: var(--ink);
 }
 
-code, pre, .tag-badge {
-	font-family: var(--font-mono);
+a {
+	color: var(--accent);
+	text-decoration: none;
 }
 
-/* Formal Executive Navbar */
-.navbar {
+a:hover {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+/* The surfaces nobody draws still belong to the design. */
+::selection {
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 3px;
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--line-2) transparent;
+}
+
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--line-2);
+	border-radius: 99px;
+	border: 3px solid var(--paper);
+}
+
+input, textarea, select, button {
+	font: inherit;
+	color: inherit;
+	caret-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: .001ms !important;
+		transition-duration: .001ms !important;
+	}
+}
+
+.container {
 	width: 100%;
+	max-width: 1060px;
+	margin: 0 auto;
+	padding: 0 1.5rem;
+	flex: 1;
+}
+
+/* ---------------------------------------------------------------- navbar */
+
+.navbar {
 	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
+	inset: 0 0 auto 0;
 	z-index: 100;
-	background: rgba(11, 15, 23, 0.92);
-	backdrop-filter: blur(12px);
-	-webkit-backdrop-filter: blur(12px);
-	border-bottom: 1px solid var(--border-color);
-	padding: 0.75rem 2rem;
+	height: var(--nav-h);
+	display: flex;
+	align-items: center;
+	padding: 0 1.5rem;
+	background: color-mix(in srgb, var(--paper) 92%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	border-bottom: 1px solid var(--line);
 }
 
 .navbar-inner {
 	width: 100%;
-	max-width: 1440px;
+	max-width: 1060px;
 	margin: 0 auto;
 	display: flex;
-	justify-content: space-between;
 	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
 }
 
 .nav-brand {
 	display: flex;
 	align-items: center;
-	gap: 0.65rem;
-	text-decoration: none;
-	font-size: 1.15rem;
+	gap: .55rem;
+	font-family: var(--font-display);
+	font-size: 1.1rem;
+	font-weight: var(--w-strong);
+	color: var(--ink);
+	letter-spacing: -.01em;
 }
 
-.nav-brand img {
-	width: 34px;
-	height: 34px;
-	border-radius: 8px;
-	object-fit: cover;
-	flex-shrink: 0;
-	border: 1px solid rgba(255, 255, 255, 0.1);
+.nav-brand:hover {
+	text-decoration: none;
 }
 
 .brand-megubot {
-	color: #6366f1;
-	font-weight: 700;
-}
-
-.brand-reborn {
-	color: #ffffff;
-	font-weight: 600;
-	letter-spacing: 0.05em;
-	text-transform: uppercase;
-	font-size: 0.85rem;
-	opacity: 0.9;
+	color: var(--ink);
 }
 
 .nav-menu {
 	display: flex;
 	align-items: center;
-	gap: 1.5rem;
+	gap: .3rem;
 }
 
-.nav-link {
-	color: var(--text-secondary);
+.nav-menu a {
+	font-size: .92rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	padding: .35rem .6rem;
+	border-radius: var(--r-sm);
+}
+
+.nav-menu a:hover {
+	color: var(--ink);
 	text-decoration: none;
-	font-weight: 500;
-	font-size: 0.9rem;
-	transition: all 0.15s ease;
-	padding: 0.35rem 0;
-	position: relative;
 }
 
-.nav-link:hover, .nav-link.active {
-	color: var(--text-primary);
+.nav-menu a.active {
+	color: var(--ink);
+	font-weight: var(--w-strong);
 }
 
-.nav-link.active::after {
-	content: '';
-	position: absolute;
-	bottom: -4px;
-	left: 0;
-	right: 0;
-	height: 2px;
-	background: var(--color-accent);
-	border-radius: 2px;
-}
-
-
+/* The signed-in badge. The avatar is a remote image at whatever size Discord
+   feels like serving, so it needs a fixed box — without one it renders at its
+   intrinsic size and spills out of the bar. */
 .user-profile-badge {
 	display: flex;
 	align-items: center;
-	gap: 0.65rem;
-	background: rgba(255, 255, 255, 0.04);
-	border: 1px solid var(--border-color);
-	padding: 0.3rem 0.75rem;
-	border-radius: 8px;
-	transition: border-color 0.15s ease;
-}
-
-.user-profile-badge:hover {
-	border-color: rgba(255, 255, 255, 0.18);
+	gap: .5rem;
+	min-width: 0;
 }
 
 .user-avatar {
-	width: 26px;
-	height: 26px;
+	width: 28px;
+	height: 28px;
+	flex: none;
 	border-radius: 50%;
+	object-fit: cover;
+	background: var(--sunk);
+	border: 1px solid var(--line);
 }
 
 .user-name {
-	font-size: 0.85rem;
-	font-weight: 600;
-	color: var(--text-primary);
+	font-size: .9rem;
+	font-weight: var(--w-medium);
+	color: var(--ink);
+	max-width: 12ch;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
-/* Container */
-.container {
-	width: 100%;
-	max-width: 1440px;
-	margin: 1.75rem auto 3rem auto;
-	padding: 0 1.5rem;
-	flex: 1;
-}
-
-/* Executive Formal Buttons */
-.btn {
-	background: var(--color-accent);
-	color: #ffffff;
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	padding: 0.65rem 1.35rem;
-	border-radius: 8px;
-	font-family: inherit;
-	font-weight: 600;
-	font-size: 0.9rem;
-	cursor: pointer;
-	transition: all 0.15s ease;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.5rem;
-	text-decoration: none;
-	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.btn:hover {
-	background: var(--color-accent-hover);
-	border-color: rgba(255, 255, 255, 0.2);
-}
-
-.btn-discord {
-	background: var(--color-discord);
-}
-
-.btn-discord:hover {
-	background: var(--color-discord-hover);
-}
-
-.btn-secondary {
-	background: rgba(255, 255, 255, 0.05);
-	color: var(--text-primary);
-	border: 1px solid var(--border-color);
-}
-
-.btn-secondary:hover {
-	background: rgba(255, 255, 255, 0.08);
-	border-color: rgba(255, 255, 255, 0.18);
-}
-
-.btn-sm {
-	padding: 0.4rem 0.75rem;
-	font-size: 0.8rem;
-	border-radius: 6px;
-}
-
-.btn-lg {
-	padding: 0.85rem 1.6rem;
-	font-size: 1rem;
-	border-radius: 10px;
-}
-
-/* Hero Section */
-.hero-section {
-	text-align: center;
-	padding: 3.5rem 1rem 2.5rem 1rem;
-	max-width: 850px;
-	margin: 0 auto 2.5rem auto;
-}
-
-.hero-badge {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	background: rgba(79, 70, 229, 0.1);
-	border: 1px solid rgba(79, 70, 229, 0.25);
-	color: #a5b4fc;
-	padding: 0.35rem 0.9rem;
-	border-radius: 6px;
-	font-size: 0.8rem;
-	font-weight: 600;
-	margin-bottom: 1.25rem;
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-}
-
-.hero-title {
-	font-size: 3rem;
-	font-weight: 800;
-	line-height: 1.15;
-	letter-spacing: -0.03em;
-	color: #ffffff;
-	margin-bottom: 1.15rem;
-}
-
-@media (max-width: 650px) {
-	.hero-title {
-		font-size: 2.15rem;
+@media (max-width: 620px) {
+	.user-name {
+		display: none;
 	}
 }
 
-.hero-subtitle {
-	font-size: 1.1rem;
-	color: var(--text-secondary);
+/* Same problem, bigger box: server icons carry their own width/height inline,
+   this only supplies the shape and the fallback ground for initials. */
+.server-card-avatar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	border-radius: var(--r);
+	object-fit: cover;
+	background: var(--sunk);
+	color: var(--muted);
+	border: 1px solid var(--line);
+	overflow: hidden;
+}
+
+/* --------------------------------------------------------------- buttons */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: .45rem;
+	font-family: var(--font-body);
+	font-size: .93rem;
+	font-weight: var(--w-strong);
+	line-height: 1;
+	padding: .66rem 1.05rem;
+	border-radius: var(--r-sm);
+	border: 1px solid transparent;
+	background: none;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
+}
+
+.btn:disabled {
+	opacity: .45;
+	cursor: not-allowed;
+}
+
+.btn-primary,
+.btn-discord {
+	background: var(--brand);
+	color: var(--on-brand);
+}
+
+.btn-primary:hover:not(:disabled),
+.btn-discord:hover:not(:disabled) {
+	background: var(--brand-hover);
+	text-decoration: none;
+}
+
+.btn-secondary {
+	border-color: var(--line-2);
+	color: var(--ink);
+	background: var(--surface);
+}
+
+.btn-secondary:hover:not(:disabled) {
+	border-color: var(--ink-2);
+	text-decoration: none;
+}
+
+/* The one emphatic control, and only where money is actually owed. Its gold
+   hairline is the same mark that sits beside Megu's name. */
+.btn-pay {
+	background: var(--brand);
+	color: var(--on-brand);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-gold) 60%, transparent);
+}
+
+.btn-pay:hover:not(:disabled) {
+	background: var(--brand-hover);
+	text-decoration: none;
+}
+
+.btn-ghost {
+	color: var(--muted);
+}
+
+.btn-ghost:hover:not(:disabled) {
+	color: var(--ink);
+	text-decoration: none;
+}
+
+.btn-sm {
+	font-size: .85rem;
+	padding: .44rem .75rem;
+}
+
+.btn-lg {
+	font-size: 1rem;
+	padding: .82rem 1.4rem;
+}
+
+.btn-block {
+	width: 100%;
+}
+
+.link-btn {
+	font-size: .87rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	background: none;
+	border: none;
+	padding: .15rem;
+	cursor: pointer;
+	border-radius: 3px;
+}
+
+.link-btn:hover:not(:disabled) {
+	color: var(--ink);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.link-btn:disabled {
+	opacity: .45;
+	cursor: not-allowed;
+}
+
+.link-btn.danger {
+	color: var(--due);
+}
+
+/* ----------------------------------------------------------------- forms */
+
+.form-control {
+	width: 100%;
+	font-size: .95rem;
+	color: var(--ink);
+	background: var(--surface);
+	border: 1px solid var(--line-2);
+	border-radius: var(--r-sm);
+	padding: .6rem .75rem;
+	transition: border-color .15s var(--ease);
+}
+
+.form-control::placeholder {
+	color: var(--faint);
+}
+
+.form-control:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+textarea.form-control {
+	min-height: 84px;
+	resize: vertical;
+}
+
+.field-label {
+	display: block;
+	font-size: .85rem;
+	font-weight: var(--w-strong);
+	color: var(--ink-2);
+	margin-bottom: .35rem;
+}
+
+/* ------------------------------------------------------------------ page */
+
+.stack-lg {
+	display: flex;
+	flex-direction: column;
+	gap: 1.4rem;
+	padding-bottom: 5rem;
+}
+
+/* No block of colour, no label above the heading. The title and the one
+   number the reader came for, on the same paper as everything else. */
+.page-head {
+	padding: 2.6rem 0 .3rem;
+}
+
+.page-head h1 {
+	font-size: clamp(1.75rem, 4.4vw, 2.5rem);
+	margin-bottom: .3rem;
+}
+
+.page-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .1rem .8rem;
+	font-size: .95rem;
+	color: var(--muted);
+}
+
+.page-meta .code {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: .82rem;
+	color: var(--faint);
+}
+
+/* The anchor: what you owe, stated once, in the largest type on the page. */
+.headline-figure {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 1.1rem;
+	margin-top: 1.5rem;
+	padding-top: 1.3rem;
+	border-top: 1px solid var(--line);
+}
+
+.headline-figure .label {
+	font-size: .92rem;
+	color: var(--muted);
+	margin-bottom: .1rem;
+}
+
+.headline-figure .amount {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: clamp(2.2rem, 7vw, 3rem);
+	font-weight: 600;
+	letter-spacing: -.045em;
+	line-height: 1;
+	color: var(--due);
+}
+
+.headline-figure .amount.is-clear {
+	color: var(--settled);
+}
+
+/* ------------------------------------------------------------ Megu speaks */
+
+.megu-says {
+	display: flex;
+	align-items: center;
+	gap: .8rem;
+}
+
+.megu-says .who {
+	display: inline-flex;
+	align-items: center;
+	gap: .35rem;
+	font-size: .78rem;
+	font-weight: var(--w-strong);
+	color: var(--gold);
+}
+
+/* Her signature, and the only gold on the page. */
+.megu-says .who::before {
+	content: '';
+	width: 12px;
+	height: 1px;
+	background: currentColor;
+}
+
+.megu-says p {
+	font-family: var(--font-display);
+	font-size: clamp(1.15rem, 2.6vw, 1.5rem);
+	font-weight: var(--w-strong);
+	line-height: 1.45;
+	color: var(--ink);
+	letter-spacing: -.005em;
+}
+
+/* ------------------------------------------------------------------ chips */
+
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .4rem;
+	align-items: center;
+}
+
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: .4rem;
+	font-size: .86rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	padding: .28rem .7rem;
+	border: 1px solid var(--line);
+	border-radius: 99px;
+	white-space: nowrap;
+}
+
+.chip::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--line-2);
+	flex: none;
+}
+
+.chip-live {
+	color: var(--ink-2);
+}
+
+.chip-live::before {
+	background: var(--accent);
+}
+
+.chip-due {
+	color: var(--due);
+	border-color: color-mix(in srgb, var(--due) 30%, transparent);
+}
+
+.chip-due::before {
+	background: var(--due);
+}
+
+.chip-clear {
+	color: var(--settled);
+	border-color: color-mix(in srgb, var(--settled) 30%, transparent);
+}
+
+.chip-clear::before {
+	background: var(--settled);
+}
+
+/* ----------------------------------------------------------------- panels */
+
+.panel {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	padding: 1.15rem 1.3rem 1.25rem;
+}
+
+.panel-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: .5rem;
+}
+
+.panel-title {
+	font-family: var(--font-display);
+	font-size: 1.18rem;
+	font-weight: var(--w-heavy);
+	color: var(--ink);
+	letter-spacing: -.02em;
+}
+
+.panel-count {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: .84rem;
+	color: var(--faint);
+}
+
+.two-col {
+	display: grid;
+	grid-template-columns: minmax(0, 1.6fr) minmax(260px, .85fr);
+	gap: 1.4rem;
+	align-items: start;
+}
+
+@media (max-width: 900px) {
+	.two-col {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* -------------------------------------------------------------------- rows */
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: .85rem;
+	padding: .72rem 0;
+	border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+	border-bottom: none;
+}
+
+.row-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.row-name {
+	font-size: 1rem;
+	font-weight: var(--w-strong);
+	color: var(--ink);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.row.is-me .row-name {
+	color: var(--accent);
+}
+
+.row-name .me-tag {
+	font-size: .72rem;
+	font-weight: var(--w-medium);
+	color: var(--faint);
+	margin-left: .4rem;
+}
+
+.row-sub {
+	font-size: .86rem;
+	color: var(--muted);
+}
+
+.row-figure {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 1rem;
+	font-weight: var(--w-strong);
+	white-space: nowrap;
+	flex: none;
+	color: var(--ink-2);
+}
+
+.fig-due {
+	color: var(--due);
+}
+
+.fig-clear {
+	color: var(--settled);
+}
+
+.fig-credit {
+	color: var(--accent);
+}
+
+.row-tools {
+	display: flex;
+	align-items: center;
+	gap: .55rem;
+	flex-wrap: wrap;
+	flex: none;
+}
+
+.total-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-top: .3rem;
+	padding-top: .85rem;
+	border-top: 1px solid var(--line-2);
+}
+
+.total-row .label {
+	font-weight: var(--w-strong);
+	font-size: .95rem;
+}
+
+.total-row .amount {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 1.25rem;
+	font-weight: 600;
+	letter-spacing: -.02em;
+}
+
+/* ------------------------------------------------------------------- poll */
+
+.slot {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	padding: .78rem 0;
+	border-bottom: 1px solid var(--line);
+	flex-wrap: wrap;
+}
+
+.slot:last-of-type {
+	border-bottom: none;
+}
+
+.slot-main {
+	flex: 1;
+	min-width: 11rem;
+}
+
+.slot-when {
+	font-size: 1rem;
+	font-weight: var(--w-strong);
+	color: var(--ink);
+}
+
+.slot.leading .slot-when {
+	color: var(--accent);
+}
+
+.slot-tally {
+	display: flex;
+	gap: .75rem;
+	font-size: .84rem;
+	color: var(--muted);
+	margin-top: .1rem;
+}
+
+.slot-tally .up {
+	color: var(--settled);
+}
+
+.slot-tally .down {
+	color: var(--due);
+}
+
+.slot-vote {
+	display: flex;
+	gap: .3rem;
+	flex: none;
+}
+
+.vote-btn {
+	font-size: .86rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	background: var(--surface);
+	border: 1px solid var(--line-2);
+	border-radius: 99px;
+	padding: .34rem .78rem;
+	cursor: pointer;
+	transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+	white-space: nowrap;
+}
+
+.vote-btn:hover:not(:disabled) {
+	border-color: var(--ink-2);
+	color: var(--ink);
+}
+
+.vote-btn.on-yes {
+	background: var(--settled-soft);
+	border-color: color-mix(in srgb, var(--settled) 40%, transparent);
+	color: var(--settled);
+	font-weight: var(--w-strong);
+}
+
+.vote-btn.on-maybe {
+	background: var(--sunk);
+	border-color: var(--line-2);
+	color: var(--ink);
+	font-weight: var(--w-strong);
+}
+
+.vote-btn.on-no {
+	background: var(--due-soft);
+	border-color: color-mix(in srgb, var(--due) 35%, transparent);
+	color: var(--due);
+	font-weight: var(--w-strong);
+}
+
+.verdict {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-top: .9rem;
+	padding-top: .95rem;
+	border-top: 1px solid var(--line-2);
+}
+
+.verdict-when {
+	font-family: var(--font-display);
+	font-size: 1.2rem;
+	font-weight: var(--w-heavy);
+	letter-spacing: -.015em;
+	color: var(--ink);
+}
+
+/* -------------------------------------------------------------- name pick */
+
+.names {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .45rem;
+}
+
+.name-btn {
+	font-family: var(--font-body);
+	font-size: .98rem;
+	font-weight: var(--w-medium);
+	color: var(--ink);
+	background: var(--surface);
+	border: 1px solid var(--line-2);
+	border-radius: 99px;
+	padding: .44rem 1rem;
+	cursor: pointer;
+	transition: border-color .15s var(--ease), color .15s var(--ease);
+}
+
+.name-btn:hover:not(:disabled) {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+.name-btn:disabled {
+	opacity: .4;
+	cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------ month strip */
+
+.months {
+	display: flex;
+	gap: .3rem;
+	overflow-x: auto;
+	padding-bottom: .15rem;
+}
+
+.month-btn {
+	font-size: .87rem;
+	font-weight: var(--w-medium);
+	white-space: nowrap;
+	color: var(--muted);
+	background: none;
+	border: 1px solid transparent;
+	border-radius: 99px;
+	padding: .3rem .75rem;
+	cursor: pointer;
+	transition: color .15s var(--ease), background .15s var(--ease);
+}
+
+.month-btn:hover {
+	color: var(--ink);
+}
+
+.month-btn.current {
+	background: var(--sunk);
+	border-color: var(--line);
+	color: var(--ink);
+	font-weight: var(--w-strong);
+}
+
+/* ---------------------------------------------------------------- editing */
+
+.row-editing {
+	background: var(--sunk);
+	border-radius: var(--r-sm);
+	border-bottom: none;
+	margin: .2rem -.6rem;
+	padding: .5rem .6rem;
+}
+
+.inline-input {
+	padding: .38rem .55rem;
+	font-size: .93rem;
+	min-width: 0;
+}
+
+.inline-input.mono {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	max-width: 7rem;
+	text-align: right;
+}
+
+.row-tools .inline-input {
+	max-width: 8.5rem;
+}
+
+/* -------------------------------------------------------------- utilities */
+
+.quiet-note {
+	font-size: .93rem;
+	color: var(--muted);
+}
+
+.error-note {
+	background: var(--due-soft);
+	color: var(--due);
+	border: 1px solid color-mix(in srgb, var(--due) 25%, transparent);
+	border-radius: var(--r-sm);
+	padding: .7rem .9rem;
+	font-size: .9rem;
+}
+
+/* Something the reader needs to know that is not an error and not a state of
+   their data — so it takes no signal colour, only weight. `--due` here would
+   read as "you owe money", which is the one thing this design reserves it for. */
+.notice {
+	background: var(--sunk);
+	color: var(--ink-2);
+	border: 1px solid var(--line-2);
+	border-radius: var(--r-sm);
+	padding: .8rem 1rem;
+	font-size: .9rem;
 	line-height: 1.6;
-	margin-bottom: 2.25rem;
-	font-weight: 400;
+}
+
+.notice strong {
+	color: var(--ink);
+}
+
+.notice code {
+	font-family: var(--font-mono);
+	font-size: .85em;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: .1em .4em;
+}
+
+.share-row {
+	display: flex;
+	gap: .45rem;
+	align-items: center;
+}
+
+.share-row input {
+	flex: 1;
+	font-family: var(--font-mono);
+	font-size: .8rem;
+	min-width: 0;
+	background: var(--sunk);
+	border-color: var(--line);
+}
+
+.center-screen {
+	min-height: 60vh;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	text-align: center;
+}
+
+.theme-toggle {
+	display: grid;
+	place-items: center;
+	width: 32px;
+	height: 32px;
+	border: 1px solid var(--line);
+	border-radius: 50%;
+	background: none;
+	color: var(--muted);
+	cursor: pointer;
+	transition: color .15s var(--ease), border-color .15s var(--ease);
+}
+
+.theme-toggle:hover {
+	color: var(--ink);
+	border-color: var(--line-2);
+}
+
+/* Prose columns for the home page. Not cards: a row of same-size boxes is a
+   container choosing itself over the content. */
+.prose-list {
+	display: grid;
+	gap: 2.2rem;
+	grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+	padding-bottom: 5rem;
+}
+
+.prose-list h3 {
+	font-size: 1.1rem;
+	margin-bottom: .3rem;
+}
+
+.prose-list p {
+	color: var(--muted);
+	font-size: .95rem;
+	max-width: 34ch;
+}
+
+.lede {
+	font-size: 1.08rem;
+	color: var(--muted);
+	max-width: 52ch;
+	line-height: 1.6;
+}
+
+.hero-block {
+	padding: clamp(3rem, 8vw, 5.5rem) 0 2.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.05rem;
+	align-items: flex-start;
+}
+
+.hero-block h1 {
+	font-size: clamp(2rem, 5.5vw, 3.1rem);
+	max-width: 17ch;
 }
 
 .hero-actions {
 	display: flex;
-	justify-content: center;
-	gap: 1rem;
+	gap: .6rem;
 	flex-wrap: wrap;
 }
 
-/* Feature Cards Section */
-.features-header {
-	text-align: center;
-	margin-bottom: 2.25rem;
+/* ---------------------------------------------------------------- footer */
+
+.footer {
+	border-top: 1px solid var(--line);
+	padding: 1.4rem 1.5rem;
+	margin-top: 3rem;
 }
 
-.features-header h2 {
-	font-size: 1.85rem;
-	font-weight: 700;
-	color: #ffffff;
-	margin-bottom: 0.5rem;
-}
-
-.features-header p {
-	color: var(--text-secondary);
-	font-size: 0.95rem;
-}
-
-.features-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-	gap: 1.25rem;
-	margin-bottom: 3.5rem;
-}
-
-.feature-card {
-	background: var(--bg-card);
-	border: 1px solid var(--border-color);
-	border-radius: 14px;
-	padding: 1.6rem;
-	transition: all 0.2s ease;
+.footer-inner {
+	max-width: 1060px;
+	margin: 0 auto;
 	display: flex;
-	flex-direction: column;
-	gap: 0.75rem;
+	justify-content: space-between;
+	align-items: center;
+	gap: 1rem;
+	flex-wrap: wrap;
+	font-size: .85rem;
+	color: var(--faint);
 }
 
-.feature-card:hover {
-	background: var(--bg-card-hover);
-	border-color: var(--border-color-hover);
-}
-
-.feature-icon {
-	font-size: 1.6rem;
-	width: 44px;
-	height: 44px;
-	background: rgba(255, 255, 255, 0.04);
-	border: 1px solid var(--border-color);
-	border-radius: 10px;
+.footer-left {
 	display: flex;
 	align-items: center;
-	justify-content: center;
+	gap: .5rem;
 }
 
-.feature-title {
-	font-size: 1.15rem;
-	font-weight: 700;
-	color: #ffffff;
+.footer-divider {
+	color: var(--line-2);
 }
 
-.feature-desc {
-	color: var(--text-secondary);
-	font-size: 0.9rem;
-	line-height: 1.55;
+.footer-right,
+.footer-text {
+	color: var(--faint);
 }
 
-/* Formal Panel & Cards */
-.card-panel {
-	background: var(--bg-card);
-	border: 1px solid var(--border-color);
-	border-radius: 14px;
-	padding: 1.75rem;
-	margin-bottom: 2rem;
+/* ----------------------------------------------------------------- motion */
+
+/* One entrance for the page, not one per section. */
+@keyframes rise {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
 }
 
-/* Dashboard Config Layout (Sidebar + Tab Content) */
+.rise {
+	animation: rise .38s var(--ease) backwards;
+}
+
+.rise-2 {
+	animation-delay: .05s;
+}
+
+.rise-3 {
+	animation-delay: .1s;
+}
+
+@media (max-width: 720px) {
+	.container {
+		padding: 0 1.1rem;
+	}
+
+	.navbar {
+		padding: 0 .9rem;
+	}
+
+	.nav-menu {
+		display: none;
+	}
+
+	.page-head {
+		padding-top: 1.8rem;
+	}
+
+	.row {
+		flex-wrap: wrap;
+	}
+}
+
+/* ========================================================================== 
+   The one loud moment
+
+   Quiet everywhere is not restraint, it is absence — the page needs somewhere
+   for the eye to land. Each surface spends its boldness once and stays calm
+   around it: the home page on Megu herself, the activity page on the number
+   the reader came for.
+   ========================================================================== */
+
+.hero-block {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: clamp(1rem, 3vw, 2.5rem);
+	padding: clamp(3rem, 10vw, 7rem) 0 clamp(3rem, 8vw, 5.5rem);
+	border-bottom: 1px solid var(--line);
+	overflow: hidden;
+}
+
+.hero-copy {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 1.15rem;
+}
+
+/* The column is evenly gapped, but the eyebrow belongs to the headline rather
+   than standing as its own beat, so it is pulled back against it. */
+.hero-copy .eyebrow {
+	margin-bottom: -.75rem;
+}
+
+.hero-block h1 {
+	font-size: clamp(2.7rem, 8.2vw, 5.4rem);
+	line-height: .95;
+	letter-spacing: -.05em;
+	max-width: 11ch;
+}
+
+/* One word carries the accent. Solid colour, never a gradient. */
+.hero-block h1 em {
+	font-style: normal;
+	color: var(--accent);
+}
+
+/* Megu is the loud moment on this page, so she has to be whole. She used to
+   bleed off the right edge, which the hero's overflow then cut her whiskers
+   off with — the crop read as a broken image, not as a deliberate bleed. */
+.hero-portrait {
+	justify-self: end;
+	flex: none;
+	max-width: 100%;
+	height: auto;
+	filter: drop-shadow(0 24px 40px rgba(22, 24, 31, .13));
+}
+
+@media (max-width: 780px) {
+	.hero-block {
+		grid-template-columns: 1fr;
+		gap: 1.75rem;
+	}
+
+	.hero-portrait {
+		justify-self: start;
+		order: -1;
+	}
+}
+
+/* The four steps are a real sequence — ถาม, ฟันธง, หาร, ทวง happen in that
+   order — so the numbers carry information rather than decorating. */
+.flow {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	gap: 0;
+	padding: clamp(3rem, 6vw, 4.5rem) 0 clamp(2rem, 5vw, 3.5rem);
+}
+
+.flow-step {
+	padding: .3rem 1.6rem .3rem 0;
+	border-left: 1px solid var(--line);
+	padding-left: 1.4rem;
+}
+
+.flow-step:first-child {
+	border-left: none;
+	padding-left: 0;
+}
+
+@media (max-width: 780px) {
+	.flow-step {
+		border-left: none;
+		padding-left: 0;
+		padding-bottom: 1.6rem;
+	}
+}
+
+.flow-index {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: clamp(2rem, 4vw, 2.9rem);
+	font-weight: 600;
+	letter-spacing: -.05em;
+	line-height: 1;
+	color: var(--line-2);
+	display: block;
+	margin-bottom: .75rem;
+}
+
+.flow-index .word {
+	display: block;
+	font-family: var(--font-body);
+	font-size: .8rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .02em;
+	color: var(--accent);
+	margin-top: .5rem;
+}
+
+.flow-step h3 {
+	font-size: 1.32rem;
+	letter-spacing: -.025em;
+	margin-bottom: .4rem;
+}
+
+.flow-step p {
+	color: var(--muted);
+	font-size: .95rem;
+	max-width: 30ch;
+}
+
+/* ------------------------------------------------------- the server half */
+
+/* A small caps line that says what kind of thing you are looking at before
+   the heading says what it does. Never coloured — it is orientation, not
+   emphasis, and the page spends its colour elsewhere. */
+.eyebrow {
+	display: block;
+	font-size: .78rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .1em;
+	text-transform: uppercase;
+	color: var(--faint);
+}
+
+.section-head {
+	display: flex;
+	flex-direction: column;
+	gap: .55rem;
+	max-width: 60ch;
+	margin-bottom: clamp(1.8rem, 4vw, 2.6rem);
+}
+
+.section-head h2 {
+	font-size: clamp(1.7rem, 4.4vw, 2.5rem);
+	letter-spacing: -.035em;
+	line-height: 1.08;
+}
+
+.server-side {
+	padding: clamp(3rem, 7vw, 5rem) 0;
+	border-top: 1px solid var(--line);
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
+/* Filled surfaces rather than rules, because these are peers with no order
+   between them — the opposite of .flow directly above. */
+.capabilities {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+	gap: .8rem;
+	width: 100%;
+	margin-bottom: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.capability {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	padding: 1.15rem 1.25rem 1.3rem;
+}
+
+.capability h3 {
+	font-size: 1.08rem;
+	letter-spacing: -.02em;
+	margin-bottom: .4rem;
+}
+
+.capability p {
+	color: var(--muted);
+	font-size: .92rem;
+	line-height: 1.62;
+}
+
+.closing {
+	padding: clamp(3rem, 7vw, 5rem) 0 6rem;
+	border-top: 1px solid var(--line);
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 1rem;
+}
+
+.closing h2 {
+	font-size: clamp(1.7rem, 4.4vw, 2.5rem);
+	letter-spacing: -.035em;
+	line-height: 1.08;
+}
+
+/* The activity page's anchor gets a real scale jump, not a polite one. */
+.headline-figure .amount {
+	font-size: clamp(3.2rem, 13vw, 5.4rem);
+	letter-spacing: -.055em;
+}
+
+.headline-figure .label {
+	font-size: .8rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	color: var(--faint);
+	margin-bottom: .35rem;
+}
+
+.page-head h1 {
+	font-size: clamp(2.1rem, 6vw, 3.4rem);
+	letter-spacing: -.04em;
+	line-height: 1.02;
+}
+
+/* Megu is present on the activity page too, at a size that reads as a
+   character rather than a favicon. */
+.megu-says {
+	gap: 1rem;
+	padding: .2rem 0;
+}
+
+/* ==========================================================================
+   The bot console
+
+   /servers and /servers/[guildId] were built against an earlier, dark-only
+   palette whose tokens this stylesheet no longer defines. Rather than freeze
+   the console in that palette, the old names are kept as aliases onto the
+   current ones — so the console inherits this design system, and gains a
+   light theme it never had, without rewriting fifteen files.
+   ========================================================================== */
+
+:root {
+	--text-primary: var(--ink);
+	--text-secondary: var(--muted);
+	--text-muted: var(--faint);
+	--border-color: var(--line);
+	--color-accent: var(--accent);
+}
+
+/* ------------------------------------------------------- console layout */
+
 .config-layout {
 	display: grid;
-	grid-template-columns: 240px minmax(0, 1fr);
-	gap: 1.5rem;
+	grid-template-columns: 15rem minmax(0, 1fr);
+	gap: 1.25rem;
 	align-items: start;
+	padding-bottom: 4rem;
 }
 
-@media (max-width: 850px) {
+@media (max-width: 860px) {
 	.config-layout {
 		grid-template-columns: 1fr;
 	}
@@ -374,434 +1497,293 @@ code, pre, .tag-badge {
 .sidebar-menu {
 	display: flex;
 	flex-direction: column;
-	gap: 0.4rem;
-	background: var(--bg-card);
-	border: 1px solid var(--border-color);
-	border-radius: 14px;
-	padding: 0.85rem;
+	gap: .15rem;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	padding: .5rem;
 	position: sticky;
-	top: 88px;
-	height: fit-content;
+	top: calc(var(--nav-h) + 1rem);
 }
 
-.sidebar-menu .tab-btn {
-	width: 100%;
-	justify-content: flex-start;
-	padding: 0.75rem 1rem;
-	font-size: 0.875rem;
-	text-align: left;
-	border-radius: 8px;
+@media (max-width: 860px) {
+	.sidebar-menu {
+		position: static;
+		flex-direction: row;
+		overflow-x: auto;
+	}
 }
 
-.config-layout > .card-panel {
-	min-height: 560px;
-	display: flex;
-	flex-direction: column;
-}
-
-/* Navigation Tabs Header */
-.tabs-header {
-	display: flex;
-	gap: 0.4rem;
-	border-bottom: 1px solid var(--border-color);
-	margin-bottom: 1.75rem;
-	overflow-x: auto;
-	padding-bottom: 0.25rem;
-}
-
+/* Also the navbar's links, where `.nav-menu a` supplies the type — here the
+   same class has to carry the whole button. */
 .tab-btn {
-	background: transparent;
-	border: none;
-	color: var(--text-secondary);
-	padding: 0.65rem 1.15rem;
-	font-size: 0.875rem;
-	font-weight: 600;
-	cursor: pointer;
-	border-radius: 8px;
-	transition: all 0.15s ease;
+	font-family: var(--font-body);
+	font-size: .92rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	text-align: left;
 	white-space: nowrap;
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
+	background: none;
+	border: 1px solid transparent;
+	border-radius: var(--r-sm);
+	padding: .5rem .7rem;
+	cursor: pointer;
+	transition: background .15s var(--ease), color .15s var(--ease);
 }
 
 .tab-btn:hover {
-	color: var(--text-primary);
-	background: rgba(255, 255, 255, 0.04);
+	color: var(--ink);
+	background: var(--sunk);
 }
 
 .tab-btn.active {
-	color: #ffffff;
-	background: rgba(79, 70, 229, 0.15);
-	border: 1px solid rgba(79, 70, 229, 0.3);
+	color: var(--ink);
+	font-weight: var(--w-strong);
+	background: var(--accent-soft);
 }
 
-/* Server Cards Grid */
-.server-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-	gap: 1.5rem;
-}
-
-.server-card {
-	background: var(--bg-card);
-	border: 1px solid var(--border-color);
-	border-radius: 16px;
-	overflow: hidden;
-	display: flex;
-	flex-direction: column;
-	min-height: 290px;
-	transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-	position: relative;
-}
-
-.server-card:hover {
-	background: var(--bg-card-hover);
-	border-color: rgba(99, 102, 241, 0.4);
-	transform: translateY(-4px);
-	box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 20px rgba(99, 102, 241, 0.15);
-}
-
-.server-card-banner {
-	height: 110px;
-	width: 100%;
-	position: relative;
-	background-size: cover;
-	background-position: center;
-	background-repeat: no-repeat;
-	display: flex;
-	justify-content: space-between;
-	align-items: flex-start;
-	padding: 0.85rem 1rem;
-}
-
-.server-card-banner::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(18, 24, 38, 0.75) 100%);
-	pointer-events: none;
-}
-
-.server-card-banner > * {
-	position: relative;
-	z-index: 2;
-}
-
-.server-card-avatar-wrapper {
-	position: relative;
-	margin-top: -38px;
-	margin-left: 1.25rem;
-	width: 68px;
-	height: 68px;
-	z-index: 3;
-}
-
-.server-card-avatar {
-	width: 68px;
-	height: 68px;
-	border-radius: 18px;
-	object-fit: cover;
-	flex-shrink: 0;
-	background: #121826;
-	border: 3px solid var(--bg-card);
-	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-weight: 800;
-	font-size: 1.3rem;
-	color: #ffffff;
-}
-
-.server-card-body {
-	padding: 0.85rem 1.25rem 1.25rem;
-	display: flex;
-	flex-direction: column;
-	flex: 1;
-	justify-content: space-between;
-	gap: 1rem;
-}
-
-.server-card-title {
-	font-size: 1.15rem;
-	font-weight: 700;
-	color: #ffffff;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	margin-bottom: 0.25rem;
-}
-
-.server-card-details {
-	display: flex;
-	align-items: center;
-	gap: 0.65rem;
-	font-size: 0.8rem;
-	color: var(--text-secondary);
-}
-
-.server-card-badges {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	flex-wrap: wrap;
-}
-
-.server-role-badge {
-	font-size: 0.75rem;
-	font-weight: 600;
-	background: rgba(0, 0, 0, 0.45);
-	backdrop-filter: blur(8px);
-	border: 1px solid rgba(255, 255, 255, 0.15);
-	padding: 0.2rem 0.6rem;
-	border-radius: 6px;
-	color: #ffffff;
-}
-
-.server-status-badge {
-	font-size: 0.75rem;
-	font-weight: 600;
-	padding: 0.2rem 0.6rem;
-	border-radius: 6px;
-	display: inline-flex;
-	align-items: center;
-	gap: 0.35rem;
-	backdrop-filter: blur(8px);
-}
-
-.server-status-badge.status-online {
-	background: rgba(16, 185, 129, 0.2);
-	border: 1px solid rgba(16, 185, 129, 0.45);
-	color: #34d399;
-}
-
-.server-status-badge.status-offline {
-	background: rgba(239, 68, 68, 0.2);
-	border: 1px solid rgba(239, 68, 68, 0.45);
-	color: #f87171;
-}
-
-.server-card-footer {
-	margin-top: auto;
-}
-
-.server-card-btn {
-	width: 100%;
-	padding: 0.65rem 1rem;
-	font-weight: 600;
-}
-
-/* Status Badge */
-.status-badge {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	background: rgba(16, 185, 129, 0.1);
-	border: 1px solid rgba(16, 185, 129, 0.25);
-	color: #34d399;
-	padding: 0.35rem 0.85rem;
-	border-radius: 6px;
-	font-size: 0.8rem;
-	font-weight: 600;
-}
-
-.status-dot {
-	width: 7px;
-	height: 7px;
-	background-color: #10b981;
-	border-radius: 50%;
-	box-shadow: 0 0 6px var(--glow-success);
-}
-
-/* Grid Layouts */
-.grid-2 {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-	gap: 1.25rem;
-}
-
-.grid-3 {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-	gap: 1.25rem;
-}
-
-.grid-4 {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-	gap: 1.25rem;
-}
-
-/* Metric Card */
-.metric-card {
-	background: rgba(255, 255, 255, 0.03);
-	border: 1px solid var(--border-color);
-	border-radius: 10px;
-	padding: 1.25rem;
-	display: flex;
-	flex-direction: column;
-	gap: 0.35rem;
-}
-
-.metric-title {
-	font-size: 0.8rem;
-	font-weight: 600;
-	color: var(--text-secondary);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-}
-
-.metric-val {
-	font-size: 1.6rem;
-	font-weight: 700;
-	color: #ffffff;
-	letter-spacing: -0.02em;
-}
-
-/* Form Controls */
-.form-group {
+.card-panel {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	padding: 1.3rem 1.4rem 1.5rem;
 	margin-bottom: 1.25rem;
+}
+
+/* --------------------------------------------------------- console forms */
+
+.form-group {
+	margin-bottom: 1.1rem;
 }
 
 .form-label {
 	display: block;
-	font-size: 0.85rem;
-	font-weight: 600;
-	color: var(--text-primary);
-	margin-bottom: 0.4rem;
+	font-size: .85rem;
+	font-weight: var(--w-strong);
+	color: var(--ink-2);
+	margin-bottom: .35rem;
 }
 
-.form-control {
-	width: 100%;
-	background: rgba(11, 15, 23, 0.8);
-	border: 1px solid var(--border-color);
-	border-radius: 8px;
-	padding: 0.65rem 0.9rem;
-	color: var(--text-primary);
-	font-family: inherit;
-	font-size: 0.9rem;
-	outline: none;
-	transition: border-color 0.15s ease;
+.placeholder-tags {
+	font-family: var(--font-mono);
+	font-size: .82rem;
+	color: var(--faint);
+	margin-top: .4rem;
+	word-break: break-all;
 }
 
-.form-control:focus {
-	border-color: var(--color-accent);
+.color-swatch {
+	width: 1.6rem;
+	height: 1.6rem;
+	border-radius: var(--r-sm);
+	border: 1px solid var(--line-2);
+	padding: 0;
+	cursor: pointer;
 }
 
-/* Floating Save Bar */
+/* -------------------------------------------------------------- badges */
+
+/* Counts and states, not decoration — they stay on the neutral ramp unless
+   the state itself carries meaning, which only online/offline does. */
+.status-badge,
+.server-status-badge,
+.server-role-badge,
+.tag-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: .35rem;
+	font-size: .78rem;
+	font-weight: var(--w-strong);
+	line-height: 1;
+	padding: .3rem .55rem;
+	border-radius: 99px;
+	border: 1px solid var(--line);
+	background: var(--sunk);
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.server-status-badge.status-online {
+	background: var(--settled-soft);
+	border-color: color-mix(in srgb, var(--settled) 25%, transparent);
+	color: var(--settled);
+}
+
+.server-status-badge.status-offline {
+	background: var(--due-soft);
+	border-color: color-mix(in srgb, var(--due) 25%, transparent);
+	color: var(--due);
+}
+
+.status-dot {
+	width: .42rem;
+	height: .42rem;
+	border-radius: 50%;
+	background: currentColor;
+	flex: none;
+}
+
+/* --------------------------------------------------------- save bar, toast */
+
 .floating-save-bar {
 	position: fixed;
-	bottom: 1.5rem;
 	left: 50%;
+	bottom: 1.25rem;
 	transform: translateX(-50%);
 	z-index: 90;
-	background: rgba(18, 24, 38, 0.95);
-	backdrop-filter: blur(16px);
-	border: 1px solid rgba(79, 70, 229, 0.4);
-	border-radius: 12px;
-	padding: 0.85rem 1.75rem;
 	display: flex;
 	align-items: center;
-	gap: 1.5rem;
-	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-}
-
-/* Formal Footer */
-.footer {
-	width: 100%;
-	border-top: 1px solid var(--border-color);
-	background: rgba(11, 15, 23, 0.95);
-	padding: 1.25rem 2rem;
-	margin-top: auto;
-}
-
-.footer-inner {
-	max-width: 1440px;
-	margin: 0 auto;
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	flex-wrap: wrap;
 	gap: 1rem;
-	font-size: 0.85rem;
+	max-width: calc(100vw - 2rem);
+	background: var(--surface);
+	border: 1px solid var(--line-2);
+	border-radius: var(--r);
+	padding: .75rem 1rem;
+	box-shadow: 0 12px 32px rgba(22, 24, 31, .16);
 }
 
-.footer-left {
-	display: flex;
-	align-items: center;
-	gap: 0.65rem;
-	color: var(--text-secondary);
-}
-
-.footer-divider {
-	color: var(--border-color);
-	margin: 0 0.25rem;
-}
-
-.footer-text {
-	color: var(--text-muted);
-}
-
-.footer-right {
-	color: var(--text-muted);
-	font-size: 0.8rem;
-}
-
-/* Executive Toast Notification */
+/* The container had no rule at all, so every save confirmation in the console
+   rendered as bare text in the document flow. The dot carries the outcome;
+   the panel itself stays neutral, like every other surface here. */
 .toast-notification {
 	position: fixed;
-	bottom: 32px;
-	right: 32px;
-	z-index: 9999;
+	right: 1.25rem;
+	bottom: 1.25rem;
+	z-index: 200;
 	display: flex;
 	align-items: center;
-	gap: 0.75rem;
-	background: rgba(18, 24, 38, 0.95);
-	backdrop-filter: blur(16px);
-	border: 1px solid var(--border-color);
-	padding: 0.85rem 1.35rem;
-	border-radius: 10px;
-	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-	font-size: 0.875rem;
-	font-weight: 500;
-	color: #ffffff;
-	animation: toastSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+	gap: .6rem;
+	max-width: min(28rem, calc(100vw - 2.5rem));
+	background: var(--surface);
+	border: 1px solid var(--line-2);
+	border-radius: var(--r);
+	padding: .7rem .95rem;
+	box-shadow: 0 12px 32px rgba(22, 24, 31, .18);
+	animation: rise .28s var(--ease) backwards;
 }
 
-.toast-notification.toast-success {
-	border-color: rgba(16, 185, 129, 0.35);
+.toast-success {
+	color: var(--settled);
 }
 
-.toast-notification.toast-success .toast-dot {
-	background: #10b981;
-	box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
-}
-
-.toast-notification.toast-error {
-	border-color: rgba(239, 68, 68, 0.35);
-}
-
-.toast-notification.toast-error .toast-dot {
-	background: #ef4444;
-	box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+.toast-error {
+	color: var(--due);
 }
 
 .toast-dot {
-	width: 8px;
-	height: 8px;
+	width: .5rem;
+	height: .5rem;
 	border-radius: 50%;
-	flex-shrink: 0;
+	background: currentColor;
+	flex: none;
 }
 
-@keyframes toastSlideIn {
-	from {
-		opacity: 0;
-		transform: translateY(12px) scale(0.96);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0) scale(1);
-	}
+.toast-message {
+	font-size: .9rem;
+	font-weight: var(--w-medium);
+	color: var(--ink);
+}
+
+/* --------------------------------------------------------- server cards */
+
+.server-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+	gap: 1rem;
+}
+
+.server-card {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	overflow: hidden;
+	transition: border-color .15s var(--ease);
+}
+
+.server-card:hover {
+	border-color: var(--line-2);
+}
+
+/* The banner is the server's own artwork, so it is the one place on this page
+   allowed to be loud. Everything below it stays on the neutral ramp. */
+.server-card-banner {
+	height: 5.25rem;
+	width: 100%;
+	object-fit: cover;
+	background: var(--sunk);
+	display: block;
+}
+
+.server-card-badges {
+	position: absolute;
+	top: .6rem;
+	left: .6rem;
+	right: .6rem;
+	display: flex;
+	justify-content: space-between;
+	gap: .5rem;
+	pointer-events: none;
+}
+
+/* Over artwork these need their own ground rather than the page's. */
+.server-card-badges .server-role-badge,
+.server-card-badges .server-status-badge {
+	background: color-mix(in srgb, var(--surface) 88%, transparent);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+}
+
+.server-card-avatar-wrapper {
+	margin: -1.75rem 0 0 1.1rem;
+	width: 3.25rem;
+	height: 3.25rem;
+	border-radius: var(--r);
+	border: 2px solid var(--surface);
+	background: var(--surface);
+	overflow: hidden;
+	position: relative;
+	z-index: 1;
+}
+
+.server-card-avatar-wrapper .server-card-avatar {
+	width: 100%;
+	height: 100%;
+	border: none;
+	border-radius: 0;
+}
+
+.server-card-body {
+	padding: .7rem 1.1rem 0;
+	flex: 1;
+}
+
+.server-card-title {
+	font-family: var(--font-display);
+	font-size: 1.05rem;
+	font-weight: var(--w-strong);
+	letter-spacing: -.02em;
+	color: var(--ink);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.server-card-details {
+	font-size: .82rem;
+	color: var(--faint);
+	margin-top: .15rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.server-card-footer {
+	padding: .9rem 1.1rem 1.1rem;
+}
+
+.server-card-btn {
+	width: 100%;
 }

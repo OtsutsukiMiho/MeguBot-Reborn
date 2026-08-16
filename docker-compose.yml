@@ -1,0 +1,31 @@
+# Local Postgres for Megu development and tests.
+#
+# Nothing here ever touches the Supabase instance the live bot uses. Core picks
+# this up through MEGU_DATABASE_URL; leave that variable unset in production and
+# core falls back to DATABASE_URL.
+#
+#   docker compose up -d      start
+#   docker compose down       stop, keep data
+#   docker compose down -v    stop and wipe the volume
+
+services:
+  megu-db:
+    image: postgres:16-alpine
+    container_name: megu-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: megu
+      POSTGRES_PASSWORD: megu_dev
+      POSTGRES_DB: megu_dev
+    ports:
+      - '55432:5432'
+    volumes:
+      - megu-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U megu -d megu_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  megu-db-data:

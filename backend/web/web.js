@@ -11,6 +11,11 @@ if (fs.existsSync('.env')) {
 
 const { BotLogs, COLOR, parseReactionRolesMap, getRecentLogs, addLogEntry } = require('../bot/bot_functions.js');
 const database = require('../database/database.js');
+const core = require('../../core/index.js');
+const meguApi = require('../../adapters/http/megu-api.js');
+const discordOAuth = require('../../adapters/discord/oauth.js');
+
+core.setLogger((scope, message) => BotLogs(scope, message));
 
 let config = {};
 try {
@@ -178,6 +183,14 @@ function sendIpcRequest(payload, timeoutMs = 3000) {
 	});
 }
 
+app.use('/api/megu', meguApi.router({
+	botPresence: async (guildIds) => {
+		const ipcRes = await sendIpcRequest({ type: 'check_guilds_presence', guildIds });
+		const presence = (ipcRes && ipcRes.presence) ? ipcRes.presence : {};
+		return Object.keys(presence).filter(id => presence[id]);
+	},
+}));
+
 function requireAdminGuild(req, res, next) {
 	if (!req.session || !req.session.user || !req.session.adminGuilds) {
 		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
@@ -323,7 +336,7 @@ app.get('/api/auth/callback', async (req, res) => {
 			<!DOCTYPE html>
 			<html>
 			<head>
-				<title>Authentication Error - MeguBotReborn</title>
+				<title>Authentication Error - Megu</title>
 				<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
 				<style>
 					body { background: #030712; color: #f3f4f6; font-family: 'Outfit', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 1.5rem; }
@@ -395,6 +408,22 @@ app.get('/api/auth/callback', async (req, res) => {
 			return (permissions & ADMINISTRATOR) === ADMINISTRATOR || (permissions & MANAGE_GUILD) === MANAGE_GUILD;
 		});
 
+		// Mirror the Discord login into a Megu account so activities have an
+		// owner, and adopt any participant rows created for this person before
+		// they ever signed in.
+		let meguUserId = null;
+		try {
+			const { user: meguUser } = await core.users.loginWithIdentity(discordOAuth.toIdentityProfile(userData));
+			meguUserId = meguUser.id;
+			const { claimed } = await core.users.claimParticipants(meguUserId);
+			if (claimed > 0) {
+				BotLogs('Megu', `${COLOR.white}${userData.username}${COLOR.reset} claimed ${COLOR.white}${claimed}${COLOR.reset} past activities`);
+			}
+		}
+		catch (error) {
+			BotLogs('Megu', `${COLOR.red}Could not create Megu account for ${userData.username}: ${error.message}`);
+		}
+
 		req.session.regenerate((err) => {
 			if (err) {
 				BotLogs('SYSTEM', `Session regenerate error: ${err.toString()}`);
@@ -407,6 +436,16 @@ app.get('/api/auth/callback', async (req, res) => {
 				global_name: userData.global_name || userData.username,
 				avatar: userData.avatar,
 			};
+			req.session.meguUserId = meguUserId;
+
+			// Every guild, not just the manageable ones: an ordinary member
+			// still sees a server Megu lives in, just without the settings.
+			req.session.allGuilds = (Array.isArray(guildsData) ? guildsData : []).map(g => ({
+				id: g.id,
+				name: g.name,
+				icon: g.icon,
+				permissions: g.permissions,
+			}));
 
 			req.session.adminGuilds = adminGuilds.map(g => ({
 				id: g.id,
@@ -424,7 +463,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
 			req.session.save(() => {
 				BotLogs('Web', `User ${COLOR.white}${userData.username}${COLOR.reset} authenticated with ${COLOR.white}${adminGuilds.length}${COLOR.reset} admin servers`);
-				res.redirect('/#dashboard');
+				res.redirect('/activities');
 			});
 		});
 	}
@@ -470,12 +509,22 @@ app.get('/api/guilds', async (req, res) => {
 	const guildIds = userGuilds.map(g => g.id);
 
 	const ipcRes = await sendIpcRequest({ type: 'check_guilds_presence', guildIds });
+
+	// A null response means the bot could not be reached at all — no IPC channel
+	// (web.js started standalone instead of forked by index.js), the bot process
+	// down, or the request timed out. That is NOT the same as the bot being
+	// absent from every server, so it is reported separately rather than
+	// collapsed into isBotInGuild: false for all of them.
+	const botOnline = ipcRes !== null;
 	const presenceMap = (ipcRes && ipcRes.presence) ? ipcRes.presence : {};
 	const guildInfoMap = (ipcRes && ipcRes.guildInfo) ? ipcRes.guildInfo : {};
 
+	if (!botOnline) {
+		BotLogs('Web', `${COLOR.yellow}Guild presence unavailable — bot process unreachable. Servers will report an unknown state.`);
+	}
+
 	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 	const enrichedGuilds = userGuilds.map(g => {
-		const isBotInGuild = !!presenceMap[g.id];
 		const botInfo = guildInfoMap[g.id] || {};
 		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${g.id}`;
 		return {
@@ -483,12 +532,12 @@ app.get('/api/guilds', async (req, res) => {
 			banner: g.banner || botInfo.banner,
 			splash: g.splash || botInfo.splash,
 			memberCount: botInfo.memberCount,
-			isBotInGuild,
+			isBotInGuild: botOnline ? !!presenceMap[g.id] : null,
 			inviteUrl,
 		};
 	});
 
-	res.json({ success: true, guilds: enrichedGuilds });
+	res.json({ success: true, botOnline, guilds: enrichedGuilds });
 });
 
 app.get('/api/guilds/:guildId', requireAdminGuild, async (req, res) => {
@@ -1190,6 +1239,11 @@ app.post('/api/developer/action', requireDeveloper, async (req, res) => {
 
 app.get('/', (req, res) => {
 	res.redirect(FRONTEND_URL);
+});
+
+BotLogs('Megu', `Core database: ${COLOR.white}${core.db.describe()}`);
+core.initCoreSchema().catch((error) => {
+	BotLogs('Megu', `${COLOR.red}Core schema init failed: ${error.message}. Activity features will not work.`);
 });
 
 app.listen(PORT, () => {

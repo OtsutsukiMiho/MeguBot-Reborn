@@ -34,8 +34,11 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 	const allRoles = Array.isArray(roles) ? roles : [];
 	const rolesMap = new Map(allRoles.map(r => [r.id, r]));
 
+	// Always a literal hex. Callers build tints from it with color-mix, and a
+	// role with no colour set is extremely common, so the fallback cannot be a
+	// CSS variable — it has to be mixable like any other role colour.
 	const getRoleColorHex = (colorVal) => {
-		if (!colorVal || colorVal === 0 || colorVal === '#000000') return '#a5b4fc';
+		if (!colorVal || colorVal === 0 || colorVal === '#000000') return '#8A8F9E';
 		if (typeof colorVal === 'string' && colorVal.startsWith('#')) return colorVal;
 		return '#' + Number(colorVal).toString(16).padStart(6, '0');
 	};
@@ -204,7 +207,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 			{/* Top Header */}
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
 				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 						Member Manager
 					</h3>
 					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -212,7 +215,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 					</p>
 				</div>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'rgba(79, 70, 229, 0.1)', border: '1px solid rgba(79, 70, 229, 0.25)', color: '#a5b4fc' }}>
+					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
 						{membersList.length} Server Members
 					</span>
 					{onRefresh && (
@@ -228,7 +231,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 			</div>
 
 			{/* Search, Filter & Sort Controls Bar */}
-			<div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem' }}>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem' }}>
 				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
 					<div style={{ flex: 1, minWidth: '240px' }}>
 						<input
@@ -267,7 +270,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 				</div>
 
 				{/* Sort & Items Per Page Row */}
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--sunk)' }}>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
 						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
 							Sort By:
@@ -312,7 +315,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 				<>
 					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
 						{paginatedMembers.length === 0 ? (
-							<div style={{ gridColumn: '1 / -1', padding: '3rem 2rem', textAlign: 'center', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+							<div style={{ gridColumn: '1 / -1', padding: '3rem 2rem', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
 								No server members found matching your search and filter criteria.
 							</div>
 						) : (
@@ -325,7 +328,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 									<div
 										key={member.id}
 										style={{
-											background: 'rgba(255, 255, 255, 0.02)',
+											background: 'var(--surface-2)',
 											border: '1px solid var(--border-color)',
 											borderRadius: '12px',
 											padding: '1.25rem',
@@ -343,7 +346,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 													style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border-color)', flexShrink: 0 }}
 												/>
 												<div style={{ overflow: 'hidden' }}>
-													<div style={{ fontWeight: 700, color: '#ffffff', fontSize: '0.95rem', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+													<div style={{ fontWeight: 700, color: 'var(--ink)', fontSize: '0.95rem', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
 														{member.displayName}
 													</div>
 													<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -360,7 +363,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 													padding: '0.2rem 0.55rem',
 													whiteSpace: 'nowrap',
 													flexShrink: 0,
-													color: copiedId === member.id ? '#34d399' : undefined,
+													color: copiedId === member.id ? 'var(--settled)' : undefined,
 													borderColor: copiedId === member.id ? 'rgba(52, 211, 153, 0.4)' : undefined,
 												}}
 											>
@@ -378,7 +381,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 												<>
 													{visibleRoles.map(rId => {
 														const r = rolesMap.get(rId);
-														const hex = r ? getRoleColorHex(r.hexColor || r.color) : '#a5b4fc';
+														const hex = getRoleColorHex(r && (r.hexColor || r.color));
 														return (
 															<span
 																key={rId}
@@ -387,15 +390,20 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 																	display: 'inline-flex',
 																	alignItems: 'center',
 																	gap: '0.35rem',
-																	background: `${hex}14`,
-																	border: `1px solid ${hex}40`,
+																	background: `color-mix(in srgb, ${hex} 14%, transparent)`,
+																	border: `1px solid color-mix(in srgb, ${hex} 40%, transparent)`,
 																	padding: '0.2rem 0.5rem',
 																	borderRadius: '4px',
 																	fontSize: '0.75rem',
 																}}
 															>
-																<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: hex }}></span>
-																<span style={{ color: hex, fontWeight: 600 }}>{r ? r.name : rId}</span>
+																{/* The dot carries the role's colour; the name does not. A role
+																    colour is chosen to look right on Discord's dark chrome, so as
+																    text on this panel it can land anywhere — Discord green on white
+																    measures about 1.6:1. The hue still identifies the role, and the
+																    name stays readable in either theme. */}
+																<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: hex, flex: 'none' }}></span>
+																<span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r ? r.name : rId}</span>
 															</span>
 														);
 													})}
@@ -406,7 +414,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 															onClick={() => toggleExpandRoles(member.id)}
 															title="View all roles"
 															style={{
-																background: 'rgba(255, 255, 255, 0.06)',
+																background: 'var(--sunk)',
 																border: '1px solid var(--border-color)',
 																color: 'var(--text-secondary)',
 																borderRadius: '4px',
@@ -416,7 +424,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 																fontWeight: 600,
 																transition: 'all 0.15s ease',
 															}}
-															onMouseEnter={e => e.currentTarget.style.color = '#ffffff'}
+															onMouseEnter={e => e.currentTarget.style.color = 'var(--ink)'}
 															onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
 														>
 															+{hiddenCount} more
@@ -464,7 +472,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 												<span
 													style={{
 														fontSize: '0.7rem',
-														background: 'rgba(255, 255, 255, 0.08)',
+														background: 'var(--sunk)',
 														padding: '0.1rem 0.4rem',
 														borderRadius: '10px',
 														color: 'var(--text-secondary)',
@@ -490,14 +498,14 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 								flexWrap: 'wrap',
 								gap: '1rem',
 								padding: '1rem 1.25rem',
-								background: 'rgba(255, 255, 255, 0.02)',
+								background: 'var(--surface-2)',
 								border: '1px solid var(--border-color)',
 								borderRadius: '12px',
 								marginBottom: '1.5rem',
 							}}
 						>
 							<div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-								Showing <strong style={{ color: '#ffffff' }}>{startIndex + 1}</strong> - <strong style={{ color: '#ffffff' }}>{endIndex}</strong> of <strong style={{ color: '#ffffff' }}>{totalItems}</strong> members
+								Showing <strong style={{ color: 'var(--ink)' }}>{startIndex + 1}</strong> - <strong style={{ color: 'var(--ink)' }}>{endIndex}</strong> of <strong style={{ color: 'var(--ink)' }}>{totalItems}</strong> members
 							</div>
 
 							<div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -587,13 +595,13 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 				>
 					<div
 						style={{
-							background: '#121826',
+							background: 'var(--surface)',
 							border: '1px solid var(--border-color)',
 							borderRadius: '16px',
 							maxWidth: '520px',
 							width: '100%',
 							padding: '1.75rem',
-							boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+							boxShadow: '0 20px 40px rgba(22, 24, 31, .24)',
 							display: 'flex',
 							flexDirection: 'column',
 							maxHeight: '85vh',
@@ -609,7 +617,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 									style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border-color)' }}
 								/>
 								<div>
-									<h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.15rem' }}>
+									<h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.15rem' }}>
 										Edit Roles
 									</h4>
 									<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -693,15 +701,15 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 												padding: '0.6rem 0.85rem',
 												borderRadius: '6px',
 												cursor: 'pointer',
-												background: isSelected ? `${hex}18` : 'rgba(255, 255, 255, 0.02)',
-												border: isSelected ? `1px solid ${hex}60` : '1px solid transparent',
+												background: isSelected ? `color-mix(in srgb, ${hex} 18%, transparent)` : 'var(--surface-2)',
+												border: isSelected ? `1px solid color-mix(in srgb, ${hex} 60%, transparent)` : '1px solid transparent',
 												transition: 'all 0.12s ease',
 											}}
 											onMouseEnter={e => {
-												if (!isSelected) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+												if (!isSelected) e.currentTarget.style.background = 'var(--sunk)';
 											}}
 											onMouseLeave={e => {
-												if (!isSelected) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+												if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)';
 											}}
 										>
 											<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -711,11 +719,11 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 														height: '10px',
 														borderRadius: '50%',
 														background: hex,
-														boxShadow: `0 0 6px ${hex}80`,
+														boxShadow: `0 0 6px color-mix(in srgb, ${hex} 50%, transparent)`,
 														flexShrink: 0,
 													}}
 												/>
-												<span style={{ fontSize: '0.875rem', fontWeight: 600, color: hex }}>
+												<span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--ink)' }}>
 													@{role.name}
 												</span>
 											</div>

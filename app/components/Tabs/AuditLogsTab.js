@@ -5,48 +5,48 @@ import { useState, useEffect, useMemo } from 'react';
 function getBadgeStyle(eventType) {
 	switch (eventType) {
 	case 'MESSAGE_DELETE':
-		return { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' };
+		return { background: 'color-mix(in srgb, var(--due) var(--cat-tint), transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)' };
 	case 'MEMBER_BAN':
 	case 'MEMBER_UNBAN':
-		return { background: 'rgba(220, 38, 38, 0.2)', color: '#ef4444', border: '1px solid rgba(220, 38, 38, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--due) var(--cat-tint), transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)' };
 	case 'MEMBER_KICK':
-		return { background: 'rgba(249, 115, 22, 0.15)', color: '#fb923c', border: '1px solid rgba(249, 115, 22, 0.3)' };
+		return { background: 'color-mix(in srgb, var(--cat-orange) var(--cat-tint), transparent)', color: 'var(--cat-orange)', border: '1px solid color-mix(in srgb, var(--cat-orange) 30%, transparent)' };
 	case 'MEMBER_TIMEOUT':
-		return { background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)' };
+		return { background: 'color-mix(in srgb, var(--gold) var(--cat-tint), transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)' };
 	case 'MEMBER_UPDATE':
-		return { background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' };
+		return { background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)' };
 	case 'ROLE_ASSIGN':
 	case 'ROLE_UPDATE':
 	case 'ROLE_CREATE':
 	case 'ROLE_DELETE':
 	case 'AUTOROLE':
 	case 'AUTOROLE_ASSIGN':
-		return { background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)' };
+		return { background: 'color-mix(in srgb, var(--cat-pink) var(--cat-tint), transparent)', color: 'var(--cat-pink)', border: '1px solid color-mix(in srgb, var(--cat-pink) 30%, transparent)' };
 	case 'CHANNEL_CREATE':
 	case 'CHANNEL_DELETE':
 	case 'CHANNEL_UPDATE':
-		return { background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' };
+		return { background: 'color-mix(in srgb, var(--settled) var(--cat-tint), transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 30%, transparent)' };
 	case 'INVITE_CREATE':
 	case 'INVITE_DELETE':
-		return { background: 'rgba(14, 165, 233, 0.15)', color: '#38bdf8', border: '1px solid rgba(14, 165, 233, 0.3)' };
+		return { background: 'color-mix(in srgb, var(--cat-cyan) var(--cat-tint), transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--cat-cyan) 30%, transparent)' };
 	case 'WELCOME_LEAVE':
-		return { background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--cat-cyan) var(--cat-tint), transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--cat-cyan) 30%, transparent)' };
 	case 'VOICE_TTS':
-		return { background: 'rgba(251, 191, 36, 0.1)', color: '#fbbf24', border: '1px solid rgba(251, 191, 36, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--gold) var(--cat-tint), transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)' };
 	case 'HONEYPOT':
-		return { background: 'rgba(192, 132, 252, 0.1)', color: '#c084fc', border: '1px solid rgba(192, 132, 252, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--cat-purple) var(--cat-tint), transparent)', color: 'var(--cat-purple)', border: '1px solid color-mix(in srgb, var(--cat-purple) 30%, transparent)' };
 	case 'AUTOMOD':
 	case 'AUTOMOD_CONFIG':
 	case 'AUTOMOD_TRIGGER':
-		return { background: 'rgba(248, 113, 113, 0.1)', color: '#f87171', border: '1px solid rgba(248, 113, 113, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--due) var(--cat-tint), transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)' };
 	case 'REACTION_ROLE':
 	case 'REACTION_ROLE_CONFIG':
 	case 'REACTION_ROLE_ASSIGN':
-		return { background: 'rgba(52, 211, 153, 0.1)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--settled) var(--cat-tint), transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 30%, transparent)' };
 	case 'COMMAND_EXEC':
-		return { background: 'rgba(129, 140, 248, 0.1)', color: '#818cf8', border: '1px solid rgba(129, 140, 248, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--cat-violet) var(--cat-tint), transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--cat-violet) 30%, transparent)' };
 	default:
-		return { background: 'rgba(156, 163, 175, 0.1)', color: '#d1d5db', border: '1px solid rgba(156, 163, 175, 0.25)' };
+		return { background: 'color-mix(in srgb, var(--cat-neutral) var(--cat-tint), transparent)', color: 'var(--muted)', border: '1px solid color-mix(in srgb, var(--cat-neutral) 30%, transparent)' };
 	}
 }
 
@@ -99,7 +99,7 @@ export default function AuditLogsTab({ guildId }) {
 		<div>
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
 				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 						Server Audit Log History
 					</h3>
 					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -151,14 +151,14 @@ export default function AuditLogsTab({ guildId }) {
 					Loading audit log events...
 				</div>
 			) : filteredLogs.length === 0 ? (
-				<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+				<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
 					No audit log records found matching your filter criteria.
 				</div>
 			) : (
-				<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+				<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
 					<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
 						<thead>
-							<tr style={{ background: 'rgba(255, 255, 255, 0.03)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+							<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
 								<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '170px' }}>Timestamp</th>
 								<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '160px' }}>Actor</th>
 								<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '150px' }}>Event Category</th>
@@ -170,11 +170,11 @@ export default function AuditLogsTab({ guildId }) {
 								const evtType = log.event_type || log.action_type || 'GENERAL';
 								const badgeStyle = getBadgeStyle(evtType);
 								return (
-									<tr key={log.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+									<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--sunk)' }}>
 										<td style={{ padding: '0.85rem 1rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
 											{formatDate(log.created_at)}
 										</td>
-										<td style={{ padding: '0.85rem 1rem', fontWeight: 600, color: '#ffffff', whiteSpace: 'nowrap' }}>
+										<td style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
 											{log.username || log.user_name || 'System'}
 										</td>
 										<td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
@@ -182,7 +182,7 @@ export default function AuditLogsTab({ guildId }) {
 												{evtType}
 											</span>
 										</td>
-										<td style={{ padding: '0.85rem 1rem', color: '#e2e8f0', wordBreak: 'break-word' }}>
+										<td style={{ padding: '0.85rem 1rem', color: 'var(--ink)', wordBreak: 'break-word' }}>
 											{log.details || '-'}
 										</td>
 									</tr>

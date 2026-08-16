@@ -36,20 +36,20 @@ export default function AutoroleTab({ config, roles, onChange }) {
 	};
 
 	const getRoleColorStyle = (role) => {
-		if (!role) return '#a5b4fc';
+		if (!role) return '#8A8F9E';
 		if (role.hexColor && role.hexColor !== '#000000') return role.hexColor;
 		if (role.color !== undefined && role.color !== null && role.color !== 0 && role.color !== '#000000') {
 			if (typeof role.color === 'string' && role.color.startsWith('#')) return role.color;
 			return '#' + Number(role.color).toString(16).padStart(6, '0');
 		}
-		return '#a5b4fc';
+		return '#8A8F9E';
 	};
 
 	return (
 		<div>
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
 				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 						Automatic Autorole Assignment
 					</h3>
 					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -57,16 +57,16 @@ export default function AutoroleTab({ config, roles, onChange }) {
 					</p>
 				</div>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'rgba(79, 70, 229, 0.1)', border: '1px solid rgba(79, 70, 229, 0.25)', color: '#a5b4fc' }}>
+					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
 						{roles?.length || 0} Total Server Roles
 					</span>
 				</div>
 			</div>
 
 			{/* Section 1: Human Member Auto-Roles */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-					<div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#ffffff' }}>
+					<div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--ink)' }}>
 						Human Member Auto-Roles
 					</div>
 					<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -95,15 +95,15 @@ export default function AutoroleTab({ config, roles, onChange }) {
 										display: 'inline-flex',
 										alignItems: 'center',
 										gap: '0.5rem',
-										background: `${roleColor}14`,
-										border: `1px solid ${roleColor}40`,
+										background: `color-mix(in srgb, ${roleColor} 14%, transparent)`,
+										border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
 										padding: '0.4rem 0.8rem',
 										borderRadius: '6px',
 										fontSize: '0.85rem',
 									}}
 								>
-									<span style={{ width: '8px', height: '8px', borderRadius: '50%', background: roleColor, boxShadow: `0 0 6px ${roleColor}80` }}></span>
-									<span style={{ color: roleColor, fontWeight: 600 }}>@{r ? r.name : `ID: ${rId}`}</span>
+									<span style={{ width: '8px', height: '8px', borderRadius: '50%', background: roleColor, boxShadow: `0 0 6px color-mix(in srgb, ${roleColor} 50%, transparent)` }}></span>
+									<span style={{ color: 'var(--ink)', fontWeight: 600 }}>@{r ? r.name : `ID: ${rId}`}</span>
 									<button
 										onClick={() => handleRemoveHumanRole(rId)}
 										title="Remove Role"
@@ -117,7 +117,7 @@ export default function AutoroleTab({ config, roles, onChange }) {
 											padding: '0 0.15rem',
 											transition: 'color 0.15s ease',
 										}}
-										onMouseEnter={e => e.target.style.color = '#f87171'}
+										onMouseEnter={e => e.target.style.color = 'var(--due)'}
 										onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
 									>
 										✕
@@ -148,9 +148,9 @@ export default function AutoroleTab({ config, roles, onChange }) {
 			</div>
 
 			{/* Section 2: Bot Account Auto-Roles */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-					<div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#ffffff' }}>
+					<div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--ink)' }}>
 						Bot Account Auto-Roles
 					</div>
 					<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -179,15 +179,15 @@ export default function AutoroleTab({ config, roles, onChange }) {
 										display: 'inline-flex',
 										alignItems: 'center',
 										gap: '0.5rem',
-										background: `${roleColor}14`,
-										border: `1px solid ${roleColor}40`,
+										background: `color-mix(in srgb, ${roleColor} 14%, transparent)`,
+										border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
 										padding: '0.4rem 0.8rem',
 										borderRadius: '6px',
 										fontSize: '0.85rem',
 									}}
 								>
-									<span style={{ width: '8px', height: '8px', borderRadius: '50%', background: roleColor, boxShadow: `0 0 6px ${roleColor}80` }}></span>
-									<span style={{ color: roleColor, fontWeight: 600 }}>@{r ? r.name : `ID: ${rId}`}</span>
+									<span style={{ width: '8px', height: '8px', borderRadius: '50%', background: roleColor, boxShadow: `0 0 6px color-mix(in srgb, ${roleColor} 50%, transparent)` }}></span>
+									<span style={{ color: 'var(--ink)', fontWeight: 600 }}>@{r ? r.name : `ID: ${rId}`}</span>
 									<button
 										onClick={() => handleRemoveBotRole(rId)}
 										title="Remove Role"
@@ -201,7 +201,7 @@ export default function AutoroleTab({ config, roles, onChange }) {
 											padding: '0 0.15rem',
 											transition: 'color 0.15s ease',
 										}}
-										onMouseEnter={e => e.target.style.color = '#f87171'}
+										onMouseEnter={e => e.target.style.color = 'var(--due)'}
 										onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
 									>
 										✕

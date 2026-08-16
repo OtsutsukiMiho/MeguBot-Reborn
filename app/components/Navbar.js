@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import MeguMark from './MeguMark';
+import ThemeToggle from './ThemeToggle';
 
 export default function Navbar() {
 	const [user, setUser] = useState(null);
@@ -34,47 +36,50 @@ export default function Navbar() {
 		window.location.href = '/';
 	};
 
+	// Animated avatars are a_-prefixed and only exist as .gif; asking for .png
+	// on those returns a 404, which is why some users saw a broken image.
 	const avatarUrl = user?.avatar
-		? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+		? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.${user.avatar.startsWith('a_') ? 'gif' : 'png'}?size=64`
 		: 'https://cdn.discordapp.com/embed/avatars/0.png';
 
 	return (
 		<nav className="navbar">
 			<div className="navbar-inner">
 				<Link href="/" className="nav-brand">
-					<img src="/icon.png" alt="MeguBot Logo" />
-					<span>
-						<span className="brand-megubot">MeguBot</span>
-						<span className="brand-reborn">Reborn</span>
-					</span>
+					<MeguMark size={34} />
+					<span className="brand-megubot">Megu</span>
 				</Link>
 
 				<div className="nav-menu">
-					<Link href="/" className={`nav-link ${pathname === '/' ? 'active' : ''}`}>
-						Home
+					<Link href="/" className={`tab-btn ${pathname === '/' ? 'active' : ''}`}>
+						หน้าแรก
 					</Link>
-					<Link href="/dashboard" className={`nav-link ${pathname.startsWith('/dashboard') ? 'active' : ''}`}>
-						Dashboard
+					<Link href="/activities" className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
+						กิจกรรม
+					</Link>
+					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
+						เซิร์ฟเวอร์
 					</Link>
 					{isDev && (
-						<Link href="/developer" className={`nav-link ${pathname.startsWith('/developer') ? 'active' : ''}`} style={{ color: '#a5b4fc', fontWeight: 600 }}>
-							🛠️ Developer
+						<Link href="/developer" className={`tab-btn ${pathname.startsWith('/developer') ? 'active' : ''}`}>
+							Developer
 						</Link>
 					)}
 				</div>
 
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+				<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+					<ThemeToggle />
 					{user ? (
 						<div className="user-profile-badge">
-							<img src={avatarUrl} className="user-avatar" alt="Avatar" />
+							<img src={avatarUrl} className="user-avatar" alt="" width={28} height={28} />
 							<span className="user-name">{user.global_name || user.username}</span>
-							<button onClick={handleLogout} className="btn btn-secondary btn-sm" style={{ marginLeft: '0.5rem', padding: '0.25rem 0.6rem' }}>
-								Logout
+							<button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ marginLeft: '0.25rem' }}>
+								ออก
 							</button>
 						</div>
 					) : (
 						<a href="/api/auth/login" className="btn btn-discord btn-sm">
-							Login with Discord
+							เข้าสู่ระบบด้วย Discord
 						</a>
 					)}
 				</div>

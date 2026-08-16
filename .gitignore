@@ -42,3 +42,7 @@ desktop.ini
 # Markdown Files (keep README.md)
 *.md
 !README.md
+!HANDOFF.md
+
+# Local env backups
+.env.backup*

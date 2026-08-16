@@ -7,7 +7,7 @@ export default function AutomodTab({ automod, onChange }) {
 
 	return (
 		<div>
-			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 				Auto-Mod & Content Filtering
 			</h3>
 			<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
@@ -29,7 +29,7 @@ export default function AutomodTab({ automod, onChange }) {
 			</div>
 
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--surface-2)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
 					<input
 						type="checkbox"
 						checked={!!automod.antispam_enabled}
@@ -37,12 +37,12 @@ export default function AutomodTab({ automod, onChange }) {
 						style={{ width: '18px', height: '18px', cursor: 'pointer' }}
 					/>
 					<div>
-						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff' }}>Anti-Spam Filter</div>
+						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Anti-Spam Filter</div>
 						<div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Block rapid message spamming</div>
 					</div>
 				</label>
 
-				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--surface-2)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
 					<input
 						type="checkbox"
 						checked={!!automod.antiinvite_enabled}
@@ -50,12 +50,12 @@ export default function AutomodTab({ automod, onChange }) {
 						style={{ width: '18px', height: '18px', cursor: 'pointer' }}
 					/>
 					<div>
-						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff' }}>Anti-Invite Filter</div>
+						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Anti-Invite Filter</div>
 						<div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Block discord.gg invite links</div>
 					</div>
 				</label>
 
-				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--surface-2)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
 					<input
 						type="checkbox"
 						checked={!!automod.badwords_enabled}
@@ -63,12 +63,12 @@ export default function AutomodTab({ automod, onChange }) {
 						style={{ width: '18px', height: '18px', cursor: 'pointer' }}
 					/>
 					<div>
-						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff' }}>Bad Words Filter</div>
+						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Bad Words Filter</div>
 						<div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Filter blacklisted phrases</div>
 					</div>
 				</label>
 
-				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+				<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--surface-2)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
 					<input
 						type="checkbox"
 						checked={!!automod.mention_spam_enabled}
@@ -76,7 +76,7 @@ export default function AutomodTab({ automod, onChange }) {
 						style={{ width: '18px', height: '18px', cursor: 'pointer' }}
 					/>
 					<div>
-						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff' }}>Mass Mention Filter</div>
+						<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Mass Mention Filter</div>
 						<div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Block &gt;5 user mentions per message</div>
 					</div>
 				</label>

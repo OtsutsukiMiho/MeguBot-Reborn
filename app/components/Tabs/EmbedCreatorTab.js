@@ -13,6 +13,8 @@ export default function EmbedCreatorTab({ currentGuildId, activeGuilds, channels
 	const [sending, setSending] = useState(false);
 
 	const presetColors = [
+		// Literal hex on purpose: these are values sent to Discord as the embed
+		// colour, not styling for this page. A CSS variable here reaches the API.
 		'#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#06b6d4'
 	];
 
@@ -54,7 +56,7 @@ export default function EmbedCreatorTab({ currentGuildId, activeGuilds, channels
 
 	return (
 		<div>
-			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 				Announcement & Embed Creator
 			</h3>
 			<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
