@@ -20,6 +20,7 @@ yarn-error.log*
 
 # Database & Local Bot Data
 backend/database/data/
+database/
 bot-stats.json
 temp/
 .agents/
@@ -34,6 +35,7 @@ sounds/temp*
 ehthumbs.db
 Thumbs.db
 desktop.ini
+*.lnk
 .vscode/
 .idea/
 
