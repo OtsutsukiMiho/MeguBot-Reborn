@@ -11,7 +11,12 @@ const nextConfig = {
 		];
 	},
 	async rewrites() {
+		const expressBase = (process.env.EXPRESS_API_URL || 'http://localhost:3001').replace(/\/api\/?$/, '');
 		return [
+			{
+				source: '/health',
+				destination: `${expressBase}/health`,
+			},
 			{
 				source: '/api/:path*',
 				destination: process.env.EXPRESS_API_URL || 'http://localhost:3001/api/:path*',

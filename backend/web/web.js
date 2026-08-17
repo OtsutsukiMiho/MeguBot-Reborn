@@ -209,7 +209,7 @@ function requireAdminGuild(req, res, next) {
 	next();
 }
 
-app.get('/health', (req, res) => {
+app.get(['/health', '/api/health'], (req, res) => {
 	res.status(200).send('OK');
 });
 
