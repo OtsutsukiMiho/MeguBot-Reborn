@@ -8,8 +8,17 @@ if (fs.existsSync('.env')) {
 
 const { BotLogs, COLOR } = require('./backend/bot/bot_functions.js');
 
-const NEXT_PORT = process.env.NEXT_PORT || 3000;
-const EXPRESS_PORT = process.env.EXPRESS_PORT || process.env.PORT || 3001;
+// PORT is what a cloud host injects, and it is the one port it routes public
+// traffic to. It has to go to Next, because Next is the site: it serves every
+// page and proxies /api/* through to Express itself (see next.config.js). Give
+// it to Express instead and Next ends up on an internal port nobody can reach,
+// the public URL lands on Express's `/`, and the browser is redirected to
+// FRONTEND_URL — which defaults to localhost. That is the "the deployed site
+// sends me to localhost" bug, and this line is where it starts.
+//
+// Express keeps a fixed internal port. Nothing outside the box talks to it.
+const NEXT_PORT = process.env.NEXT_PORT || process.env.PORT || 3000;
+const EXPRESS_PORT = process.env.EXPRESS_PORT || 3001;
 
 let webProcess = null;
 let botProcess = null;

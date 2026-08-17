@@ -1,5 +1,9 @@
-const { query } = require('./db.js');
+const { transaction } = require('./db.js');
 const { log } = require('./log.js');
+
+// 'MEGU' read as a big-endian int32. Any fixed number would do; this one is
+// recognisable in pg_locks when you are trying to work out who is holding it.
+const SCHEMA_LOCK = 1296385877;
 
 // These tables are the product's own domain, so they carry plain names. The
 // Discord bot's tables — guild_variables, user_nicks, reminders, audit_logs —
@@ -241,13 +245,31 @@ const STATEMENTS = [
 	'CREATE INDEX IF NOT EXISTS payment_reminders_participant_idx ON payment_reminders (participant_id, sent_at DESC);',
 ];
 
+/**
+ * One transaction, one process at a time.
+ *
+ * `index.js` forks the bot and the web process and both of them boot this, so
+ * without the lock they race. On a database that still has the old names that
+ * race is not harmless: both would see `megu_users` present and `users` absent,
+ * both would issue the rename, and the one that arrives second finds the table
+ * it named no longer exists. Whoever loses then logs "schema init failed" and
+ * runs with activity features off — having already renamed some tables and not
+ * others, because each statement used to commit on its own.
+ *
+ * The transaction is what removes the half-migrated database as a possible
+ * outcome; the lock is what stops the second process from having to recover
+ * from one. The loser waits, then finds every guard false and does nothing.
+ */
 async function initCoreSchema() {
-	for (const statement of MIGRATIONS) {
-		await query(statement);
-	}
-	for (const statement of STATEMENTS) {
-		await query(statement);
-	}
+	await transaction(async (client) => {
+		await client.query('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK]);
+		for (const statement of MIGRATIONS) {
+			await client.query(statement);
+		}
+		for (const statement of STATEMENTS) {
+			await client.query(statement);
+		}
+	});
 	log('Core', 'Megu core schema verified.');
 }
 

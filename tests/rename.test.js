@@ -98,7 +98,11 @@ async function main() {
 	);
 	ok('a pre-rename database exists, with rows in it and the bot\'s reminders beside it');
 
-	await core.initCoreSchema();
+	// Both at once, because that is what production does: index.js forks the bot
+	// and the web process and each of them boots the schema. Against a database
+	// that still has the old names this is the case that used to break.
+	await Promise.all([core.initCoreSchema(), core.initCoreSchema()]);
+	ok('two processes booted the migration at the same time and both returned');
 
 	// 1. The data is under the new name — renamed, not recreated empty.
 	const user = await db.query('SELECT display_name FROM users WHERE id = $1', ['usr___rename__']);

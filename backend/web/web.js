@@ -26,8 +26,14 @@ catch {
 }
 
 const app = express();
-const PORT = process.env.EXPRESS_PORT || process.env.PORT || 3001;
+// Not process.env.PORT. That belongs to Next, which is the public-facing
+// server; see the comment in index.js. Express is internal on a fixed port.
+const PORT = process.env.EXPRESS_PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${process.env.NEXT_PORT || 3000}`;
+
+if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
+	BotLogs('SYSTEM', `${COLOR.red}FRONTEND_URL is not set. Anything that has to name the site from the outside — the OAuth return, the links in payment reminder DMs — will fall back to ${FRONTEND_URL}, which is not reachable from a browser.`);
+}
 
 app.use(express.json({ strict: false }));
 app.use(express.urlencoded({ extended: true }));
@@ -1237,7 +1243,28 @@ app.post('/api/developer/action', requireDeveloper, async (req, res) => {
 	}
 });
 
+// Express sits behind Next, so a browser arriving here at all means the public
+// port went to the wrong process. Redirecting to FRONTEND_URL is the right
+// answer when the two really are different origins, and an infinite loop when
+// they are not — which is precisely what happens to someone who sets
+// FRONTEND_URL to the public URL in order to stop the redirect to localhost.
+// Say what is actually wrong instead of bouncing them forever.
 app.get('/', (req, res) => {
+	let sameOrigin = false;
+	try {
+		sameOrigin = new URL(FRONTEND_URL).host === req.headers.host;
+	}
+	catch {
+		// FRONTEND_URL is not a parseable URL. Redirect and let it fail visibly.
+	}
+
+	if (sameOrigin) {
+		return res.status(500).send(
+			'This is Megu\'s API process answering on the public port. Next should have that port — '
+			+ 'set NEXT_PORT (or leave PORT to Next) and give Express a fixed EXPRESS_PORT.',
+		);
+	}
+
 	res.redirect(FRONTEND_URL);
 });
 

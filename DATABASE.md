@@ -134,7 +134,11 @@ payment_reminders   which nag was sent, and when
 ```
 
 Created by `core/schema.js`, which runs on boot from both `backend/bot/bot.js`
-and `backend/web/web.js`. Running it twice is harmless.
+and `backend/web/web.js`. Those are separate forked processes and they boot at
+the same time, so the whole thing runs inside one transaction behind a Postgres
+advisory lock: the second process waits, then finds every guard already false
+and does nothing. Running it twice is harmless, and a failure part-way through
+rolls back rather than leaving the schema half-built.
 
 ### If your database predates this naming
 
@@ -200,6 +204,55 @@ cannot reach production by accident.
 
 ```bash
 npm run db:seed               # a demo activity; prints its /a/<CODE>
+```
+
+---
+
+## Deploying to the cloud
+
+Production is Supabase, and the way you get there is by **not** setting one
+variable:
+
+| Variable | Set it to | On the cloud host |
+|---|---|---|
+| `DATABASE_URL` | the Supabase URI | **set** |
+| `MEGU_DATABASE_URL` | a local container | **leave unset** |
+
+That is the whole switch. Core reads `MEGU_DATABASE_URL` first and falls back to
+`DATABASE_URL`, so an unset `MEGU_DATABASE_URL` is what makes core and the bot
+share one database. The most common deploy mistake is copying the whole local
+`.env` up, which carries `MEGU_DATABASE_URL=...localhost...` with it — core then
+tries to reach a container that does not exist on that host, and activity
+features come up dead while the bot itself looks fine.
+
+Boot prints which one it reached, with the password masked. `(remote)` is what
+you want:
+
+```
+[Bot] Core database: postgresql://postgres.PROJECT-REF:***@aws-0-REGION.pooler.supabase.com:5432/postgres  (remote)
+```
+
+**Which Supabase URI.** Prefer a pooler host (`...pooler.supabase.com`) over the
+direct `db.PROJECT-REF.supabase.co` one. The direct host resolves over IPv6, and
+plenty of cloud runtimes still only give you IPv4 — a deploy that works locally
+and fails with `ENETUNREACH` in production is almost always this. Both pooler
+ports work here: **5432** is session mode and behaves like an ordinary
+connection, **6543** is transaction mode and is the safer pick if you are near
+your plan's connection limit.
+
+**Set `PG_POOL_MAX` if the host runs more than one instance.** The cap is per
+pool and `index.js` opens two per process, so one instance is up to twenty
+connections. Two instances is forty. See [Connections](#connections).
+
+**The first boot on Supabase is the one that migrates.** If that project still
+has `megu_*` tables, the rename described above happens the first time the bot
+or the web process starts there. It is one transaction behind an advisory lock,
+so it either completes or rolls back — but run the audit either side of it
+anyway, because that is the run where you would want the before-and-after
+numbers:
+
+```bash
+npm run db:audit              # read-only; safe against production
 ```
 
 ---
