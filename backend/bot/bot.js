@@ -52,6 +52,7 @@ client.customReadyTimestamp = customReadyTimestamp;
 
 const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_functions.js');
 const database = require('../database/database.js');
+const { isGlobalBlock, BLOCK_EXIT_CODE } = require('../../adapters/discord/rate-limit.js');
 
 client.honeypots = new Map();
 client.ttsChannels = new Map();
@@ -363,23 +364,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.on(Events.ClientReady, async () => {
-	setInterval(async () => {
-		try {
-			const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-			client.user.setPresence({
-				status: 'online',
-				activities: [{
-					name: `Megu | V ${config.version}`,
-					type: ActivityType.Custom,
-				}],
-			});
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
-			BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
-			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
-		}
-	}, 5000);
+	// Set once, not on a timer. Discord allows 5 presence updates per 60
+	// seconds per session; this used to re-send the same unchanged presence
+	// every 5 seconds — 12 a minute, forever — which is a straight 12x overrun
+	// and one of the things that got the deploy's IP blocked. discord.js keeps
+	// the presence on the client and replays it in the IDENTIFY payload, so a
+	// reconnect restores it without us sending anything.
+	try {
+		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+		client.user.setPresence({
+			status: 'online',
+			activities: [{
+				name: `Megu | V ${config.version}`,
+				type: ActivityType.Custom,
+			}],
+		});
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
+		BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
+		BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
+	}
 
 	try {
 		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -392,28 +397,33 @@ client.on(Events.ClientReady, async () => {
 
 				const statusMessage = await channel.send('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString());
 
-				const updateStatus = () => {
-					const randomDelay = Math.floor(Math.random() * (9000 - 3000 + 1)) + 3000;
+				// Every 5 minutes, not every 3–9 seconds. The old loop edited
+				// this one message roughly 10,000 times a day for no reader's
+				// benefit, which is exactly the sustained traffic that gets an
+				// IP blocked. A liveness stamp is still a liveness stamp at
+				// five-minute resolution.
+				//
+				// It also stops itself: if the edit fails twice in a row the
+				// channel is gone, the message was deleted, or Discord is
+				// refusing us — and in all three cases retrying forever is the
+				// wrong answer.
+				const HEARTBEAT_MS = 5 * 60 * 1000;
+				let consecutiveFailures = 0;
 
-					setTimeout(() => {
-						try {
-							statusMessage.edit('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString() + `\nPing: ${client.ws.ping}ms`)
-								.catch(err => {
-									BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
-									BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${err.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
-									BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
-								});
-						}
-						catch (error) {
-							BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
-							BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
-							BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
-						}
-						updateStatus();
-					}, randomDelay);
-				};
-
-				updateStatus();
+				const heartbeat = setInterval(() => {
+					statusMessage.edit('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString() + `\nPing: ${client.ws.ping}ms`)
+						.then(() => {
+							consecutiveFailures = 0;
+						})
+						.catch(err => {
+							consecutiveFailures += 1;
+							BotLogs('SYSTEM', `${COLOR.red}Online-ping heartbeat failed (${consecutiveFailures}/2): ${COLOR.white}${err.message}`);
+							if (consecutiveFailures >= 2) {
+								clearInterval(heartbeat);
+								BotLogs('SYSTEM', `${COLOR.yellow}Online-ping heartbeat stopped. Restart the bot to bring it back.`);
+							}
+						});
+				}, HEARTBEAT_MS);
 			}).catch(console.error);
 		}
 	}
@@ -2478,4 +2488,23 @@ client.on('warn', (info) => BotLogs('SYSTEM', `${COLOR.yellow}[Discord Warn] ${i
 client.on('error', (error) => BotLogs('SYSTEM', `${COLOR.red}[Discord Error] ${error.stack || error.toString()}`));
 client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `${COLOR.red}[Discord Shard ${shardId} Error] ${error.stack || error.toString()}`));
 
-client.login(process.env.BOT_TOKEN);
+// Ordinary 429s never reached the logs before, so the only evidence of a rate
+// limit problem was the eventual block. Now every one of them names the route
+// that caused it, which is where you start looking when the numbers climb.
+client.rest.on('rateLimited', (info) => {
+	BotLogs('SYSTEM', `${COLOR.yellow}[Discord Rate Limit] ${info.method} ${info.route} — waiting ${info.timeToReset}ms${info.global ? ' (GLOBAL)' : ''}`);
+});
+
+// A rejected login used to be an unhandled rejection: the process died without
+// saying why, index.js restarted it three seconds later, and it died again. If
+// the reason was a Cloudflare block, that loop hammered Discord every three
+// seconds and kept the block alive. Now the reason is logged and the exit code
+// tells the supervisor whether a quick restart is safe.
+client.login(process.env.BOT_TOKEN).catch((error) => {
+	if (isGlobalBlock(error)) {
+		BotLogs('SYSTEM', `${COLOR.red}Discord is blocking this server's IP address. NOT retrying — see DISCORD-RATE-LIMITS.md.`);
+		process.exit(BLOCK_EXIT_CODE);
+	}
+	BotLogs('SYSTEM', `${COLOR.red}Discord login failed: ${COLOR.white}${error.message}`);
+	process.exit(1);
+});

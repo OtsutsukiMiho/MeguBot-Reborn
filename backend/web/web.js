@@ -14,6 +14,16 @@ const database = require('../database/database.js');
 const core = require('../../core/index.js');
 const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
+const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
+
+// When Cloudflare blocks our IP, every sign-in fails at the token exchange. The
+// old behaviour was a bare 400 with "Failed to exchange code", which reads to a
+// user as "click login again" — and each of those clicks is another round trip
+// to Discord that extends the block. This remembers the block instead, so we
+// stop sending anyone to Discord until it has had time to clear.
+const discordBlock = createBlockGuard({
+	onTrip: (seconds) => BotLogs('SYSTEM', `${COLOR.red}Discord has blocked this server's IP. Pausing all Discord sign-ins for ${Math.round(seconds / 60)} minutes — see DISCORD-RATE-LIMITS.md.`),
+});
 
 core.setLogger((scope, message) => BotLogs(scope, message));
 
@@ -159,6 +169,15 @@ app.use(session({
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle timeout
 const ABSOLUTE_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours absolute max duration
 
+// An expired session lands the browser on the home page, where there is a login
+// button, rather than straight into /api/auth/login. That route redirects to
+// Discord, and because the app is already authorised Discord bounces back with
+// a fresh code — so the old behaviour turned every timed-out background tab
+// into a full OAuth round trip that nobody asked for. The logs show the first
+// token exchange arriving seven seconds after a timeout, which is that.
+// Sign-in has to be a deliberate click.
+const EXPIRED_SESSION_LANDING = '/';
+
 app.use((req, res, next) => {
 	if (req.session && req.session.user) {
 		const now = Date.now();
@@ -172,7 +191,7 @@ app.use((req, res, next) => {
 				if (req.path.startsWith('/api/')) {
 					return res.status(401).json({ error: 'Security Error: User-Agent mismatch detected. Please log in again.' });
 				}
-				res.redirect('/api/auth/login');
+				res.redirect(EXPIRED_SESSION_LANDING);
 			});
 		}
 
@@ -184,7 +203,7 @@ app.use((req, res, next) => {
 				if (req.path.startsWith('/api/')) {
 					return res.status(401).json({ error: 'Session Expired: Logged out due to 30 minutes of inactivity.' });
 				}
-				res.redirect('/api/auth/login');
+				res.redirect(EXPIRED_SESSION_LANDING);
 			});
 		}
 
@@ -196,7 +215,7 @@ app.use((req, res, next) => {
 				if (req.path.startsWith('/api/')) {
 					return res.status(401).json({ error: 'Session Expired: Maximum session lifetime reached (24h). Please log in again.' });
 				}
-				res.redirect('/api/auth/login');
+				res.redirect(EXPIRED_SESSION_LANDING);
 			});
 		}
 
@@ -370,12 +389,45 @@ app.post('/api/ping', (req, res) => {
 	}
 });
 
+// Shown instead of sending anyone to Discord while we are blocked. It has no
+// retry button on purpose: the whole point is that clicking again is what makes
+// the outage last longer.
+function sendBlockedPage(res) {
+	const minutes = Math.max(1, Math.ceil(discordBlock.retryAfterSeconds() / 60));
+	res.status(503).set('Retry-After', String(discordBlock.retryAfterSeconds())).send(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Discord is unavailable - Megu</title>
+			<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+			<style>
+				body { background: #030712; color: #f3f4f6; font-family: 'Outfit', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 1.5rem; }
+				.card { background: rgba(17, 24, 39, 0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 2.5rem; max-width: 500px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+				h2 { color: #fbbf24; font-size: 1.5rem; margin-top: 0; }
+				p { color: #9ca3af; line-height: 1.6; }
+			</style>
+		</head>
+		<body>
+			<div class="card">
+				<h2>⏳ Discord is rate limiting us</h2>
+				<p>Discord is temporarily refusing requests from this server, so signing in cannot work right now. Nothing is wrong with your account.</p>
+				<p><strong>Please try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.</strong> Reloading now will only make it last longer.</p>
+			</div>
+		</body>
+		</html>
+	`);
+}
+
 app.get('/api/auth/login', (req, res) => {
 	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 	const redirectUri = OAUTH_REDIRECT_URI;
 
 	if (!clientId) {
 		return res.status(500).send('Missing DISCORD_CLIENT_ID configuration.');
+	}
+
+	if (discordBlock.blocked()) {
+		return sendBlockedPage(res);
 	}
 
 	const state = crypto.randomBytes(16).toString('hex');
@@ -428,6 +480,10 @@ app.get('/api/auth/callback', async (req, res) => {
 	const clientSecret = process.env.DISCORD_CLIENT_SECRET || config.clientSecret || config.client_secret;
 	const redirectUri = OAUTH_REDIRECT_URI;
 
+	if (discordBlock.blocked()) {
+		return sendBlockedPage(res);
+	}
+
 	try {
 		const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
 			method: 'POST',
@@ -446,20 +502,41 @@ app.get('/api/auth/callback', async (req, res) => {
 		if (!tokenRes.ok) {
 			const errText = await tokenRes.text();
 			BotLogs('SYSTEM', `OAuth2 token exchange failed: ${errText}`);
+			// A Cloudflare block is not this user's problem and not something a
+			// retry fixes, so it gets its own answer and shuts sign-ins down.
+			if (discordBlock.record(errText)) {
+				return sendBlockedPage(res);
+			}
 			return res.status(400).send('Failed to exchange code for token with Discord.');
 		}
 
 		const tokenData = await tokenRes.json();
 		const accessToken = tokenData.access_token;
 
+		// These two were read as JSON without ever checking the status. A block
+		// or a 401 arrived here as an error object, `userData.id` came out
+		// undefined, and the session was written anyway — a logged-in user with
+		// no identity. Both are checked now, and both feed the same guard.
 		const userRes = await fetch('https://discord.com/api/v10/users/@me', {
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
+		if (!userRes.ok) {
+			const errText = await userRes.text();
+			BotLogs('SYSTEM', `Discord profile read failed: ${errText}`);
+			if (discordBlock.record(errText)) return sendBlockedPage(res);
+			return res.status(502).send('Could not read your Discord profile.');
+		}
 		const userData = await userRes.json();
 
 		const guildsRes = await fetch('https://discord.com/api/v10/users/@me/guilds', {
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
+		if (!guildsRes.ok) {
+			const errText = await guildsRes.text();
+			BotLogs('SYSTEM', `Discord guild list read failed: ${errText}`);
+			if (discordBlock.record(errText)) return sendBlockedPage(res);
+			return res.status(502).send('Could not read your Discord servers.');
+		}
 		const guildsData = await guildsRes.json();
 
 		const adminGuilds = (Array.isArray(guildsData) ? guildsData : []).filter(g => {
@@ -531,6 +608,11 @@ app.get('/api/auth/callback', async (req, res) => {
 	}
 	catch (error) {
 		BotLogs('SYSTEM', `OAuth2 Callback error: ${error.toString()}`);
+		// A block can also arrive as a thrown fetch failure rather than a
+		// response, so the guard gets a look at this path too.
+		if (discordBlock.record(error)) {
+			return sendBlockedPage(res);
+		}
 		res.status(500).send('An unexpected error occurred during Discord authentication.');
 	}
 });
