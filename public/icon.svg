@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -4 212 212" width="212" height="212">
+  <!-- The favicon renders at 16-32px, so this is the mark's small-size variant:
+       full circles instead of lidded eyes, no mouth. Ears and tail stay, because
+       they are the silhouette and the silhouette is all that survives at 16px. -->
+  <defs>
+    <linearGradient id="b" x1="0.1" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#3D4795"/>
+      <stop offset="100%" stop-color="#212862"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#b)">
+    <path d="M44 64 L57 13 Q59 6 65 11 L104 58 Z"/>
+    <path d="M156 64 L143 13 Q141 6 135 11 L96 58 Z"/>
+    <rect x="30" y="54" width="140" height="118" rx="50"/>
+    <path d="M60 166 L33 197 Q28 202 33 200 L82 180 Z"/>
+  </g>
+  <circle cx="76" cy="112" r="14" fill="#F4F2EC"/>
+  <circle cx="124" cy="112" r="14" fill="#F4F2EC"/>
+  <circle cx="150" cy="76" r="11" fill="#F0B92A"/>
+</svg>

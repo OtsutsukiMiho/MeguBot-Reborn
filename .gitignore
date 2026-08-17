@@ -20,6 +20,7 @@ yarn-error.log*
 
 # Database & Local Bot Data
 backend/database/data/
+database/
 bot-stats.json
 temp/
 .agents/
@@ -34,9 +35,16 @@ sounds/temp*
 ehthumbs.db
 Thumbs.db
 desktop.ini
+*.lnk
 .vscode/
 .idea/
 
 # Markdown Files (keep README.md)
 *.md
 !README.md
+!HANDOFF.md
+!CHANGES.md
+!DATABASE.md
+
+# Local env backups
+.env.backup*

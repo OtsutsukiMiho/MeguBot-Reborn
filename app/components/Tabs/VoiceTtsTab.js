@@ -40,7 +40,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 
 	return (
 		<div>
-			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 				Voice Text-to-Speech Suite
 			</h3>
 			<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.75rem' }}>
@@ -60,8 +60,8 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 			</div>
 
 			{/* Engine Selection */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.75rem', color: '#ffffff' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.75rem', color: 'var(--ink)' }}>
 					TTS Speech Engine
 				</div>
 				<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
@@ -73,7 +73,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 							padding: '0.85rem 1rem',
 							borderRadius: '8px',
 							border: !isGoogleTts ? '1px solid var(--color-accent)' : '1px solid var(--border-color)',
-							background: !isGoogleTts ? 'rgba(79, 70, 229, 0.1)' : 'transparent',
+							background: !isGoogleTts ? 'var(--accent-soft)' : 'transparent',
 							cursor: 'pointer',
 						}}
 					>
@@ -84,7 +84,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 							onChange={() => onChange('tts_engine', 'EDGE_TTS')}
 						/>
 						<div>
-							<div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff' }}>Microsoft Edge Neural TTS</div>
+							<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Microsoft Edge Neural TTS</div>
 							<div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ultra-natural voices (Thai, English, Japanese, etc.)</div>
 						</div>
 					</label>
@@ -97,7 +97,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 							padding: '0.85rem 1rem',
 							borderRadius: '8px',
 							border: isGoogleTts ? '1px solid var(--color-accent)' : '1px solid var(--border-color)',
-							background: isGoogleTts ? 'rgba(79, 70, 229, 0.1)' : 'transparent',
+							background: isGoogleTts ? 'var(--accent-soft)' : 'transparent',
 							cursor: 'pointer',
 						}}
 					>
@@ -108,7 +108,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 							onChange={() => onChange('tts_engine', 'GOOGLE_TTS')}
 						/>
 						<div>
-							<div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff' }}>Google Translate TTS</div>
+							<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Google Translate TTS</div>
 							<div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Standard TTS Engine</div>
 						</div>
 					</label>
@@ -129,10 +129,10 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 			)}
 
 			{/* Anti-Spam Rate Limiter Controls */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
 					<div>
-						<div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#ffffff' }}>
+						<div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--ink)' }}>
 							Anti-Spam TTS Rate Limiter
 						</div>
 						<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -187,8 +187,8 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 			</div>
 
 			{/* Smart VC Automation (AFK Bringback & Join/Leave Announcements) */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: '#ffffff' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: 'var(--ink)' }}>
 					Voice Channel Smart Automation
 				</div>
 
@@ -202,11 +202,11 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 							style={{ width: '18px', height: '18px', marginTop: '2px' }}
 						/>
 						<div>
-							<div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#ffffff' }}>
+							<div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--ink)' }}>
 								AFK Channel Auto-Reconnect (Bring-Back)
 							</div>
 							<div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-								When a user who was speaking moves back from the server AFK channel, MeguBot automatically follows them back into their voice channel.
+								When a user who was speaking moves back from the server AFK channel, Megu automatically follows them back into their voice channel.
 							</div>
 						</div>
 					</label>
@@ -220,7 +220,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 								onChange={e => onChange('tts_vc_welcome_enabled', e.target.checked)}
 								style={{ width: '18px', height: '18px' }}
 							/>
-							<span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#ffffff' }}>
+							<span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--ink)' }}>
 								Announce User Voice Join in TTS
 							</span>
 						</label>
@@ -267,7 +267,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 								onChange={e => onChange('tts_vc_leave_enabled', e.target.checked)}
 								style={{ width: '18px', height: '18px' }}
 							/>
-							<span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#ffffff' }}>
+							<span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--ink)' }}>
 								Announce User Voice Leave in TTS
 							</span>
 						</label>
@@ -329,7 +329,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 						onChange={e => onChange('tts_ignore_prefix', e.target.checked)}
 						style={{ width: '18px', height: '18px' }}
 					/>
-					<span style={{ fontSize: '0.875rem', color: '#ffffff' }}>
+					<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>
 						Ignore messages starting with command prefixes (e.g. !, ?, -, /, .)
 					</span>
 				</label>

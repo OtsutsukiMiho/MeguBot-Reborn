@@ -15,7 +15,7 @@ export default function HoneypotTab({ config, channels = [], onChange }) {
 
 	return (
 		<div>
-			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 				Security Honeypot Trap Channel
 			</h3>
 			<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
@@ -33,8 +33,8 @@ export default function HoneypotTab({ config, channels = [], onChange }) {
 				/>
 			</div>
 
-			<div style={{ background: 'rgba(239, 68, 68, 0.04)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px', padding: '1.25rem', marginTop: '1.5rem' }}>
-				<div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f87171', marginBottom: '0.5rem' }}>
+			<div style={{ background: 'var(--due-soft)', border: '1px solid color-mix(in srgb, var(--due) 25%, transparent)', borderRadius: '12px', padding: '1.25rem', marginTop: '1.5rem' }}>
+				<div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--due)', marginBottom: '0.5rem' }}>
 					Honeypot Safety Warning
 				</div>
 				<p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>

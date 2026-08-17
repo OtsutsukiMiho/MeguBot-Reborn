@@ -146,7 +146,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 		<div>
 			<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
 				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 						Reaction Roles Setup
 					</h3>
 					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -157,7 +157,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 					<button
 						onClick={handleClearAll}
 						className="btn btn-secondary btn-sm"
-						style={{ color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+						style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 30%, transparent)' }}
 					>
 						Clear All Mappings
 					</button>
@@ -165,8 +165,8 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 			</div>
 
 			{/* Add Reaction Role Form Grid */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.75rem' }}>
-				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: '#ffffff' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.75rem' }}>
+				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: 'var(--ink)' }}>
 					Add New Reaction Role Mapping
 				</div>
 
@@ -237,7 +237,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 			</div>
 
 			{/* Mappings Table */}
-			<div style={{ overflowX: 'auto', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '0.5rem' }}>
+			<div style={{ overflowX: 'auto', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '0.5rem' }}>
 				<table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
 					<thead>
 						<tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
@@ -258,7 +258,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 							</tr>
 						) : (
 							rows.map((row, idx) => (
-								<tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: row.enabled ? 1 : 0.45, transition: 'opacity 0.2s ease' }}>
+								<tr key={idx} style={{ borderBottom: '1px solid var(--sunk)', opacity: row.enabled ? 1 : 0.45, transition: 'opacity 0.2s ease' }}>
 									<td style={{ padding: '0.85rem 1rem' }}>
 										<button
 											onClick={() => handleToggleStatus(row.msgId, row.emoji)}
@@ -275,16 +275,16 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 									<td style={{ padding: '0.85rem 1rem', fontSize: '1.1rem' }}>
 										{row.emoji}
 									</td>
-									<td style={{ padding: '0.85rem 1rem', color: '#a5b4fc', fontWeight: 600 }}>
+									<td style={{ padding: '0.85rem 1rem', color: 'var(--accent)', fontWeight: 600 }}>
 										{row.roleName}
 									</td>
 									<td style={{ padding: '0.85rem 1rem' }}>
 										{row.mode === 'give_only' ? (
-											<span className="server-status-badge" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}>
+											<span className="server-status-badge" style={{ background: 'var(--settled-soft)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 25%, transparent)' }}>
 												Give-Only
 											</span>
 										) : (
-											<span className="server-status-badge" style={{ background: 'rgba(79, 70, 229, 0.1)', color: '#a5b4fc', border: '1px solid rgba(79,70,229,0.25)' }}>
+											<span className="server-status-badge" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
 												Toggle
 											</span>
 										)}
@@ -293,7 +293,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 										<button
 											onClick={() => handleDelete(row.msgId, row.emoji)}
 											className="btn btn-secondary btn-sm"
-											style={{ color: '#f87171', padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
+											style={{ color: 'var(--due)', padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
 										>
 											Remove
 										</button>

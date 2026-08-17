@@ -91,6 +91,23 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 	await database.initDatabase();
 
+	// Megu chases unpaid shares by DM. Core decides who and what to say; the
+	// sender only opens the conversation.
+	try {
+		const core = require('../../core/index.js');
+		const reminderSender = require('../../adapters/discord/reminder-sender.js');
+		core.setLogger((scope, message) => BotLogs(scope, message));
+		await core.initCoreSchema();
+		reminderSender.start(client, {
+			baseUrl: process.env.FRONTEND_URL || '',
+			intervalMs: Number(process.env.MEGU_REMINDER_INTERVAL_MS) || undefined,
+		});
+		BotLogs('Megu', `${COLOR.green}Reminder loop armed on ${COLOR.white}${core.db.describe()}`);
+	}
+	catch (error) {
+		BotLogs('Megu', `${COLOR.red}Reminder loop not started: ${error.message}`);
+	}
+
 	try {
 		client.honeypots = await database.getAllHoneypots();
 		BotLogs('Bot', `${COLOR.green}Cached honeypots ${COLOR.gray}(${COLOR.white}${client.honeypots.size} channels${COLOR.gray})`);
@@ -336,7 +353,7 @@ client.on(Events.ClientReady, async () => {
 			client.user.setPresence({
 				status: 'online',
 				activities: [{
-					name: `MeguBot Reborn | V ${config.version}`,
+					name: `Megu | V ${config.version}`,
 					type: ActivityType.Custom,
 				}],
 			});
@@ -357,14 +374,14 @@ client.on(Events.ClientReady, async () => {
 				const fetched = await channel.messages.fetch({ limit: 10 });
 				await channel.bulkDelete(fetched).catch(console.error);
 
-				const statusMessage = await channel.send('🟢 **MeguBot is Online!**\nLast Checked: ' + new Date().toLocaleTimeString());
+				const statusMessage = await channel.send('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString());
 
 				const updateStatus = () => {
 					const randomDelay = Math.floor(Math.random() * (9000 - 3000 + 1)) + 3000;
 
 					setTimeout(() => {
 						try {
-							statusMessage.edit('🟢 **MeguBot is Online!**\nLast Checked: ' + new Date().toLocaleTimeString() + `\nPing: ${client.ws.ping}ms`)
+							statusMessage.edit('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString() + `\nPing: ${client.ws.ping}ms`)
 								.catch(err => {
 									BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 									BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${err.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);

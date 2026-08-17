@@ -11,7 +11,7 @@ export default function WelcomeTab({ config, channels = [], onChange, serverName
 
 	const leaveText = config.leave_message_template || '{username} has left {server}.';
 	const renderedLeavePreview = leaveText
-		.replace(/\{member\}/g, '<span style="color:#f87171; font-weight:600;">@DepartedUser</span>')
+		.replace(/\{member\}/g, '<span style="color:var(--due); font-weight:600;">@DepartedUser</span>')
 		.replace(/\{username\}/g, 'DepartedUser')
 		.replace(/\{server\}/g, `<strong>${serverName || 'Our Server'}</strong>`);
 
@@ -27,7 +27,7 @@ export default function WelcomeTab({ config, channels = [], onChange, serverName
 
 	return (
 		<div>
-			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 				Welcome & Leave
 			</h3>
 			<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
@@ -73,7 +73,7 @@ export default function WelcomeTab({ config, channels = [], onChange, serverName
 			</div>
 
 			{/* Live Welcome Message Preview */}
-			<div style={{ marginTop: '1.5rem', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem' }}>
+			<div style={{ marginTop: '1.5rem', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem' }}>
 				<span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
 					Live Discord Welcome Message Preview
 				</span>
@@ -124,12 +124,12 @@ export default function WelcomeTab({ config, channels = [], onChange, serverName
 			</div>
 
 			{/* Live Leave Message Preview */}
-			<div style={{ marginTop: '1.5rem', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem' }}>
+			<div style={{ marginTop: '1.5rem', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem' }}>
 				<span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
 					Live Discord Leave Message Preview
 				</span>
 				<div
-					style={{ marginTop: '0.75rem', background: '#2b2d31', padding: '0.85rem 1.1rem', borderRadius: '8px', borderLeft: '4px solid #ef4444', color: '#dbdee1', fontSize: '0.9rem' }}
+					style={{ marginTop: '0.75rem', background: '#2b2d31', padding: '0.85rem 1.1rem', borderRadius: '8px', borderLeft: '4px solid var(--due)', color: '#dbdee1', fontSize: '0.9rem' }}
 					dangerouslySetInnerHTML={{ __html: renderedLeavePreview }}
 				/>
 			</div>

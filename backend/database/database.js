@@ -15,12 +15,32 @@ function isValidSnowflake(id) {
 	return typeof id === 'string' && /^\d{17,20}$/.test(id);
 }
 
+/**
+ * index.js forks two processes and both of them open this pool, and each also
+ * opens core's. Four pools at pg's default of 10 is forty connections against
+ * one database — enough to exhaust a small Postgres on its own, and certain to
+ * if the web process ever crash-loops and keeps reconnecting.
+ *
+ * Five is generous for this workload: every query here is a short read or
+ * write and none of them run concurrently in any number. The idle timeout is
+ * what actually protects the database — connections go back after ten seconds
+ * rather than being held for the life of the process — and the connect timeout
+ * means a database that is refusing connections produces an error instead of a
+ * queue of requests waiting forever.
+ */
+const POOL_LIMITS = {
+	max: Number(process.env.PG_POOL_MAX) || 5,
+	idleTimeoutMillis: 10_000,
+	connectionTimeoutMillis: 8_000,
+};
+
 if (process.env.DATABASE_URL) {
 	pool = new Pool({
 		connectionString: process.env.DATABASE_URL,
 		ssl: {
 			rejectUnauthorized: false,
 		},
+		...POOL_LIMITS,
 	});
 	pool.on('error', (err) => {
 		BotLogs('Database', `${COLOR.red}PostgreSQL pool error: ${err.message}`);

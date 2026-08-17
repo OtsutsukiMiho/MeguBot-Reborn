@@ -44,7 +44,7 @@ module.exports = {
 		BotLogs(interaction.guild.name, `${COLOR.cyan}Uptime command executed by ${COLOR.white}${interaction.user.tag}`);
 
 		return await interaction.reply({
-			content: '🟢 **MeguBot Reborn Status**\n' +
+			content: '🟢 **Megu Status**\n' +
 				`• **Uptime:** \`${uptimeString}\`\n` +
 				`• **Online Since:** <t:${readyTimestampSeconds}:F> (<t:${readyTimestampSeconds}:R>)\n` +
 				`• **API Latency:** \`${wsPing}ms\`\n` +

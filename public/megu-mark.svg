@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -4 212 212" width="512" height="512">
+  <title>Megu</title>
+  <!-- The Megu mark, primary (calm) state. Ears on top, speech-bubble tail
+       below: one silhouette that reads as a cat and as the thing that speaks
+       on your behalf. Transparent background — place it on anything.
+
+       Source of truth is app/components/MeguMark.js, which renders this plus
+       five other moods. Keep the two in step if you edit either. -->
+  <defs>
+    <linearGradient id="megu-body" x1="0.1" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#3D4795"/>
+      <stop offset="100%" stop-color="#212862"/>
+    </linearGradient>
+  </defs>
+
+  <g fill="url(#megu-body)">
+    <path d="M44 64 L57 13 Q59 6 65 11 L104 58 Z"/>
+    <path d="M156 64 L143 13 Q141 6 135 11 L96 58 Z"/>
+    <rect x="30" y="54" width="140" height="118" rx="50"/>
+    <path d="M60 166 L33 197 Q28 202 33 200 L82 180 Z"/>
+  </g>
+
+  <path d="M63 105 L89 105 L89 112 A13 13 0 0 1 63 112 Z" fill="#F4F2EC"/>
+  <path d="M111 105 L137 105 L137 112 A13 13 0 0 1 111 112 Z" fill="#F4F2EC"/>
+  <circle cx="70" cy="99" r="3.4" fill="#FFFFFF" opacity=".55"/>
+  <circle cx="118" cy="99" r="3.4" fill="#FFFFFF" opacity=".55"/>
+
+  <path d="M92 140 Q100 148 108 140" stroke="#F4F2EC" stroke-width="6.5" stroke-linecap="round" fill="none"/>
+
+  <circle cx="150" cy="76" r="10" fill="#F0B92A"/>
+</svg>

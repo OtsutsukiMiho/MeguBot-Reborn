@@ -15,39 +15,39 @@ function formatUptime(seconds) {
 
 function getCategoryColor(category) {
 	switch (category) {
-	case 'System': return '#9ca3af';
-	case 'Bot': return '#f472b6';
-	case 'Web': return '#38bdf8';
-	case 'Tts': return '#fbbf24';
-	case 'AutoMod': return '#f87171';
-	case 'Database': return '#34d399';
-	default: return '#818cf8';
+	case 'System': return 'var(--muted)';
+	case 'Bot': return 'var(--cat-pink)';
+	case 'Web': return 'var(--accent)';
+	case 'Tts': return 'var(--gold)';
+	case 'AutoMod': return 'var(--due)';
+	case 'Database': return 'var(--settled)';
+	default: return 'var(--accent)';
 	}
 }
 
 function getAuditBadgeStyle(eventType) {
 	switch (eventType) {
 	case 'WELCOME_LEAVE':
-		return { background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--cat-cyan) var(--cat-tint), transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--cat-cyan) 30%, transparent)' };
 	case 'AUTOROLE':
 	case 'AUTOROLE_ASSIGN':
-		return { background: 'rgba(244, 114, 182, 0.2)', color: '#f472b6', border: '1px solid rgba(244, 114, 182, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--cat-pink) var(--cat-tint), transparent)', color: 'var(--cat-pink)', border: '1px solid color-mix(in srgb, var(--cat-pink) 30%, transparent)' };
 	case 'VOICE_TTS':
-		return { background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24', border: '1px solid rgba(251, 191, 36, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--gold) var(--cat-tint), transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)' };
 	case 'HONEYPOT':
-		return { background: 'rgba(192, 132, 252, 0.2)', color: '#c084fc', border: '1px solid rgba(192, 132, 252, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--cat-purple) var(--cat-tint), transparent)', color: 'var(--cat-purple)', border: '1px solid color-mix(in srgb, var(--cat-purple) 30%, transparent)' };
 	case 'AUTOMOD':
 	case 'AUTOMOD_CONFIG':
 	case 'AUTOMOD_TRIGGER':
-		return { background: 'rgba(248, 113, 113, 0.2)', color: '#f87171', border: '1px solid rgba(248, 113, 113, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--due) var(--cat-tint), transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)' };
 	case 'REACTION_ROLE':
 	case 'REACTION_ROLE_CONFIG':
 	case 'REACTION_ROLE_ASSIGN':
-		return { background: 'rgba(52, 211, 153, 0.2)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--settled) var(--cat-tint), transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 30%, transparent)' };
 	case 'COMMAND_EXEC':
-		return { background: 'rgba(129, 140, 248, 0.2)', color: '#818cf8', border: '1px solid rgba(129, 140, 248, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--cat-violet) var(--cat-tint), transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--cat-violet) 30%, transparent)' };
 	default:
-		return { background: 'rgba(156, 163, 175, 0.2)', color: '#d1d5db', border: '1px solid rgba(156, 163, 175, 0.4)' };
+		return { background: 'color-mix(in srgb, var(--cat-neutral) var(--cat-tint), transparent)', color: 'var(--muted)', border: '1px solid color-mix(in srgb, var(--cat-neutral) 30%, transparent)' };
 	}
 }
 
@@ -219,15 +219,15 @@ export default function DeveloperPage() {
 	if (isDev === false) {
 		return (
 			<div style={{ maxWidth: '600px', margin: '2rem auto' }}>
-				<div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '16px', padding: '2.5rem', textAlign: 'center' }}>
+				<div style={{ background: 'var(--due-soft)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)', borderRadius: '16px', padding: '2.5rem', textAlign: 'center' }}>
 					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
-					<h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f87171', marginBottom: '0.5rem' }}>
+					<h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--due)', marginBottom: '0.5rem' }}>
 						Access Restricted
 					</h2>
 					<p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-						The Developer Portal is reserved strictly for authorized MeguBotReborn Development Team.
+						The Developer Portal is reserved strictly for the authorized Megux Corp development team.
 					</p>
-					<Link href="/dashboard" className="btn btn-primary">
+					<Link href="/servers" className="btn btn-primary">
 						Return to Server Dashboard
 					</Link>
 				</div>
@@ -245,7 +245,7 @@ export default function DeveloperPage() {
 		return (l.message || '').toLowerCase().includes(query) || (l.host || '').toLowerCase().includes(query);
 	});
 
-	const pingColor = (stats?.bot?.pingMs || 0) < 100 ? '#34d399' : (stats?.bot?.pingMs || 0) < 250 ? '#fbbf24' : '#f87171';
+	const pingColor = (stats?.bot?.pingMs || 0) < 100 ? 'var(--settled)' : (stats?.bot?.pingMs || 0) < 250 ? 'var(--gold)' : 'var(--due)';
 
 	return (
 		<div>
@@ -256,7 +256,7 @@ export default function DeveloperPage() {
 				<div>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
 						<h1 style={{ fontSize: '2rem', fontWeight: 800 }}>Developer Command Center</h1>
-						<span className="status-badge" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+						<span className="status-badge" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)' }}>
 							Developer Portal
 						</span>
 					</div>
@@ -284,7 +284,7 @@ export default function DeveloperPage() {
 						onClick={() => triggerAction('restart_bot', 'Restart Bot Process')}
 						disabled={actionLoading}
 						className="btn btn-primary btn-sm"
-						style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', border: 'none' }}
+						style={{ background: 'linear-gradient(135deg, var(--due), var(--due))', border: 'none' }}
 					>
 						Restart Bot
 					</button>
@@ -294,20 +294,20 @@ export default function DeveloperPage() {
 			{/* Performance Metrics Cards Grid */}
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
 				{/* RAM & Heap */}
-				<div style={{ background: 'rgba(31, 41, 55, 0.4)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
 					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
 						Memory Usage
 					</div>
-					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffffff' }}>
+					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--ink)' }}>
 						{stats?.system?.ramUsedMB || 0} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>MB RSS</span>
 					</div>
-					<div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginTop: '0.3rem' }}>
+					<div style={{ fontSize: '0.8rem', color: 'var(--accent)', marginTop: '0.3rem' }}>
 						Heap Used: {stats?.system?.heapUsedMB || 0} / {stats?.system?.heapTotalMB || 0} MB
 					</div>
 				</div>
 
 				{/* Discord Gateway Ping */}
-				<div style={{ background: 'rgba(31, 41, 55, 0.4)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
 					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
 						Gateway Latency
 					</div>
@@ -315,29 +315,29 @@ export default function DeveloperPage() {
 						{stats?.bot?.pingMs || 0} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>ms</span>
 					</div>
 					<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>
-						Bot Status: <strong style={{ color: stats?.bot?.status === 'online' ? '#34d399' : '#f87171' }}>{stats?.bot?.status || 'offline'}</strong>
+						Bot Status: <strong style={{ color: stats?.bot?.status === 'online' ? 'var(--settled)' : 'var(--due)' }}>{stats?.bot?.status || 'offline'}</strong>
 					</div>
 				</div>
 
 				{/* Guilds & Cached Users */}
-				<div style={{ background: 'rgba(31, 41, 55, 0.4)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
 					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
 						Active Guilds & Members
 					</div>
-					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffffff' }}>
+					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--ink)' }}>
 						{stats?.bot?.guildCount || 0} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Servers</span>
 					</div>
-					<div style={{ fontSize: '0.8rem', color: '#34d399', marginTop: '0.3rem' }}>
+					<div style={{ fontSize: '0.8rem', color: 'var(--settled)', marginTop: '0.3rem' }}>
 						{stats?.bot?.userCount || 0} Total Cached Users
 					</div>
 				</div>
 
 				{/* Voice Connections & Uptime */}
-				<div style={{ background: 'rgba(31, 41, 55, 0.4)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
 					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
 						Active Voice & Uptime
 					</div>
-					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#a5b4fc' }}>
+					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--accent)' }}>
 						{stats?.bot?.voiceConnections || 0} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>VC Players</span>
 					</div>
 					<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>
@@ -347,19 +347,19 @@ export default function DeveloperPage() {
 			</div>
 
 			{/* Service Status Row */}
-			<div style={{ background: 'rgba(31, 41, 55, 0.3)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem', marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem', marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-						<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#34d399' }} />
-						<span style={{ fontSize: '0.85rem', color: '#ffffff' }}>Express REST API</span>
+						<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--settled)' }} />
+						<span style={{ fontSize: '0.85rem', color: 'var(--ink)' }}>Express REST API</span>
 					</div>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-						<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: stats?.bot?.status === 'online' ? '#34d399' : '#f87171' }} />
-						<span style={{ fontSize: '0.85rem', color: '#ffffff' }}>Discord Bot Process</span>
+						<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: stats?.bot?.status === 'online' ? 'var(--settled)' : 'var(--due)' }} />
+						<span style={{ fontSize: '0.85rem', color: 'var(--ink)' }}>Discord Bot Process</span>
 					</div>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-						<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#6366f1' }} />
-						<span style={{ fontSize: '0.85rem', color: '#ffffff' }}>Database Engine: <strong>{stats?.services?.dbStatus === 'postgresql' ? 'PostgreSQL' : 'Local JSON Store'}</strong></span>
+						<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent)' }} />
+						<span style={{ fontSize: '0.85rem', color: 'var(--ink)' }}>Database Engine: <strong>{stats?.services?.dbStatus === 'postgresql' ? 'PostgreSQL' : 'Local JSON Store'}</strong></span>
 					</div>
 				</div>
 
@@ -369,19 +369,19 @@ export default function DeveloperPage() {
 			</div>
 
 			{/* Real-Time Live Log Stream Terminal */}
-			<div style={{ background: '#111827', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: '2rem' }}>
+			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: '2rem' }}>
 				{/* Terminal Header & Multi-Select Category Bar */}
-				<div style={{ background: '#1f2937', padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+				<div style={{ background: 'var(--surface)', padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-						<span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f3f4f6', marginRight: '0.5rem' }}>
+						<span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink)', marginRight: '0.5rem' }}>
 							Live System Logs
 						</span>
 						<button
 							onClick={() => toggleCategory('ALL')}
 							style={{
-								background: activeCategories.length === ALL_CATEGORIES.length ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
-								border: activeCategories.length === ALL_CATEGORIES.length ? '1px solid #6366f1' : '1px solid var(--border-color)',
-								color: activeCategories.length === ALL_CATEGORIES.length ? '#ffffff' : '#9ca3af',
+								background: activeCategories.length === ALL_CATEGORIES.length ? 'var(--accent-soft)' : 'transparent',
+								border: activeCategories.length === ALL_CATEGORIES.length ? '1px solid var(--accent)' : '1px solid var(--border-color)',
+								color: activeCategories.length === ALL_CATEGORIES.length ? 'var(--ink)' : 'var(--muted)',
 								padding: '0.2rem 0.65rem',
 								borderRadius: '6px',
 								fontSize: '0.75rem',
@@ -401,7 +401,7 @@ export default function DeveloperPage() {
 									style={{
 										background: isActive ? `${catColor}22` : 'transparent',
 										border: isActive ? `1px solid ${catColor}` : '1px solid var(--border-color)',
-										color: isActive ? '#ffffff' : '#9ca3af',
+										color: isActive ? 'var(--ink)' : 'var(--muted)',
 										padding: '0.2rem 0.6rem',
 										borderRadius: '6px',
 										fontSize: '0.75rem',
@@ -412,7 +412,7 @@ export default function DeveloperPage() {
 										gap: '0.3rem',
 									}}
 								>
-									<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isActive ? catColor : '#6b7280' }} />
+									<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isActive ? catColor : 'var(--faint)' }} />
 									{cat}
 								</button>
 							);
@@ -425,10 +425,10 @@ export default function DeveloperPage() {
 							placeholder="Filter logs..."
 							value={logFilter}
 							onChange={e => setLogFilter(e.target.value)}
-							style={{ background: '#111827', border: '1px solid var(--border-color)', color: '#f3f4f6', padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', outline: 'none' }}
+							style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', outline: 'none' }}
 						/>
 
-						<label style={{ fontSize: '0.8rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+						<label style={{ fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
 							<input
 								type="checkbox"
 								checked={autoScroll}
@@ -449,6 +449,9 @@ export default function DeveloperPage() {
 						fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace',
 						fontSize: '0.85rem',
 						lineHeight: '1.6',
+						// Deliberately dark in both themes. This is a terminal, and a
+						// terminal that inverts with the page stops looking like one —
+						// the ANSI-ish level colours below are calibrated for this ground.
 						background: '#0d1117',
 						color: '#c9d1d9',
 					}}
@@ -478,10 +481,10 @@ export default function DeveloperPage() {
 			</div>
 
 			{/* Global Audit Stream Section */}
-			<div style={{ background: '#111827', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
+			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
 					<div>
-						<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ffffff' }}>
+						<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)' }}>
 							📜 Global Mod/Admin Audit Stream
 						</h3>
 						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
@@ -494,7 +497,7 @@ export default function DeveloperPage() {
 							onClick={purgeAuditLogs}
 							disabled={actionLoading}
 							className="btn btn-secondary btn-sm"
-							style={{ color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+							style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
 						>
 							🧹 Purge Expired Logs (&gt;7 Days)
 						</button>
@@ -512,7 +515,7 @@ export default function DeveloperPage() {
 							placeholder="Search by Guild Name or Server ID..."
 							value={auditSearch}
 							onChange={e => setAuditSearch(e.target.value)}
-							style={{ width: '100%', background: '#1f2937', border: '1px solid var(--border-color)', color: '#f3f4f6', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
+							style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
 						/>
 					</div>
 
@@ -520,7 +523,7 @@ export default function DeveloperPage() {
 						<select
 							value={auditFilter}
 							onChange={e => setAuditFilter(e.target.value)}
-							style={{ width: '100%', background: '#1f2937', border: '1px solid var(--border-color)', color: '#f3f4f6', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
+							style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
 						>
 							<option value="ALL">All Event Types</option>
 							<option value="WELCOME_LEAVE">👋 Welcome & Leave</option>
@@ -536,14 +539,14 @@ export default function DeveloperPage() {
 
 				{/* Audit Table */}
 				{auditLogs.length === 0 ? (
-					<div style={{ background: '#1f2937', borderRadius: '12px', padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+					<div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
 						No audit events recorded for the selected search parameters.
 					</div>
 				) : (
-					<div style={{ background: '#1f2937', borderRadius: '12px', overflow: 'hidden' }}>
+					<div style={{ background: 'var(--surface)', borderRadius: '12px', overflow: 'hidden' }}>
 						<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
 							<thead>
-								<tr style={{ background: '#374151', borderBottom: '1px solid var(--border-color)', color: '#9ca3af' }}>
+								<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', color: 'var(--muted)' }}>
 									<th style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>Timestamp</th>
 									<th style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>Server Name</th>
 									<th style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>Actor</th>
@@ -557,14 +560,14 @@ export default function DeveloperPage() {
 									const badgeStyle = getAuditBadgeStyle(evtType);
 									const dateStr = log.created_at ? new Date(log.created_at).toLocaleString() : '';
 									return (
-										<tr key={log.id || idx} style={{ borderBottom: '1px solid rgba(75, 85, 99, 0.4)' }}>
-											<td style={{ padding: '0.75rem 1rem', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+										<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--line)' }}>
+											<td style={{ padding: '0.75rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
 												{dateStr}
 											</td>
-											<td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#a5b4fc', whiteSpace: 'nowrap' }}>
+											<td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
 												{log.guild_name || log.guild_id || 'Unknown Server'}
 											</td>
-											<td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#ffffff', whiteSpace: 'nowrap' }}>
+											<td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
 												{log.username || log.user_name || 'System'}
 											</td>
 											<td style={{ padding: '0.75rem 1rem', whiteSpace: 'nowrap' }}>
@@ -572,7 +575,7 @@ export default function DeveloperPage() {
 													{evtType}
 												</span>
 											</td>
-											<td style={{ padding: '0.75rem 1rem', color: '#d1d5db' }}>
+											<td style={{ padding: '0.75rem 1rem', color: 'var(--muted)' }}>
 												{log.details || '-'}
 											</td>
 										</tr>

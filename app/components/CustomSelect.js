@@ -112,14 +112,14 @@ export default function CustomSelect({
 					alignItems: 'center',
 					justifyContent: 'space-between',
 					gap: '0.65rem',
-					background: 'rgba(18, 24, 38, 0.75)',
+					background: 'var(--surface)',
 					border: isOpen ? '1px solid var(--color-accent)' : '1px solid var(--border-color)',
 					borderRadius: '8px',
 					padding: '0.6rem 0.9rem',
 					cursor: disabled ? 'not-allowed' : 'pointer',
 					opacity: disabled ? 0.6 : 1,
 					transition: 'all 0.15s ease',
-					boxShadow: isOpen ? '0 0 0 3px rgba(79, 70, 229, 0.15)' : 'none',
+					boxShadow: isOpen ? '0 0 0 3px var(--accent-soft)' : 'none',
 				}}
 			>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0, flex: 1, overflow: 'hidden' }}>
@@ -159,7 +159,7 @@ export default function CustomSelect({
 								style={{
 									fontSize: '0.875rem',
 									fontWeight: 600,
-									color: (type === 'role' && selectedColor) ? selectedColor : '#ffffff',
+									color: (type === 'role' && selectedColor) ? selectedColor : 'var(--ink)',
 									whiteSpace: 'nowrap',
 									overflow: 'hidden',
 									textOverflow: 'ellipsis',
@@ -204,10 +204,10 @@ export default function CustomSelect({
 						bottom: openUpward ? 'calc(100% + 6px)' : 'auto',
 						left: 0,
 						right: 0,
-						background: '#121826',
+						background: 'var(--surface)',
 						border: '1px solid var(--border-color)',
 						borderRadius: '10px',
-						boxShadow: '0 16px 36px rgba(0, 0, 0, 0.85)',
+						boxShadow: '0 16px 36px rgba(22, 24, 31, .28)',
 						zIndex: 9999,
 						overflow: 'hidden',
 						animation: 'fadeIn 0.15s ease-out',
@@ -218,7 +218,7 @@ export default function CustomSelect({
 				>
 					{/* Search Bar if enabled */}
 					{searchable && options.length > 5 && (
-						<div style={{ padding: '0.5rem', borderBottom: '1px solid var(--border-color)', background: 'rgba(255, 255, 255, 0.02)' }}>
+						<div style={{ padding: '0.5rem', borderBottom: '1px solid var(--border-color)', background: 'var(--surface-2)' }}>
 							<input
 								ref={searchInputRef}
 								type="text"
@@ -228,11 +228,11 @@ export default function CustomSelect({
 								onClick={e => e.stopPropagation()}
 								style={{
 									width: '100%',
-									background: 'rgba(0, 0, 0, 0.3)',
+									background: 'var(--sunk)',
 									border: '1px solid var(--border-color)',
 									borderRadius: '6px',
 									padding: '0.4rem 0.65rem',
-									color: '#ffffff',
+									color: 'var(--ink)',
 									fontSize: '0.8rem',
 									outline: 'none',
 								}}
@@ -263,11 +263,11 @@ export default function CustomSelect({
 											padding: '0.5rem 0.75rem',
 											borderRadius: '6px',
 											cursor: 'pointer',
-											background: isSelected ? 'rgba(79, 70, 229, 0.15)' : 'transparent',
+											background: isSelected ? 'var(--accent-soft)' : 'transparent',
 											transition: 'background 0.12s ease',
 										}}
 										onMouseEnter={e => {
-											if (!isSelected) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+											if (!isSelected) e.currentTarget.style.background = 'var(--sunk)';
 										}}
 										onMouseLeave={e => {
 											if (!isSelected) e.currentTarget.style.background = 'transparent';
@@ -281,7 +281,7 @@ export default function CustomSelect({
 														width: '8px',
 														height: '8px',
 														borderRadius: '50%',
-														background: optColor || '#a5b4fc',
+														background: optColor || 'var(--accent)',
 														boxShadow: optColor ? `0 0 6px ${optColor}80` : 'none',
 														flexShrink: 0,
 													}}
@@ -308,7 +308,7 @@ export default function CustomSelect({
 												style={{
 													fontSize: '0.85rem',
 													fontWeight: isSelected ? 700 : 500,
-													color: (type === 'role' && optColor) ? optColor : (isSelected ? '#ffffff' : 'var(--text-primary)'),
+													color: (type === 'role' && optColor) ? optColor : (isSelected ? 'var(--ink)' : 'var(--text-primary)'),
 													whiteSpace: 'nowrap',
 													overflow: 'hidden',
 													textOverflow: 'ellipsis',
@@ -330,7 +330,7 @@ export default function CustomSelect({
 													fontSize: '0.7rem',
 													padding: '0.1rem 0.4rem',
 													borderRadius: '4px',
-													background: 'rgba(255, 255, 255, 0.06)',
+													background: 'var(--sunk)',
 													color: 'var(--text-secondary)',
 													flexShrink: 0,
 												}}

@@ -54,7 +54,7 @@ export default function ServerConfigPage({ params }) {
 				}
 				if (res.status === 403) {
 					setIsForbidden(true);
-					router.replace('/dashboard');
+					router.replace('/servers');
 					return null;
 				}
 				return res.json();
@@ -73,7 +73,7 @@ export default function ServerConfigPage({ params }) {
 					setIsDirty(false);
 
 					if (data.name) {
-						document.title = `${data.name} | MeguBotReborn`;
+						document.title = `${data.name} | Megu`;
 					}
 				}
 				else if (data.error && data.error.toLowerCase().includes('unauthorized')) {
@@ -81,7 +81,7 @@ export default function ServerConfigPage({ params }) {
 				}
 				else if (data.error && (data.error.toLowerCase().includes('forbidden') || data.error.toLowerCase().includes('permission'))) {
 					setIsForbidden(true);
-					router.replace('/dashboard');
+					router.replace('/servers');
 				}
 				else {
 					showToast(data.error || 'Failed to load server config.', true);
@@ -165,15 +165,15 @@ export default function ServerConfigPage({ params }) {
 	if (isForbidden) {
 		return (
 			<div style={{ maxWidth: '540px', margin: '3rem auto 0', textAlign: 'center' }}>
-				<div style={{ background: 'rgba(31, 41, 55, 0.4)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
 					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⛔</div>
-					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: '#f87171' }}>
+					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--due)' }}>
 						Access Forbidden
 					</h2>
 					<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: '1.6' }}>
 						You do not have Administrator or Manage Server permissions for this server. Redirecting to server selector...
 					</p>
-					<Link href="/dashboard" className="btn btn-primary btn-sm">
+					<Link href="/servers" className="btn btn-primary btn-sm">
 						Back to Server Selector
 					</Link>
 				</div>
@@ -184,9 +184,9 @@ export default function ServerConfigPage({ params }) {
 	if (needLogin) {
 		return (
 			<div style={{ maxWidth: '540px', margin: '3rem auto 0', textAlign: 'center' }}>
-				<div style={{ background: 'rgba(31, 41, 55, 0.4)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
 					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔐</div>
-					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: '#ffffff' }}>
+					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--ink)' }}>
 						Discord Login Required
 					</h2>
 					<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: '1.6' }}>
@@ -247,7 +247,7 @@ export default function ServerConfigPage({ params }) {
 					</div>
 				</div>
 
-				<Link href="/dashboard" className="btn btn-secondary btn-sm">
+				<Link href="/servers" className="btn btn-secondary btn-sm">
 					Back to Server List
 				</Link>
 			</div>

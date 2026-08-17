@@ -26,7 +26,9 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 	const allRoles = Array.isArray(roles) ? roles : [];
 
 	const presetColors = [
-		'#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#06b6d4', '#99aab5'
+		// Literal hex on purpose: these are values sent to Discord as the role
+		// colour, not styling for this page. A CSS variable here reaches the API.
+		'#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#06b6d4', '#9ca3af'
 	];
 
 	const filteredRoles = allRoles.filter(r => {
@@ -43,7 +45,8 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 	};
 
 	const getRoleColorHex = (colorVal) => {
-		if (!colorVal || colorVal === 0 || colorVal === '#000000') return '#a5b4fc';
+		// Literal hex: feeds ColorPicker and color-mix, and reaches Discord on save.
+		if (!colorVal || colorVal === 0 || colorVal === '#000000') return '#8A8F9E';
 		if (typeof colorVal === 'string' && colorVal.startsWith('#')) return colorVal;
 		return '#' + Number(colorVal).toString(16).padStart(6, '0');
 	};
@@ -156,7 +159,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 			{/* Top Header */}
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
 				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.25rem' }}>
+					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
 						Role Manager
 					</h3>
 					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -164,7 +167,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 					</p>
 				</div>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'rgba(79, 70, 229, 0.1)', border: '1px solid rgba(79, 70, 229, 0.25)', color: '#a5b4fc' }}>
+					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
 						{allRoles.length} Server Roles
 					</span>
 				</div>
@@ -191,10 +194,10 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 			</div>
 
 			{/* Roles Table */}
-			<div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.5rem' }}>
 				<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
 					<thead>
-						<tr style={{ background: 'rgba(255, 255, 255, 0.03)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+						<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
 							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Role</th>
 							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Role ID</th>
 							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Flags</th>
@@ -216,21 +219,21 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 								return (
 									<tr
 										key={role.id}
-										style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)', transition: 'background 0.15s ease' }}
+										style={{ borderBottom: '1px solid var(--sunk)', transition: 'background 0.15s ease' }}
 									>
 										<td style={{ padding: '0.85rem 1rem' }}>
 											<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
 												<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: hex, flexShrink: 0 }}></span>
-												<span style={{ fontWeight: 600, color: hex }}>
+												<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
 													{role.name}
 												</span>
 												{isEveryone && (
-													<span style={{ fontSize: '0.7rem', background: 'rgba(255, 255, 255, 0.06)', padding: '0.1rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>
+													<span style={{ fontSize: '0.7rem', background: 'var(--sunk)', padding: '0.1rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>
 														Default
 													</span>
 												)}
 												{isManaged && (
-													<span style={{ fontSize: '0.7rem', background: 'rgba(251, 191, 36, 0.1)', color: '#fbbf24', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+													<span style={{ fontSize: '0.7rem', background: 'rgba(251, 191, 36, 0.1)', color: 'var(--gold)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
 														Managed
 													</span>
 												)}
@@ -242,12 +245,12 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 										<td style={{ padding: '0.85rem 1rem' }}>
 											<div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
 												{role.hoist && (
-													<span style={{ fontSize: '0.7rem', background: 'rgba(79, 70, 229, 0.1)', color: '#a5b4fc', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+													<span style={{ fontSize: '0.7rem', background: 'var(--accent-soft)', color: 'var(--accent)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
 														Hoisted
 													</span>
 												)}
 												{role.mentionable && (
-													<span style={{ fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.1)', color: '#34d399', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+													<span style={{ fontSize: '0.7rem', background: 'var(--settled-soft)', color: 'var(--settled)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
 														Mentionable
 													</span>
 												)}
@@ -262,7 +265,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 														fontSize: '0.75rem',
 														padding: '0.25rem 0.65rem',
 														whiteSpace: 'nowrap',
-														color: copiedId === role.id ? '#34d399' : undefined,
+														color: copiedId === role.id ? 'var(--settled)' : undefined,
 														borderColor: copiedId === role.id ? 'rgba(52, 211, 153, 0.4)' : undefined,
 													}}
 												>
@@ -280,7 +283,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 														<button
 															onClick={() => handleDeleteRole(role)}
 															className="btn btn-secondary btn-sm"
-															style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', color: '#f87171', whiteSpace: 'nowrap' }}
+															style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', color: 'var(--due)', whiteSpace: 'nowrap' }}
 														>
 															Delete
 														</button>
@@ -299,8 +302,8 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 			{/* ================= MODAL: CREATE ROLE ================= */}
 			{showCreateModal && (
 				<div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-					<div style={{ background: '#121826', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
-						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff', marginBottom: '1rem' }}>
+					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
+						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '1rem' }}>
 							Create New Server Role
 						</h4>
 
@@ -335,7 +338,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 										onChange={e => setNewRoleHoist(e.target.checked)}
 										style={{ width: '16px', height: '16px' }}
 									/>
-									<span style={{ fontSize: '0.875rem', color: '#ffffff' }}>Display role members separately in sidebar (Hoist)</span>
+									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Display role members separately in sidebar (Hoist)</span>
 								</label>
 
 								<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
@@ -345,7 +348,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 										onChange={e => setNewRoleMentionable(e.target.checked)}
 										style={{ width: '16px', height: '16px' }}
 									/>
-									<span style={{ fontSize: '0.875rem', color: '#ffffff' }}>Allow anyone to @mention this role</span>
+									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Allow anyone to @mention this role</span>
 								</label>
 							</div>
 
@@ -374,8 +377,8 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 			{/* ================= MODAL: EDIT ROLE ================= */}
 			{editingRole && (
 				<div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-					<div style={{ background: '#121826', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
-						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff', marginBottom: '1rem' }}>
+					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
+						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '1rem' }}>
 							Edit Role: @{editingRole.name}
 						</h4>
 
@@ -408,7 +411,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 										onChange={e => setEditHoist(e.target.checked)}
 										style={{ width: '16px', height: '16px' }}
 									/>
-									<span style={{ fontSize: '0.875rem', color: '#ffffff' }}>Display role members separately in sidebar (Hoist)</span>
+									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Display role members separately in sidebar (Hoist)</span>
 								</label>
 
 								<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
@@ -418,7 +421,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 										onChange={e => setEditMentionable(e.target.checked)}
 										style={{ width: '16px', height: '16px' }}
 									/>
-									<span style={{ fontSize: '0.875rem', color: '#ffffff' }}>Allow anyone to @mention this role</span>
+									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Allow anyone to @mention this role</span>
 								</label>
 							</div>
 
