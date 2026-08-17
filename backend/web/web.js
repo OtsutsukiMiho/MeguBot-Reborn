@@ -1221,6 +1221,7 @@ app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
 				userCount: botStats.usersCount || 0,
 				voiceConnections: botStats.voiceConnectionsCount || 0,
 				readyTimestamp: botStats.readyTimestamp || null,
+				guilds: botStats.guilds || [],
 			},
 			services: {
 				botStatus: botStats.exists ? 'online' : 'offline',

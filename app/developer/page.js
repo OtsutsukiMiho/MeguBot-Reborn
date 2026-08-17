@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import Toast from '../components/Toast.js';
 import CustomSelect from '../components/CustomSelect.js';
@@ -56,14 +56,14 @@ function getAuditBadgeStyle(eventType) {
 const ALL_CATEGORIES = ['System', 'Bot', 'Web', 'TTS', 'AutoMod', 'Database'];
 
 const AUDIT_FILTER_OPTIONS = [
-	{ value: 'ALL', label: 'All Event Types', icon: '📜' },
-	{ value: 'WELCOME_LEAVE', label: 'Welcome & Leave', icon: '👋' },
-	{ value: 'AUTOROLE', label: 'AutoRoles', icon: '🎖️' },
-	{ value: 'VOICE_TTS', label: 'Voice TTS Suite', icon: '🗣️' },
-	{ value: 'HONEYPOT', label: 'Honeypot Trap', icon: '🍯' },
-	{ value: 'AUTOMOD', label: 'Auto-Moderation', icon: '🛡️' },
-	{ value: 'REACTION_ROLE', label: 'Reaction Roles', icon: '⚡' },
-	{ value: 'COMMAND_EXEC', label: 'Slash Commands', icon: '🤖' },
+	{ value: 'ALL', label: 'All Event Types' },
+	{ value: 'WELCOME_LEAVE', label: 'Welcome & Leave' },
+	{ value: 'AUTOROLE', label: 'AutoRoles' },
+	{ value: 'VOICE_TTS', label: 'Voice TTS Suite' },
+	{ value: 'HONEYPOT', label: 'Honeypot Trap' },
+	{ value: 'AUTOMOD', label: 'Auto-Moderation' },
+	{ value: 'REACTION_ROLE', label: 'Reaction Roles' },
+	{ value: 'COMMAND_EXEC', label: 'Slash Commands' },
 ];
 
 const TTS_VOICE_OPTIONS = [
@@ -180,6 +180,35 @@ export default function DeveloperPage() {
 		}
 	}, [logs, autoScroll]);
 
+	const connectedGuildOptions = useMemo(() => {
+		const list = [];
+		const seen = new Set();
+
+		(audioQueues || []).forEach(q => {
+			if (q.guildId && !seen.has(q.guildId)) {
+				seen.add(q.guildId);
+				list.push({
+					value: q.guildId,
+					label: q.guildName || `Server (${q.guildId})`,
+					subtitle: `Active Voice Player • ID: ${q.guildId}`,
+				});
+			}
+		});
+
+		(stats?.bot?.guilds || []).forEach(g => {
+			if (g.id && !seen.has(g.id)) {
+				seen.add(g.id);
+				list.push({
+					value: g.id,
+					label: g.name || `Server (${g.id})`,
+					subtitle: `ID: ${g.id}${g.memberCount ? ` • ${g.memberCount} members` : ''}`,
+				});
+			}
+		});
+
+		return list;
+	}, [stats, audioQueues]);
+
 	const toggleCategory = (cat) => {
 		if (cat === 'ALL') {
 			if (activeCategories.length === ALL_CATEGORIES.length) {
@@ -234,7 +263,7 @@ export default function DeveloperPage() {
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast(data.message || 'Track skipped!');
+				showToast(data.message || 'Track skipped successfully.');
 				fetchDevData();
 			}
 			else {
@@ -255,7 +284,7 @@ export default function DeveloperPage() {
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast(data.message || 'Item removed from queue!');
+				showToast(data.message || 'Item removed from queue.');
 				fetchDevData();
 			}
 			else {
@@ -276,7 +305,7 @@ export default function DeveloperPage() {
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast(data.message || 'Guild audio queue cleared!');
+				showToast(data.message || 'Guild audio queue cleared.');
 				fetchDevData();
 			}
 			else {
@@ -309,7 +338,7 @@ export default function DeveloperPage() {
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast('TTS clip injected into queue successfully!');
+				showToast('TTS clip injected into queue successfully.');
 				setShowInjectModal(false);
 				setInjectText('');
 				fetchDevData();
@@ -334,7 +363,7 @@ export default function DeveloperPage() {
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast(data.message || 'Audit logs purged!');
+				showToast(data.message || 'Audit logs purged.');
 				fetchAuditLogs();
 			}
 			else {
@@ -353,7 +382,7 @@ export default function DeveloperPage() {
 		return (
 			<div className="container" style={{ padding: '4rem 1.5rem', textAlign: 'center' }}>
 				<div style={{ fontSize: '1.2rem', color: 'var(--muted)' }}>
-					⚡ Verifying Developer Access Credentials...
+					Verifying Developer Access Credentials...
 				</div>
 			</div>
 		);
@@ -363,7 +392,6 @@ export default function DeveloperPage() {
 		return (
 			<div className="container" style={{ padding: '4rem 1.5rem', textAlign: 'center' }}>
 				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '3rem', maxWidth: '540px', margin: '0 auto' }}>
-					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⛔</div>
 					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--due)', marginBottom: '0.75rem' }}>
 						Access Restricted
 					</h2>
@@ -396,20 +424,19 @@ export default function DeveloperPage() {
 		<div className="container" style={{ padding: '2rem 1rem', maxWidth: '1280px' }}>
 			{toastMsg && <Toast message={toastMsg} isError={toastError} onClose={() => setToastMsg('')} />}
 
-			{/* Page Header */}
+			{/* Page Header with Action Buttons */}
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
 				<div>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-						<span style={{ fontSize: '2rem' }}>⚡</span>
-						<h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--ink)' }}>
+						<h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--ink)', margin: 0 }}>
 							Developer Command Center
 						</h1>
 						<span style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', border: '1px solid var(--accent)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-							SYSTEM ROOT
+							Developer Portal
 						</span>
 					</div>
 					<p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-						Real-time system telemetry, audio queue studio, unified live logs, and global audit inspection.
+						Real-time system telemetry, unified live logs, audio queue studio, and global audit inspection.
 					</p>
 				</div>
 
@@ -418,23 +445,32 @@ export default function DeveloperPage() {
 						onClick={() => handleAction('reload_cache')}
 						disabled={actionLoading}
 						className="btn btn-secondary btn-sm"
-						title="Force hot-reload all honeypot, TTS channel, and automod caches in the Bot process."
+						title="Reload bot caches across all modules."
 					>
-						🔄 Reload Bot Caches
+						Reload Cache
 					</button>
 					<button
 						onClick={() => handleAction('clear_queues')}
 						disabled={actionLoading}
 						className="btn btn-secondary btn-sm"
-						title="Flush and terminate all active Discord Voice audio queues across all servers."
+						title="Clear and flush all active audio queues."
 					>
-						🧹 Flush All Audio Queues
+						Clear Queues
+					</button>
+					<button
+						onClick={() => handleAction('restart_bot')}
+						disabled={actionLoading}
+						className="btn btn-secondary btn-sm"
+						style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
+						title="Trigger clean restart of the Discord Bot process."
+					>
+						Restart Bot
 					</button>
 					<button
 						onClick={fetchDevData}
 						className="btn btn-primary btn-sm"
 					>
-						⚡ Refresh Telemetry
+						Refresh
 					</button>
 				</div>
 			</div>
@@ -516,204 +552,7 @@ export default function DeveloperPage() {
 				</div>
 			</div>
 
-			{/* 🎙️ Live Audio Queue Monitor & Control Studio */}
-			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem', marginBottom: '2rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-						<span style={{ fontSize: '1.5rem' }}>🎙️</span>
-						<div>
-							<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-								<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
-									Live Audio Queue Studio
-								</h3>
-								<span style={{ background: 'color-mix(in srgb, var(--gold) 15%, transparent)', color: 'var(--gold)', border: '1px solid var(--gold)', padding: '0.15rem 0.5rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800 }}>
-									● LIVE STREAM
-								</span>
-							</div>
-							<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-								Real-time monitor and controls for TTS & Voice playback across all Discord servers.
-							</p>
-						</div>
-					</div>
-
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-						<button
-							onClick={() => setShowInjectModal(true)}
-							className="btn btn-secondary btn-sm"
-							style={{ color: 'var(--gold)', borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)' }}
-						>
-							➕ Force Inject TTS
-						</button>
-						<button
-							onClick={fetchDevData}
-							className="btn btn-secondary btn-sm"
-						>
-							🔄 Refresh Queues
-						</button>
-					</div>
-				</div>
-
-				{/* Active Queue Cards */}
-				{audioQueues.length === 0 ? (
-					<div style={{ background: 'var(--sunk)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
-						<div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔇</div>
-						<div style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>No Active Audio Queues</div>
-						<div style={{ fontSize: '0.85rem' }}>The bot voice player is currently idle. When members use TTS or audio features, active queues will appear here in real-time.</div>
-					</div>
-				) : (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem' }}>
-						{audioQueues.map((q) => {
-							const isPlaying = q.playerState === 'playing' || q.isBusy;
-							const current = q.currentItem;
-
-							return (
-								<div
-									key={q.guildId}
-									style={{
-										background: 'var(--sunk)',
-										border: '1px solid var(--border-color)',
-										borderRadius: '14px',
-										padding: '1.25rem',
-										display: 'flex',
-										flexDirection: 'column',
-										gap: '1rem',
-									}}
-								>
-									{/* Guild Queue Header */}
-									<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-										<div>
-											<div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--ink)' }}>
-												{q.guildName}
-											</div>
-											<div style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'monospace' }}>
-												ID: {q.guildId}
-											</div>
-										</div>
-
-										<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-											<span
-												style={{
-													padding: '0.2rem 0.6rem',
-													borderRadius: '6px',
-													fontSize: '0.75rem',
-													fontWeight: 700,
-													background: isPlaying ? 'color-mix(in srgb, var(--settled) 15%, transparent)' : 'color-mix(in srgb, var(--muted) 15%, transparent)',
-													color: isPlaying ? 'var(--settled)' : 'var(--muted)',
-													border: `1px solid ${isPlaying ? 'var(--settled)' : 'var(--border-color)'}`,
-												}}
-											>
-												{isPlaying ? '▶️ Playing' : '⏸️ Idle'}
-											</span>
-											<button
-												onClick={() => handleClearGuildQueue(q.guildId)}
-												className="btn btn-ghost btn-sm"
-												style={{ color: 'var(--due)', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-												title="Clear this server queue"
-											>
-												🧹 Clear
-											</button>
-										</div>
-									</div>
-
-									{/* Now Playing Banner */}
-									{current && (
-										<div
-											style={{
-												background: 'color-mix(in srgb, var(--gold) 8%, transparent)',
-												border: '1px solid color-mix(in srgb, var(--gold) 35%, transparent)',
-												borderRadius: '10px',
-												padding: '0.85rem 1rem',
-											}}
-										>
-											<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-												<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-													<span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase' }}>
-														Now Playing
-													</span>
-													<span style={{ background: 'var(--surface)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem', color: 'var(--muted)' }}>
-														{current.engine}
-													</span>
-												</div>
-												<button
-													onClick={() => handleSkipQueue(q.guildId)}
-													className="btn btn-secondary btn-sm"
-													style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: 'var(--gold)', borderColor: 'var(--gold)' }}
-												>
-													⏭️ Force Skip
-												</button>
-											</div>
-
-											<div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.3rem', wordBreak: 'break-word' }}>
-												&ldquo;{current.text}&rdquo;
-											</div>
-
-											<div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-												Speaker: <strong style={{ color: 'var(--accent)' }}>{current.userName}</strong> • Voice: {current.voice}
-											</div>
-										</div>
-									)}
-
-									{/* Upcoming Queue List */}
-									<div>
-										<div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-											Up Next ({q.items?.length || 0} queued)
-										</div>
-
-										{(!q.items || q.items.length === 0) ? (
-											<div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-												No further clips in queue.
-											</div>
-										) : (
-											<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
-												{q.items.map((item, idx) => (
-													<div
-														key={item.id || idx}
-														style={{
-															background: 'var(--surface)',
-															border: '1px solid var(--border-color)',
-															borderRadius: '8px',
-															padding: '0.5rem 0.75rem',
-															display: 'flex',
-															alignItems: 'center',
-															justifyContent: 'space-between',
-															gap: '0.5rem',
-														}}
-													>
-														<div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', minWidth: 0 }}>
-															<span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent)', flexShrink: 0 }}>
-																#{idx + 1}
-															</span>
-															<div style={{ minWidth: 0 }}>
-																<div style={{ fontSize: '0.85rem', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-																	{item.text}
-																</div>
-																<div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
-																	by {item.userName} ({item.engine})
-																</div>
-															</div>
-														</div>
-
-														<button
-															onClick={() => handleRemoveQueueItem(q.guildId, item.id)}
-															className="btn btn-ghost btn-sm"
-															style={{ color: 'var(--due)', padding: '0.2rem 0.4rem', flexShrink: 0 }}
-															title="Remove from queue"
-														>
-															🗑️
-														</button>
-													</div>
-												))}
-											</div>
-										)}
-									</div>
-								</div>
-							);
-						})}
-					</div>
-				)}
-			</div>
-
-			{/* Real-Time Live Log Stream Terminal */}
+			{/* 1. Real-Time Live Log Stream Terminal */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: '2rem' }}>
 				{/* Terminal Header & Category Controls */}
 				<div style={{ background: 'var(--surface)', padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
@@ -734,7 +573,7 @@ export default function DeveloperPage() {
 								cursor: 'pointer',
 							}}
 						>
-							{activeCategories.length === ALL_CATEGORIES.length ? '✓ All' : 'Select All'}
+							{activeCategories.length === ALL_CATEGORIES.length ? 'All' : 'Select All'}
 						</button>
 						{ALL_CATEGORIES.map(cat => {
 							const isActive = activeCategories.includes(cat);
@@ -846,12 +685,216 @@ export default function DeveloperPage() {
 				</div>
 			</div>
 
-			{/* Global Audit Stream Section */}
+			{/* 2. Live Audio Queue Monitor & Control Studio */}
+			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem', marginBottom: '2rem' }}>
+				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+					<div>
+						<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+							<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
+								Live Audio Queues
+							</h3>
+							<span style={{ background: 'color-mix(in srgb, var(--gold) 15%, transparent)', color: 'var(--gold)', border: '1px solid var(--gold)', padding: '0.15rem 0.5rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800 }}>
+								LIVE STREAM
+							</span>
+						</div>
+						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+							Real-time monitor and controls for TTS & Voice playback across all Discord servers.
+						</p>
+					</div>
+
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+						<button
+							onClick={() => setShowInjectModal(true)}
+							className="btn btn-secondary btn-sm"
+							style={{ color: 'var(--gold)', borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)' }}
+						>
+							Inject TTS
+						</button>
+						<button
+							onClick={fetchDevData}
+							className="btn btn-secondary btn-sm"
+						>
+							Refresh Queues
+						</button>
+					</div>
+				</div>
+
+				{/* Active Queue Cards */}
+				{audioQueues.length === 0 ? (
+					<div style={{ background: 'var(--sunk)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+						<div style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>No Active Audio Queues</div>
+						<div style={{ fontSize: '0.85rem' }}>The bot voice player is currently idle. When members use TTS or audio features, active queues will appear here in real-time.</div>
+					</div>
+				) : (
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem' }}>
+						{audioQueues.map((q) => {
+							const isPlaying = q.playerState === 'playing' || q.isBusy;
+							const current = q.currentItem;
+
+							return (
+								<div
+									key={q.guildId}
+									style={{
+										background: 'var(--sunk)',
+										border: '1px solid var(--border-color)',
+										borderRadius: '14px',
+										padding: '1.25rem',
+										display: 'flex',
+										flexDirection: 'column',
+										gap: '1rem',
+									}}
+								>
+									{/* Guild Queue Header */}
+									<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+										<div>
+											<div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--ink)' }}>
+												{q.guildName}
+											</div>
+											<div style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'monospace' }}>
+												ID: {q.guildId}
+											</div>
+										</div>
+
+										<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+											<span
+												style={{
+													padding: '0.2rem 0.6rem',
+													borderRadius: '6px',
+													fontSize: '0.75rem',
+													fontWeight: 700,
+													background: isPlaying ? 'color-mix(in srgb, var(--settled) 15%, transparent)' : 'color-mix(in srgb, var(--muted) 15%, transparent)',
+													color: isPlaying ? 'var(--settled)' : 'var(--muted)',
+													border: `1px solid ${isPlaying ? 'var(--settled)' : 'var(--border-color)'}`,
+												}}
+											>
+												{isPlaying ? 'Playing' : 'Idle'}
+											</span>
+											<button
+												onClick={() => {
+													setInjectGuildId(q.guildId);
+													setShowInjectModal(true);
+												}}
+												className="btn btn-ghost btn-sm"
+												style={{ color: 'var(--gold)', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+												title="Inject TTS into this server"
+											>
+												Inject TTS
+											</button>
+											<button
+												onClick={() => handleClearGuildQueue(q.guildId)}
+												className="btn btn-ghost btn-sm"
+												style={{ color: 'var(--due)', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+												title="Clear this server queue"
+											>
+												Clear
+											</button>
+										</div>
+									</div>
+
+									{/* Now Playing Banner */}
+									{current && (
+										<div
+											style={{
+												background: 'color-mix(in srgb, var(--gold) 8%, transparent)',
+												border: '1px solid color-mix(in srgb, var(--gold) 35%, transparent)',
+												borderRadius: '10px',
+												padding: '0.85rem 1rem',
+											}}
+										>
+											<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+												<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+													<span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase' }}>
+														Now Playing
+													</span>
+													<span style={{ background: 'var(--surface)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem', color: 'var(--muted)' }}>
+														{current.engine}
+													</span>
+												</div>
+												<button
+													onClick={() => handleSkipQueue(q.guildId)}
+													className="btn btn-secondary btn-sm"
+													style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: 'var(--gold)', borderColor: 'var(--gold)' }}
+												>
+													Force Skip
+												</button>
+											</div>
+
+											<div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.3rem', wordBreak: 'break-word' }}>
+												&ldquo;{current.text}&rdquo;
+											</div>
+
+											<div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+												Speaker: <strong style={{ color: 'var(--accent)' }}>{current.userName}</strong> • Voice: {current.voice}
+											</div>
+										</div>
+									)}
+
+									{/* Upcoming Queue List */}
+									<div>
+										<div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+											Up Next ({q.items?.length || 0} queued)
+										</div>
+
+										{(!q.items || q.items.length === 0) ? (
+											<div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+												No further clips in queue.
+											</div>
+										) : (
+											<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
+												{q.items.map((item, idx) => (
+													<div
+														key={item.id || idx}
+														style={{
+															background: 'var(--surface)',
+															border: '1px solid var(--border-color)',
+															borderRadius: '8px',
+															padding: '0.5rem 0.75rem',
+															display: 'flex',
+															alignItems: 'center',
+															justifyContent: 'space-between',
+															gap: '0.5rem',
+														}}
+													>
+														<div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', minWidth: 0 }}>
+															<span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent)', flexShrink: 0 }}>
+																#{idx + 1}
+															</span>
+															<div style={{ minWidth: 0 }}>
+																<div style={{ fontSize: '0.85rem', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+																	{item.text}
+																</div>
+																<div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
+																	by {item.userName} ({item.engine})
+																</div>
+															</div>
+														</div>
+
+														<button
+															onClick={() => handleRemoveQueueItem(q.guildId, item.id)}
+															className="btn btn-ghost btn-sm"
+															style={{ color: 'var(--due)', padding: '0.2rem 0.4rem', flexShrink: 0, fontSize: '0.75rem' }}
+															title="Remove from queue"
+														>
+															Remove
+														</button>
+													</div>
+												))}
+											</div>
+										)}
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				)}
+			</div>
+
+			{/* 3. Global Audit Stream Section */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
 					<div>
-						<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)' }}>
-							📜 Global Mod/Admin Audit Stream
+						<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
+							Global Mod/Admin Audit Stream
 						</h3>
 						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
 							Monitor all moderator and administrator actions across every Discord server (Auto-pruned after 7 days).
@@ -865,10 +908,10 @@ export default function DeveloperPage() {
 							className="btn btn-secondary btn-sm"
 							style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
 						>
-							🧹 Purge Expired Logs (&gt;7 Days)
+							Purge Expired Logs (&gt;7 Days)
 						</button>
 						<button onClick={fetchAuditLogs} className="btn btn-secondary btn-sm">
-							🔄 Refresh Audit
+							Refresh Audit
 						</button>
 					</div>
 				</div>
@@ -972,7 +1015,7 @@ export default function DeveloperPage() {
 					>
 						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
 							<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
-								➕ Inject Force TTS Clip
+								Inject TTS Clip
 							</h3>
 							<button
 								onClick={() => setShowInjectModal(false)}
@@ -988,14 +1031,26 @@ export default function DeveloperPage() {
 								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
 									Target Server (Guild ID)
 								</label>
-								<input
-									type="text"
-									placeholder="e.g. 123456789012345678"
-									value={injectGuildId}
-									onChange={e => setInjectGuildId(e.target.value)}
-									required
-									style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
-								/>
+								<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+									<CustomSelect
+										value={injectGuildId}
+										onChange={(val) => setInjectGuildId(val)}
+										options={[
+											{ value: '', label: 'Select Connected Server (or type ID below)...', subtitle: 'Choose from bot connected servers' },
+											...connectedGuildOptions,
+										]}
+										placeholder="Select Connected Server..."
+										searchable={true}
+									/>
+									<input
+										type="text"
+										placeholder="Or enter / paste Guild ID manually (e.g. 123456789012345678)"
+										value={injectGuildId}
+										onChange={e => setInjectGuildId(e.target.value)}
+										required
+										style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none', fontFamily: 'monospace' }}
+									/>
+								</div>
 							</div>
 
 							<div>
@@ -1061,7 +1116,7 @@ export default function DeveloperPage() {
 									type="submit"
 									className="btn btn-primary btn-sm"
 								>
-									🚀 Enqueue TTS
+									Enqueue TTS
 								</button>
 							</div>
 						</form>

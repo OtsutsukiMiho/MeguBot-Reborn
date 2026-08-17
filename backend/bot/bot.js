@@ -2221,6 +2221,11 @@ process.on('message', async (msg) => {
 		const pingMs = Math.round(client.ws.ping || 0);
 		const guildsCount = client.guilds.cache.size;
 		const usersCount = client.users.cache.size;
+		const guilds = client.guilds.cache.map(g => ({
+			id: g.id,
+			name: g.name,
+			memberCount: g.memberCount,
+		}));
 		const { audioQueueManager } = require('./audio_queue.js');
 		const voiceConnectionsCount = audioQueueManager.players ? audioQueueManager.players.size : 0;
 
@@ -2235,6 +2240,7 @@ process.on('message', async (msg) => {
 				usersCount,
 				voiceConnectionsCount,
 				readyTimestamp: client.customReadyTimestamp || client.readyTimestamp,
+				guilds,
 			});
 		}
 	}
@@ -2426,6 +2432,14 @@ process.on('message', async (msg) => {
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}Error hot-reloading cache: ${error.toString()}`);
 		}
+	}
+	else if (msg.type === 'restart_bot') {
+		BotLogs('SYSTEM', `${COLOR.yellow}Received restart request via Developer Web Console. Exiting process for clean supervisor restart...`);
+		try {
+			if (client) client.destroy();
+		}
+		catch {}
+		setTimeout(() => process.exit(0), 500);
 	}
 	else if (msg.type === 'add_reaction_role_react') {
 		const { guildId, channelId, messageId, emoji } = msg;
