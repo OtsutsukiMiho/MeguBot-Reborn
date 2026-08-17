@@ -161,9 +161,9 @@ async function main() {
 }
 
 async function cleanup() {
-	await db.query('DELETE FROM megu_activities WHERE owner_user_id = ANY($1::text[])', [created.users]).catch(() => undefined);
+	await db.query('DELETE FROM activities WHERE owner_user_id = ANY($1::text[])', [created.users]).catch(() => undefined);
 	for (const id of created.users) {
-		await db.query('DELETE FROM megu_users WHERE id = $1', [id]).catch(() => undefined);
+		await db.query('DELETE FROM users WHERE id = $1', [id]).catch(() => undefined);
 	}
 }
 

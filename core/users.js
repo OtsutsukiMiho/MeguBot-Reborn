@@ -31,13 +31,13 @@ function rowToIdentity(row) {
 }
 
 async function getUser(userId) {
-	const res = await query('SELECT * FROM megu_users WHERE id = $1', [userId]);
+	const res = await query('SELECT * FROM users WHERE id = $1', [userId]);
 	return rowToUser(res.rows[0]);
 }
 
 async function getIdentities(userId) {
 	const res = await query(
-		'SELECT * FROM megu_identities WHERE user_id = $1 ORDER BY created_at',
+		'SELECT * FROM identities WHERE user_id = $1 ORDER BY created_at',
 		[userId],
 	);
 	return res.rows.map(rowToIdentity);
@@ -57,8 +57,8 @@ async function getUserWithIdentities(userId) {
 async function findByIdentity(provider, providerUid) {
 	assertProvider(provider);
 	const res = await query(
-		`SELECT u.* FROM megu_users u
-		 JOIN megu_identities i ON i.user_id = u.id
+		`SELECT u.* FROM users u
+		 JOIN identities i ON i.user_id = u.id
 		 WHERE i.provider = $1 AND i.provider_uid = $2`,
 		[provider, String(providerUid)],
 	);
@@ -77,28 +77,28 @@ async function loginWithIdentity(profile) {
 
 	return transaction(async (client) => {
 		const existing = await client.query(
-			'SELECT * FROM megu_identities WHERE provider = $1 AND provider_uid = $2',
+			'SELECT * FROM identities WHERE provider = $1 AND provider_uid = $2',
 			[provider, String(providerUid)],
 		);
 
 		if (existing.rows.length > 0) {
 			const identity = existing.rows[0];
 			await client.query(
-				'UPDATE megu_identities SET email = $2, username = $3, avatar_url = $4 WHERE id = $1',
+				'UPDATE identities SET email = $2, username = $3, avatar_url = $4 WHERE id = $1',
 				[identity.id, email || null, username || null, avatarUrl || null],
 			);
-			const user = await client.query('SELECT * FROM megu_users WHERE id = $1', [identity.user_id]);
+			const user = await client.query('SELECT * FROM users WHERE id = $1', [identity.user_id]);
 			return { user: rowToUser(user.rows[0]), created: false };
 		}
 
 		const userId = newId('usr');
 		const name = displayName || username || 'Megu user';
 		const created = await client.query(
-			'INSERT INTO megu_users (id, display_name, avatar_url) VALUES ($1, $2, $3) RETURNING *',
+			'INSERT INTO users (id, display_name, avatar_url) VALUES ($1, $2, $3) RETURNING *',
 			[userId, name, avatarUrl || null],
 		);
 		await client.query(
-			`INSERT INTO megu_identities (id, user_id, provider, provider_uid, email, username, avatar_url)
+			`INSERT INTO identities (id, user_id, provider, provider_uid, email, username, avatar_url)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			[newId('idn'), userId, provider, String(providerUid), email || null, username || null, avatarUrl || null],
 		);
@@ -117,7 +117,7 @@ async function linkIdentity(userId, profile) {
 	assertProvider(provider);
 
 	const owner = await query(
-		'SELECT user_id FROM megu_identities WHERE provider = $1 AND provider_uid = $2',
+		'SELECT user_id FROM identities WHERE provider = $1 AND provider_uid = $2',
 		[provider, String(providerUid)],
 	);
 
@@ -127,7 +127,7 @@ async function linkIdentity(userId, profile) {
 	}
 
 	await query(
-		`INSERT INTO megu_identities (id, user_id, provider, provider_uid, email, username, avatar_url)
+		`INSERT INTO identities (id, user_id, provider, provider_uid, email, username, avatar_url)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		[newId('idn'), userId, provider, String(providerUid), email || null, username || null, avatarUrl || null],
 	);
@@ -137,13 +137,13 @@ async function linkIdentity(userId, profile) {
 async function unlinkIdentity(userId, provider) {
 	assertProvider(provider);
 	const remaining = await query(
-		'SELECT count(*)::int AS n FROM megu_identities WHERE user_id = $1',
+		'SELECT count(*)::int AS n FROM identities WHERE user_id = $1',
 		[userId],
 	);
 	if (remaining.rows[0].n <= 1) {
 		return { unlinked: false, reason: 'last-identity' };
 	}
-	await query('DELETE FROM megu_identities WHERE user_id = $1 AND provider = $2', [userId, provider]);
+	await query('DELETE FROM identities WHERE user_id = $1 AND provider = $2', [userId, provider]);
 	return { unlinked: true };
 }
 
@@ -154,13 +154,13 @@ async function unlinkIdentity(userId, provider) {
  */
 async function claimParticipants(userId) {
 	const discord = await query(
-		'SELECT provider_uid FROM megu_identities WHERE user_id = $1 AND provider = $2',
+		'SELECT provider_uid FROM identities WHERE user_id = $1 AND provider = $2',
 		[userId, 'discord'],
 	);
 	if (discord.rows.length === 0) return { claimed: 0 };
 
 	const res = await query(
-		`UPDATE megu_participants
+		`UPDATE participants
 		 SET user_id = $1, claimed_at = COALESCE(claimed_at, now())
 		 WHERE discord_uid = $2 AND user_id IS NULL`,
 		[userId, discord.rows[0].provider_uid],

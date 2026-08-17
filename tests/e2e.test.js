@@ -133,17 +133,17 @@ async function main() {
 
 async function cleanup() {
 	for (const id of created.activities) {
-		await db.query('DELETE FROM megu_activities WHERE id = $1', [id]).catch(() => undefined);
+		await db.query('DELETE FROM activities WHERE id = $1', [id]).catch(() => undefined);
 	}
 	await db.query(`
-		DELETE FROM megu_participants WHERE discord_uid LIKE '\\_\\_test\\_%'
+		DELETE FROM participants WHERE discord_uid LIKE '\\_\\_test\\_%'
 	`).catch(() => undefined);
 	for (const id of created.users) {
-		await db.query('DELETE FROM megu_users WHERE id = $1', [id]).catch(() => undefined);
+		await db.query('DELETE FROM users WHERE id = $1', [id]).catch(() => undefined);
 	}
-	const left = await db.query('SELECT count(*)::int n FROM megu_activities');
-	const lu = await db.query('SELECT count(*)::int n FROM megu_users');
-	console.log(`\ncleanup done — megu_activities: ${left.rows[0].n} rows, megu_users: ${lu.rows[0].n} rows`);
+	const left = await db.query('SELECT count(*)::int n FROM activities');
+	const lu = await db.query('SELECT count(*)::int n FROM users');
+	console.log(`\ncleanup done — activities: ${left.rows[0].n} rows, users: ${lu.rows[0].n} rows`);
 }
 
 main()

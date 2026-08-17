@@ -59,6 +59,46 @@ keep working. The OAuth callback target moved from `/#dashboard` to
 
 ---
 
+## Database naming — the `megu_` prefix is gone
+
+Core's tables used to be called `megu_users`, `megu_activities`, and so on. The
+prefix has been dropped: they are now `users`, `activities`, `participants`,
+`slots`, `slot_votes`, `periods`, `expenses`, `shares`, `payments`,
+`identities`, and `payment_reminders`.
+
+**Why the prefix was wrong, rather than just ugly.** It separated "written
+recently" from "written before" — a migration boundary, which is temporary by
+nature, not a fact about what the data is. It also implied core is a bolt-on
+half of a two-part thing, and it is not: core is the product, and Discord is
+one way into it.
+
+**Where the real boundary is.** The four tables that genuinely belong to one
+adapter are the bot's own — `guild_variables`, `user_nicks`, `reminders`,
+`audit_logs`. Those are the candidates for a `discord` schema of their own, and
+moving them later needs no change to core. That is a separate change and is not
+in this branch.
+
+**The one collision, and why `payment_reminders` is not a workaround.** The bot
+has owned a table called `reminders` for years; a row in it is a message
+scheduled into a Discord channel. Core's is a record of a payment nag that was
+sent — different columns, different lifetime, different owner. Naming it
+`payment_reminders` is what it should have been called regardless.
+
+**Existing databases migrate on boot.** `core/schema.js` renames the tables,
+then the indexes and constraints that would otherwise keep carrying the old
+name, before it runs any `CREATE`. Every step is guarded by an existence check,
+so it is a no-op on a fresh database and on the second boot of a migrated one.
+Postgres renames touch the catalogue only — no data is copied or rewritten, and
+nothing is renamed *to* `reminders`, so the bot's table is never in the path.
+
+`tests/rename.test.js` covers this against a real Postgres: it builds a
+database in the old shape with rows in it and the bot's `reminders` beside it,
+migrates forward, and asserts the rows arrived intact, that nothing named
+`megu_*` survives as a table, index or constraint, that the bot's table still
+has its own columns, and that a second boot changes nothing.
+
+---
+
 ## Rebrand
 
 "Megu Reborn" / "MeguBot Reborn" → **Megu**, by **Megux Corp**. Covers the

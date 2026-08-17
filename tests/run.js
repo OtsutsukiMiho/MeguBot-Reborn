@@ -8,6 +8,9 @@ const db = require('../core/db.js');
 
 const SUITES = [
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
+	// First against Postgres, because it rebuilds the schema into its pre-rename
+	// shape and migrates it forward — which is where the suites below start.
+	['rename.test.js', 'the megu_ rename, run against a database that already had data'],
 	['e2e.test.js', 'core against Postgres — full badminton lifecycle'],
 	['recurring.test.js', 'monthly agreements, periods and DM reminders'],
 	['poll.test.js', 'the time poll — proposing, voting, and Megu deciding'],

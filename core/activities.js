@@ -132,7 +132,7 @@ async function createActivity(input) {
 	return transaction(async (client) => {
 		const activityId = newId('act');
 		const res = await client.query(
-			`INSERT INTO megu_activities
+			`INSERT INTO activities
 			   (id, code, owner_user_id, title, kind, location, starts_at, guild_id, channel_id, recurrence, due_day, plan_state)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
 			[
@@ -145,7 +145,7 @@ async function createActivity(input) {
 
 		for (const [index, p] of participants.entries()) {
 			await client.query(
-				`INSERT INTO megu_participants (id, activity_id, display_name, user_id, discord_uid, rsvp, position)
+				`INSERT INTO participants (id, activity_id, display_name, user_id, discord_uid, rsvp, position)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				[
 					newId('par'),
@@ -164,28 +164,28 @@ async function createActivity(input) {
 }
 
 async function loadActivity(where, value) {
-	const res = await query(`SELECT * FROM megu_activities WHERE ${where} = $1`, [value]);
+	const res = await query(`SELECT * FROM activities WHERE ${where} = $1`, [value]);
 	const activity = rowToActivity(res.rows[0]);
 	if (!activity) return null;
 
 	const [participants, periods, slots, slotVotes, expenses, shares, payments] = await Promise.all([
-		query('SELECT * FROM megu_participants WHERE activity_id = $1 ORDER BY position, created_at', [activity.id]),
-		query('SELECT * FROM megu_periods WHERE activity_id = $1 ORDER BY period_key DESC', [activity.id]),
-		query('SELECT * FROM megu_slots WHERE activity_id = $1 ORDER BY position, starts_at', [activity.id]),
+		query('SELECT * FROM participants WHERE activity_id = $1 ORDER BY position, created_at', [activity.id]),
+		query('SELECT * FROM periods WHERE activity_id = $1 ORDER BY period_key DESC', [activity.id]),
+		query('SELECT * FROM slots WHERE activity_id = $1 ORDER BY position, starts_at', [activity.id]),
 		query(
-			`SELECT v.* FROM megu_slot_votes v
-			 JOIN megu_slots s ON s.id = v.slot_id
+			`SELECT v.* FROM slot_votes v
+			 JOIN slots s ON s.id = v.slot_id
 			 WHERE s.activity_id = $1`,
 			[activity.id],
 		),
-		query('SELECT * FROM megu_expenses WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
+		query('SELECT * FROM expenses WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
 		query(
-			`SELECT s.*, e.period_id FROM megu_shares s
-			 JOIN megu_expenses e ON e.id = s.expense_id
+			`SELECT s.*, e.period_id FROM shares s
+			 JOIN expenses e ON e.id = s.expense_id
 			 WHERE e.activity_id = $1`,
 			[activity.id],
 		),
-		query('SELECT * FROM megu_payments WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
+		query('SELECT * FROM payments WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
 	]);
 
 	activity.participants = participants.rows.map(rowToParticipant);
@@ -237,7 +237,7 @@ function getActivityByCode(code) {
 
 async function listActivitiesForOwner(ownerUserId) {
 	const res = await query(
-		'SELECT * FROM megu_activities WHERE owner_user_id = $1 ORDER BY created_at DESC',
+		'SELECT * FROM activities WHERE owner_user_id = $1 ORDER BY created_at DESC',
 		[ownerUserId],
 	);
 	return res.rows.map(rowToActivity);
@@ -247,9 +247,9 @@ async function listActivitiesForOwner(ownerUserId) {
 
 async function addParticipant(activityId, { displayName, userId = null, discordUid = null, rsvp = 'pending' }) {
 	const res = await query(
-		`INSERT INTO megu_participants (id, activity_id, display_name, user_id, discord_uid, rsvp, position)
+		`INSERT INTO participants (id, activity_id, display_name, user_id, discord_uid, rsvp, position)
 		 VALUES ($1, $2, $3, $4, $5, $6,
-		         (SELECT COALESCE(MAX(position) + 1, 0) FROM megu_participants WHERE activity_id = $2))
+		         (SELECT COALESCE(MAX(position) + 1, 0) FROM participants WHERE activity_id = $2))
 		 RETURNING *`,
 		[newId('par'), activityId, String(displayName || 'ใครไม่รู้').trim(), userId, discordUid ? String(discordUid) : null, rsvp],
 	);
@@ -258,7 +258,7 @@ async function addParticipant(activityId, { displayName, userId = null, discordU
 
 async function claimParticipant(participantId, actor) {
 	const res = await query(
-		`UPDATE megu_participants
+		`UPDATE participants
 		 SET user_id      = COALESCE($2, user_id),
 		     discord_uid  = COALESCE($3, discord_uid),
 		     device_token = COALESCE($4, device_token),
@@ -272,7 +272,7 @@ async function claimParticipant(participantId, actor) {
 
 async function setRsvp(participantId, rsvp) {
 	if (!RSVP.includes(rsvp)) throw new Error(`invalid rsvp: ${rsvp}`);
-	const res = await query('UPDATE megu_participants SET rsvp = $2 WHERE id = $1 RETURNING *', [participantId, rsvp]);
+	const res = await query('UPDATE participants SET rsvp = $2 WHERE id = $1 RETURNING *', [participantId, rsvp]);
 	return rowToParticipant(res.rows[0]);
 }
 
@@ -280,7 +280,7 @@ async function renameParticipant(participantId, displayName) {
 	const name = String(displayName || '').trim();
 	if (!name) throw new Error('ต้องมีชื่อ');
 	const res = await query(
-		'UPDATE megu_participants SET display_name = $2 WHERE id = $1 RETURNING *',
+		'UPDATE participants SET display_name = $2 WHERE id = $1 RETURNING *',
 		[participantId, name],
 	);
 	if (res.rows.length === 0) throw new Error('ไม่พบคนนี้ในกิจกรรม');
@@ -296,9 +296,9 @@ async function removeParticipant(participantId) {
 	return transaction(async (client) => {
 		const money = await client.query(
 			`SELECT
-			   (SELECT count(*) FROM megu_shares WHERE participant_id = $1)      AS shares,
-			   (SELECT count(*) FROM megu_payments WHERE participant_id = $1)    AS payments,
-			   (SELECT count(*) FROM megu_expenses WHERE paid_by = $1)           AS paid`,
+			   (SELECT count(*) FROM shares WHERE participant_id = $1)      AS shares,
+			   (SELECT count(*) FROM payments WHERE participant_id = $1)    AS payments,
+			   (SELECT count(*) FROM expenses WHERE paid_by = $1)           AS paid`,
 			[participantId],
 		);
 		const { shares, payments, paid } = money.rows[0];
@@ -307,7 +307,7 @@ async function removeParticipant(participantId) {
 			throw new Error('คนนี้มีรายการเงินอยู่ ลบค่าใช้จ่ายที่เกี่ยวข้องก่อน');
 		}
 
-		const res = await client.query('DELETE FROM megu_participants WHERE id = $1 RETURNING id', [participantId]);
+		const res = await client.query('DELETE FROM participants WHERE id = $1 RETURNING id', [participantId]);
 		return res.rows.length > 0;
 	});
 }
@@ -318,7 +318,7 @@ async function removeParticipant(participantId) {
  */
 async function resetClaim(participantId) {
 	const res = await query(
-		`UPDATE megu_participants
+		`UPDATE participants
 		 SET device_token = NULL, claimed_at = NULL, user_id = NULL, discord_uid = discord_uid
 		 WHERE id = $1 RETURNING *`,
 		[participantId],
@@ -329,7 +329,7 @@ async function resetClaim(participantId) {
 
 async function setAttended(participantId, attended) {
 	const res = await query(
-		'UPDATE megu_participants SET attended = $2 WHERE id = $1 RETURNING *',
+		'UPDATE participants SET attended = $2 WHERE id = $1 RETURNING *',
 		[participantId, attended === null ? null : Boolean(attended)],
 	);
 	return rowToParticipant(res.rows[0]);
@@ -342,7 +342,7 @@ async function setPlanState(activityId, nextState) {
 
 	return transaction(async (client) => {
 		const current = await client.query(
-			'SELECT plan_state FROM megu_activities WHERE id = $1 FOR UPDATE',
+			'SELECT plan_state FROM activities WHERE id = $1 FOR UPDATE',
 			[activityId],
 		);
 		if (current.rows.length === 0) throw new Error('activity not found');
@@ -354,7 +354,7 @@ async function setPlanState(activityId, nextState) {
 		}
 
 		const res = await client.query(
-			`UPDATE megu_activities
+			`UPDATE activities
 			 SET plan_state = $2,
 			     updated_at = now(),
 			     closed_at = CASE WHEN $2 = 'cancelled' THEN now() ELSE closed_at END
@@ -381,11 +381,11 @@ async function proposeSlots(activityId, startTimes) {
 	if (times.length === 0) throw new Error('ต้องเสนออย่างน้อยหนึ่งช่วงเวลา');
 
 	return transaction(async (client) => {
-		await client.query('DELETE FROM megu_slots WHERE activity_id = $1', [activityId]);
+		await client.query('DELETE FROM slots WHERE activity_id = $1', [activityId]);
 		const rows = [];
 		for (const [index, at] of times.entries()) {
 			const res = await client.query(
-				'INSERT INTO megu_slots (id, activity_id, starts_at, position) VALUES ($1, $2, $3, $4) RETURNING *',
+				'INSERT INTO slots (id, activity_id, starts_at, position) VALUES ($1, $2, $3, $4) RETURNING *',
 				[newId('slt'), activityId, at, index],
 			);
 			rows.push({ id: res.rows[0].id, startsAt: res.rows[0].starts_at, position: res.rows[0].position });
@@ -397,7 +397,7 @@ async function proposeSlots(activityId, startTimes) {
 async function voteSlot(slotId, participantId, answer) {
 	if (!SLOT_ANSWERS.includes(answer)) throw new Error(`invalid slot answer: ${answer}`);
 	await query(
-		`INSERT INTO megu_slot_votes (id, slot_id, participant_id, answer)
+		`INSERT INTO slot_votes (id, slot_id, participant_id, answer)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (slot_id, participant_id) DO UPDATE
 		 SET answer = EXCLUDED.answer, updated_at = now()`,
@@ -475,7 +475,7 @@ async function lockBestSlot(activityId) {
 	if (!winner) throw new Error('ยังไม่มีช่วงเวลาให้เลือก');
 
 	await query(
-		'UPDATE megu_activities SET starts_at = $2, updated_at = now() WHERE id = $1',
+		'UPDATE activities SET starts_at = $2, updated_at = now() WHERE id = $1',
 		[activityId, winner.startsAt],
 	);
 
@@ -509,7 +509,7 @@ async function ensurePeriod(activityId, date = new Date()) {
 
 	const period = await transaction(async (client) => {
 		const res = await client.query(
-			`INSERT INTO megu_periods (id, activity_id, period_key, label, due_at)
+			`INSERT INTO periods (id, activity_id, period_key, label, due_at)
 			 VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (activity_id, period_key) DO NOTHING
 			 RETURNING *`,
@@ -537,7 +537,7 @@ async function addExpense(activityId, input) {
 
 	return transaction(async (client) => {
 		const roster = await client.query(
-			'SELECT id, rsvp FROM megu_participants WHERE activity_id = $1 ORDER BY position, created_at',
+			'SELECT id, rsvp FROM participants WHERE activity_id = $1 ORDER BY position, created_at',
 			[activityId],
 		);
 		if (roster.rows.length === 0) throw new Error('activity has no participants');
@@ -556,7 +556,7 @@ async function addExpense(activityId, input) {
 
 		const expenseId = newId('exp');
 		await client.query(
-			`INSERT INTO megu_expenses (id, activity_id, period_id, label, amount_satang, paid_by)
+			`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
 			[expenseId, activityId, periodId, String(label || 'ค่าใช้จ่าย').trim(), amountSatang, paidBy],
 		);
@@ -564,12 +564,12 @@ async function addExpense(activityId, input) {
 		const split = splitEvenlyBy(amountSatang, ids);
 		for (const [participantId, share] of Object.entries(split)) {
 			await client.query(
-				'INSERT INTO megu_shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)',
+				'INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)',
 				[newId('shr'), expenseId, participantId, share],
 			);
 		}
 
-		await client.query('UPDATE megu_activities SET updated_at = now() WHERE id = $1', [activityId]);
+		await client.query('UPDATE activities SET updated_at = now() WHERE id = $1', [activityId]);
 		return { id: expenseId, activityId, periodId, label, amountSatang, paidBy, split };
 	});
 }
@@ -580,7 +580,7 @@ async function addExpense(activityId, input) {
  */
 async function updateExpense(expenseId, input) {
 	return transaction(async (client) => {
-		const found = await client.query('SELECT * FROM megu_expenses WHERE id = $1 FOR UPDATE', [expenseId]);
+		const found = await client.query('SELECT * FROM expenses WHERE id = $1 FOR UPDATE', [expenseId]);
 		if (found.rows.length === 0) throw new Error('ไม่พบรายการนี้');
 		const expense = found.rows[0];
 
@@ -594,7 +594,7 @@ async function updateExpense(expenseId, input) {
 
 		let ids = input.shareParticipantIds;
 		if (!ids || ids.length === 0) {
-			const existing = await client.query('SELECT participant_id FROM megu_shares WHERE expense_id = $1', [expenseId]);
+			const existing = await client.query('SELECT participant_id FROM shares WHERE expense_id = $1', [expenseId]);
 			ids = existing.rows.map(r => r.participant_id);
 		}
 		if (ids.length === 0) throw new Error('ต้องมีคนอย่างน้อยหนึ่งคนในรายการนี้');
@@ -602,7 +602,7 @@ async function updateExpense(expenseId, input) {
 		// Same guard addExpense has. Without it a stale or mistyped id reaches
 		// the database and surfaces as a foreign key error nobody can read.
 		const roster = await client.query(
-			'SELECT id FROM megu_participants WHERE activity_id = $1',
+			'SELECT id FROM participants WHERE activity_id = $1',
 			[expense.activity_id],
 		);
 		const known = new Set(roster.rows.map(r => r.id));
@@ -612,15 +612,15 @@ async function updateExpense(expenseId, input) {
 		if (!known.has(paidBy)) throw new Error('paidBy is not a participant of this activity');
 
 		await client.query(
-			'UPDATE megu_expenses SET label = $2, amount_satang = $3, paid_by = $4 WHERE id = $1',
+			'UPDATE expenses SET label = $2, amount_satang = $3, paid_by = $4 WHERE id = $1',
 			[expenseId, label, amountSatang, paidBy],
 		);
-		await client.query('DELETE FROM megu_shares WHERE expense_id = $1', [expenseId]);
+		await client.query('DELETE FROM shares WHERE expense_id = $1', [expenseId]);
 
 		const split = splitEvenlyBy(amountSatang, ids);
 		for (const [participantId, share] of Object.entries(split)) {
 			await client.query(
-				'INSERT INTO megu_shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)',
+				'INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)',
 				[newId('shr'), expenseId, participantId, share],
 			);
 		}
@@ -630,7 +630,7 @@ async function updateExpense(expenseId, input) {
 }
 
 async function removeExpense(expenseId) {
-	const res = await query('DELETE FROM megu_expenses WHERE id = $1 RETURNING id', [expenseId]);
+	const res = await query('DELETE FROM expenses WHERE id = $1 RETURNING id', [expenseId]);
 	return res.rows.length > 0;
 }
 
@@ -646,7 +646,7 @@ async function updateActivity(activityId, input) {
 	if (fields.length === 0) return null;
 
 	const res = await query(
-		`UPDATE megu_activities SET ${fields.join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`,
+		`UPDATE activities SET ${fields.join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`,
 		values,
 	);
 	return rowToActivity(res.rows[0]);
@@ -659,7 +659,7 @@ async function recordPayment(activityId, participantId, input) {
 	}
 
 	const res = await query(
-		`INSERT INTO megu_payments (id, activity_id, period_id, participant_id, amount_satang, method, reference)
+		`INSERT INTO payments (id, activity_id, period_id, participant_id, amount_satang, method, reference)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
 		[newId('pay'), activityId, periodId, participantId, amountSatang, method, reference],
 	);
@@ -669,7 +669,7 @@ async function recordPayment(activityId, participantId, input) {
 
 async function confirmPayment(paymentId, confirmedByUserId) {
 	const res = await query(
-		`UPDATE megu_payments SET status = 'confirmed', confirmed_by = $2, confirmed_at = now()
+		`UPDATE payments SET status = 'confirmed', confirmed_by = $2, confirmed_at = now()
 		 WHERE id = $1 AND status = 'pending' RETURNING *`,
 		[paymentId, confirmedByUserId],
 	);
@@ -685,7 +685,7 @@ async function confirmPayment(paymentId, confirmedByUserId) {
  */
 async function unconfirmPayment(paymentId) {
 	const res = await query(
-		`UPDATE megu_payments
+		`UPDATE payments
 		 SET status = 'pending', confirmed_by = NULL, confirmed_at = NULL
 		 WHERE id = $1 AND status <> 'pending'
 		 RETURNING *`,
@@ -696,13 +696,13 @@ async function unconfirmPayment(paymentId) {
 }
 
 async function removePayment(paymentId) {
-	const res = await query('DELETE FROM megu_payments WHERE id = $1 RETURNING id', [paymentId]);
+	const res = await query('DELETE FROM payments WHERE id = $1 RETURNING id', [paymentId]);
 	return res.rows.length > 0;
 }
 
 async function rejectPayment(paymentId, confirmedByUserId) {
 	const res = await query(
-		`UPDATE megu_payments SET status = 'rejected', confirmed_by = $2, confirmed_at = now()
+		`UPDATE payments SET status = 'rejected', confirmed_by = $2, confirmed_at = now()
 		 WHERE id = $1 AND status = 'pending' RETURNING id`,
 		[paymentId, confirmedByUserId],
 	);

@@ -35,7 +35,7 @@ Next on any other port breaks the OAuth callback.
 
 | | Where | Holds |
 |---|---|---|
-| `MEGU_DATABASE_URL` | local Docker Postgres | everything new (`megu_*`) |
+| `MEGU_DATABASE_URL` | local Docker Postgres | core's own tables |
 | `DATABASE_URL` | Supabase | the live bot's existing tables |
 
 Core reads `MEGU_DATABASE_URL` first and falls back to `DATABASE_URL`. In
@@ -77,7 +77,7 @@ wrong half the time. `settlement()` derives the money state from the rows it
 summarises, so it can never drift out of step with them.
 
 Recurring agreements (`kind: 'recurring'`) skip the plan axis entirely and
-carry `megu_periods` instead — one row per month, each settling on its own.
+carry `periods` instead — one row per month, each settling on its own.
 
 ## Everything is correctable
 
@@ -209,7 +209,7 @@ silently counted as reminded.
 
 Frozen out of V0, per the scope we agreed:
 
-- PromptPay QR and slip verification — `megu_payments.method` accepts them,
+- PromptPay QR and slip verification — `payments.method` accepts them,
   only `manual` is implemented
 - A `Group` entity — activities are the root; groups emerge later from repeats
 - Discord slash commands for activities (the bot only sends reminders so far)

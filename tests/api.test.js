@@ -261,13 +261,13 @@ async function cleanup() {
 	if (server) server.close();
 	for (const code of created.activities) {
 		const a = await core.activities.getActivityByCode(code).catch(() => null);
-		if (a) await core.db.query('DELETE FROM megu_activities WHERE id = $1', [a.id]).catch(() => undefined);
+		if (a) await core.db.query('DELETE FROM activities WHERE id = $1', [a.id]).catch(() => undefined);
 	}
 	for (const id of created.users) {
-		await core.db.query('DELETE FROM megu_users WHERE id = $1', [id]).catch(() => undefined);
+		await core.db.query('DELETE FROM users WHERE id = $1', [id]).catch(() => undefined);
 	}
-	const left = await core.db.query('SELECT count(*)::int n FROM megu_activities');
-	console.log(`\ncleanup — megu_activities: ${left.rows[0].n} rows`);
+	const left = await core.db.query('SELECT count(*)::int n FROM activities');
+	console.log(`\ncleanup — activities: ${left.rows[0].n} rows`);
 }
 
 main()

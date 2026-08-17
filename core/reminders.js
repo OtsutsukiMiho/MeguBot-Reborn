@@ -18,8 +18,8 @@ const DEFAULT_COOLDOWN_HOURS = 20;
 async function outstandingByPerson({ now = new Date() } = {}) {
 	const withMoney = await query(`
 		SELECT DISTINCT a.id
-		FROM megu_activities a
-		JOIN megu_expenses e ON e.activity_id = a.id
+		FROM activities a
+		JOIN expenses e ON e.activity_id = a.id
 		WHERE a.plan_state <> 'cancelled'
 	`);
 
@@ -71,7 +71,7 @@ async function outstandingByPerson({ now = new Date() } = {}) {
 async function lastRemindedAt(participantIds) {
 	if (participantIds.length === 0) return new Map();
 	const res = await query(
-		`SELECT participant_id, MAX(sent_at) AS last FROM megu_reminders
+		`SELECT participant_id, MAX(sent_at) AS last FROM payment_reminders
 		 WHERE participant_id = ANY($1::text[]) GROUP BY participant_id`,
 		[participantIds],
 	);
@@ -148,7 +148,7 @@ function daysLate(dueAt, now = new Date()) {
  */
 async function markSent(line, { channel = 'discord-dm', sentAt = new Date() } = {}) {
 	await query(
-		`INSERT INTO megu_reminders (id, activity_id, period_id, participant_id, channel, amount_satang, sent_at)
+		`INSERT INTO payment_reminders (id, activity_id, period_id, participant_id, channel, amount_satang, sent_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		[newId('rem'), line.activityId, line.periodId, line.participantId, channel, line.amountSatang, sentAt],
 	);

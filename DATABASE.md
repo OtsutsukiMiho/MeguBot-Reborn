@@ -17,12 +17,22 @@ caused by sharing a database. It is caused by unbounded pools, which follow you
 to any database you move to. That is fixed directly instead — see
 [Connections](#connections).
 
-Core is namespaced and non-destructive, which is what makes sharing safe:
+Core's tables carry plain names — `users`, `activities`, `payments` — because
+they are the product's own data. The Discord bot's four tables
+(`guild_variables`, `user_nicks`, `reminders`, `audit_logs`) are the ones that
+belong to a single adapter, and they are what should eventually move into a
+schema of their own; core will not have to follow when they do.
 
-- every table it creates is prefixed `megu_`
+Sharing is safe because core is additive, not because of how anything is
+spelled:
+
+- core creates its own tables and never reads or writes the bot's four
 - every statement is `CREATE TABLE IF NOT EXISTS`, so re-running is a no-op
-- no query in `core/` or `adapters/` touches a table without that prefix, and
-  there is no `DROP`, `TRUNCATE`, or unscoped `DELETE` anywhere in either
+- there is no `DROP`, `TRUNCATE`, or unscoped `DELETE` in `core/` or `adapters/`
+
+The one name both sides wanted is `reminders`. The bot has had it for years and
+keeps it: a row there is a message scheduled into a Discord channel. Core's is a
+record of a payment nag that was sent, so it is called `payment_reminders`.
 
 ---
 
@@ -67,12 +77,11 @@ you do not need `?sslmode=require` in the URL.
 npm run db:audit
 ```
 
-It prints row counts for the four legacy bot tables (`guild_variables`,
-`user_nicks`, `reminders`, `audit_logs`) and for every `megu_*` table. On a
-fresh project the `megu_*` ones will error, which is expected — they do not
-exist yet.
+It prints row counts for the four Discord bot tables (`guild_variables`,
+`user_nicks`, `reminders`, `audit_logs`) and for each of core's. On a fresh
+project core's will read `n/a`, which is expected — they do not exist yet.
 
-**Write the legacy numbers down.** They are how you prove afterwards that
+**Write the bot's numbers down.** They are how you prove afterwards that
 nothing was disturbed.
 
 ## 4. Start it
@@ -98,34 +107,46 @@ with the password masked:
 npm run db:audit
 ```
 
-- the four legacy tables must show **exactly the numbers you wrote down**
-- the `megu_*` tables now exist and read `0 rows`
+- the four bot tables must show **exactly the numbers you wrote down**
+- core's tables now exist and read `0 rows`
 
-If a legacy number moved, stop and investigate — nothing in this codebase
-should be able to do that.
+If one of the bot's numbers moved, stop and investigate — nothing in this
+codebase should be able to do that.
 
 ---
 
 ## What gets created
 
-Eleven tables and fourteen indexes, all prefixed `megu_`:
+Eleven tables and fourteen indexes:
 
 ```
-megu_users          accounts
-megu_identities     Discord ID -> Megu user
-megu_activities     the root entity
-megu_participants   who is in an activity
-megu_slots          candidate times
-megu_slot_votes     availability answers
-megu_periods        one row per month, for recurring agreements
-megu_expenses       what was spent
-megu_shares         who owes what part of an expense
-megu_payments       claims and confirmations
-megu_reminders      what was sent, and when
+users               accounts
+identities          Discord ID -> Megu user
+activities          the root entity
+participants        who is in an activity
+slots               candidate times
+slot_votes          availability answers
+periods             one row per month, for recurring agreements
+expenses            what was spent
+shares              who owes what part of an expense
+payments            claims and confirmations
+payment_reminders   which nag was sent, and when
 ```
 
 Created by `core/schema.js`, which runs on boot from both `backend/bot/bot.js`
 and `backend/web/web.js`. Running it twice is harmless.
+
+### If your database predates this naming
+
+Core's tables used to be prefixed `megu_`, and `payment_reminders` used to be
+`megu_reminders`. `core/schema.js` renames them on boot, along with the indexes
+and constraints that would otherwise keep carrying the old name. Every step is
+guarded, so it does nothing on a fresh database and nothing on the second boot
+of a migrated one. Data is not copied or rewritten — Postgres renames are a
+change to the catalogue only.
+
+Nothing is renamed *to* `reminders`, so the bot's table of that name is never
+in the path.
 
 **Row Level Security does not apply here.** Megu connects as the `postgres`
 role over a direct Postgres connection, which bypasses RLS. RLS only governs
@@ -190,13 +211,13 @@ dropping what it made. Order matters — foreign keys point inwards:
 
 ```sql
 DROP TABLE IF EXISTS
-  megu_reminders, megu_payments, megu_shares, megu_expenses,
-  megu_slot_votes, megu_slots, megu_periods, megu_participants,
-  megu_activities, megu_identities, megu_users
+  payment_reminders, payments, shares, expenses,
+  slot_votes, slots, periods, participants,
+  activities, identities, users
 CASCADE;
 ```
 
-The bot's own tables are untouched by this and keep working.
+The bot's own tables are not in that list and keep working.
 
 ---
 
