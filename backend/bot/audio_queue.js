@@ -20,15 +20,8 @@ function getTtsInstance(voice) {
 }
 
 function QueueLog(guildName, msg) {
-	try {
-		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-		if (config.logs && config.logs.audio_queue_logs) {
-			BotLogs(guildName, msg);
-		}
-	}
-	catch {
-		BotLogs(guildName, msg);
-	}
+	const name = typeof guildName === 'string' ? guildName : 'Discord Server';
+	BotLogs('TTS', `${COLOR.gold}[${name}]${COLOR.reset} ${msg}`);
 }
 
 function generateUUID() {
@@ -47,9 +40,6 @@ class AudioQueueManager extends EventEmitter {
 		this.queues = new Map();
 		this.players = new Map();
 		this.lastAddedMap = new Map();
-		// Guilds with a clip in flight. processNext returns while the audio is
-		// still playing, so "am I busy" cannot be answered by whether it has
-		// returned; it is cleared by whichever path finishes the clip.
 		this.busy = new Set();
 	}
 
@@ -64,24 +54,92 @@ class AudioQueueManager extends EventEmitter {
 		if (!this.players.has(guildId)) {
 			const player = createAudioPlayer();
 
-			// This used to also listen for stateChange reaching idle and call
-			// processNext from there, which is why every clip was heard twice.
-			// AudioPlayer emits stateChange *before* it emits the named status
-			// event, so that handler ran while the clip that had just finished
-			// was still sitting at queue[0] — it started the same one again, and
-			// only afterwards did the idle handler in processNext shift it off.
-			//
-			// Advancing the queue is now the job of exactly one place: the
-			// once('idle') handler processNext attaches for each clip.
 			player.on('error', error => {
-				// The player transitions to idle after an error, so that handler
-				// drops the clip and moves on. Doing it here as well would skip
-				// the clip behind it.
-				BotLogs('SYSTEM', `${COLOR.red}Audio player error in guild ${guildId}: ${error.message}`);
+				BotLogs('TTS', `${COLOR.red}Audio player error in guild ${guildId}: ${error.message}`);
 			});
 			this.players.set(guildId, player);
 		}
 		return this.players.get(guildId);
+	}
+
+	getAllQueues() {
+		const list = [];
+		for (const [guildId, queue] of this.queues.entries()) {
+			const player = this.players.get(guildId);
+			const playerState = player ? (player.state ? player.state.status : 'idle') : 'idle';
+			const isBusy = this.busy.has(guildId);
+
+			if ((!queue || queue.length === 0) && playerState === 'idle') {
+				continue;
+			}
+
+			const current = (queue && queue.length > 0) ? queue[0] : null;
+			const upcoming = (queue && queue.length > 1) ? queue.slice(1) : [];
+
+			list.push({
+				guildId,
+				guildName: current ? current.guildName : 'Discord Server',
+				playerState,
+				isBusy,
+				queueLength: queue ? queue.length : 0,
+				currentItem: current ? {
+					id: current.id,
+					text: current.text,
+					userName: current.options?.userName || 'System',
+					engine: current.options?.engine || 'EDGE_TTS',
+					voice: current.options?.voice || 'th-TH-NiwatNeural',
+					lang: current.options?.lang || 'th',
+				} : null,
+				items: upcoming.map(item => ({
+					id: item.id,
+					text: item.text,
+					userName: item.options?.userName || 'System',
+					engine: item.options?.engine || 'EDGE_TTS',
+					voice: item.options?.voice || 'th-TH-NiwatNeural',
+					lang: item.options?.lang || 'th',
+				})),
+			});
+		}
+		return list;
+	}
+
+	skipCurrent(guildId) {
+		const queue = this.getQueue(guildId);
+		const current = queue[0];
+		const guildName = current?.guildName || 'Discord Server';
+
+		if (this.players.has(guildId)) {
+			const player = this.players.get(guildId);
+			QueueLog(guildName, `${COLOR.yellow}⏭️ Force Skipped current TTS clip: "${current ? current.text : 'Unknown'}"`);
+			player.stop();
+			return true;
+		}
+		else if (queue.length > 0) {
+			this.busy.delete(guildId);
+			queue.shift();
+			if (queue.length > 0) {
+				this.processNext(guildId);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	removeItem(guildId, itemId) {
+		const queue = this.getQueue(guildId);
+		const index = queue.findIndex(item => item.id === itemId);
+		if (index === -1) return false;
+
+		const targetItem = queue[index];
+		const guildName = targetItem?.guildName || 'Discord Server';
+
+		if (index === 0) {
+			return this.skipCurrent(guildId);
+		}
+
+		queue.splice(index, 1);
+		QueueLog(guildName, `${COLOR.red}🗑️ Force Removed item #${index + 1} from queue: "${targetItem.text}"`);
+		return true;
 	}
 
 	async addToQueue(guildId, guildName, connection, text, options = {}) {
@@ -135,7 +193,7 @@ class AudioQueueManager extends EventEmitter {
 			connection: finalConnection,
 		};
 		queue.push(item);
-		QueueLog(item.guildName, `New TTS Added to Queue [${finalOptions.userName || 'System'}(${finalOptions.engine || 'EDGE_TTS'}) - ${finalText}]`);
+		QueueLog(item.guildName, `📥 Added TTS to Queue [${finalOptions.userName || 'System'} (${finalOptions.engine || 'EDGE_TTS'}) - "${finalText}"] (Queue position: #${queue.length})`);
 
 		if (queue.length === 1) {
 			this.processNext(guildId);
@@ -146,17 +204,12 @@ class AudioQueueManager extends EventEmitter {
 	async processNext(guildId) {
 		const queue = this.getQueue(guildId);
 		if (queue.length === 0) return;
-		// A second caller arriving while a clip is in flight would read the same
-		// queue[0] and play it again. Nothing should call in that way any more,
-		// but this is the invariant the double-speech bug broke, so state it.
 		if (this.busy.has(guildId)) return;
 		this.busy.add(guildId);
 
 		const currentItem = queue[0];
 		const player = this.getPlayer(guildId);
 
-		// Finishing a clip happens down one of two paths — it played out, or it
-		// threw on the way. Both land here, and only the first one counts.
 		let finished = false;
 		const advance = () => {
 			if (finished) return;
@@ -198,8 +251,11 @@ class AudioQueueManager extends EventEmitter {
 			}
 
 			const resource = createAudioResource(audioPath);
-			currentItem.connection.subscribe(player);
+			if (currentItem.connection) {
+				currentItem.connection.subscribe(player);
+			}
 			player.play(resource);
+			QueueLog(currentItem.guildName, `▶️ Playing TTS: "${currentItem.text}" [${currentItem.options.userName || 'System'}]`);
 
 			// Clean up file after playback
 			player.once('idle', () => {
@@ -217,6 +273,9 @@ class AudioQueueManager extends EventEmitter {
 	}
 
 	clearQueue(guildId) {
+		const queue = this.getQueue(guildId);
+		const guildName = queue[0]?.guildName || 'Discord Server';
+		const count = queue.length;
 		if (this.queues.has(guildId)) {
 			this.queues.set(guildId, []);
 		}
@@ -226,6 +285,9 @@ class AudioQueueManager extends EventEmitter {
 		if (this.players.has(guildId)) {
 			const player = this.players.get(guildId);
 			player.stop();
+		}
+		if (count > 0) {
+			QueueLog(guildName, `${COLOR.red}🧹 Cleared entire audio queue (${count} clips dropped).`);
 		}
 	}
 }
@@ -252,8 +314,6 @@ function clearQueue(guildId) {
 }
 
 module.exports = {
-	// Exported for tests/audio-queue.test.js, which needs a manager of its own
-	// rather than the process-wide singleton.
 	AudioQueueManager,
 	audioQueueManager,
 	addToQueue,

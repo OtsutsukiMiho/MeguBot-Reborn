@@ -2238,6 +2238,170 @@ process.on('message', async (msg) => {
 			});
 		}
 	}
+	else if (msg.type === 'get_audio_queues') {
+		try {
+			const { audioQueueManager } = require('./audio_queue.js');
+			const queues = audioQueueManager.getAllQueues();
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'get_audio_queues_response',
+					reqId: msg.reqId,
+					success: true,
+					queues,
+				});
+			}
+		}
+		catch (err) {
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'get_audio_queues_response',
+					reqId: msg.reqId,
+					success: false,
+					error: err.message,
+					queues: [],
+				});
+			}
+		}
+	}
+	else if (msg.type === 'skip_audio_queue') {
+		try {
+			const { audioQueueManager } = require('./audio_queue.js');
+			const result = audioQueueManager.skipCurrent(msg.guildId);
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'skip_audio_queue_response',
+					reqId: msg.reqId,
+					success: result,
+				});
+			}
+		}
+		catch (err) {
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'skip_audio_queue_response',
+					reqId: msg.reqId,
+					success: false,
+					error: err.message,
+				});
+			}
+		}
+	}
+	else if (msg.type === 'remove_audio_queue_item') {
+		try {
+			const { audioQueueManager } = require('./audio_queue.js');
+			const result = audioQueueManager.removeItem(msg.guildId, msg.itemId);
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'remove_audio_queue_item_response',
+					reqId: msg.reqId,
+					success: result,
+				});
+			}
+		}
+		catch (err) {
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'remove_audio_queue_item_response',
+					reqId: msg.reqId,
+					success: false,
+					error: err.message,
+				});
+			}
+		}
+	}
+	else if (msg.type === 'clear_guild_audio_queue') {
+		try {
+			const { audioQueueManager } = require('./audio_queue.js');
+			audioQueueManager.clearQueue(msg.guildId);
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'clear_guild_audio_queue_response',
+					reqId: msg.reqId,
+					success: true,
+				});
+			}
+		}
+		catch (err) {
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'clear_guild_audio_queue_response',
+					reqId: msg.reqId,
+					success: false,
+					error: err.message,
+				});
+			}
+		}
+	}
+	else if (msg.type === 'force_add_audio_queue') {
+		try {
+			const { addToQueue, audioQueueManager } = require('./audio_queue.js');
+			const guild = client.guilds.cache.get(msg.guildId);
+			if (!guild) {
+				if (process.send) process.send({ target: 'web', type: 'force_add_audio_queue_response', reqId: msg.reqId, success: false, error: 'Server not found or bot not in server.' });
+				return;
+			}
+
+			// Look for existing active queue connection or join a voice channel
+			const existingQueue = audioQueueManager.getQueue(msg.guildId);
+			let connection = existingQueue[0]?.connection || null;
+
+			if (!connection) {
+				// Search for a voice channel with users or the first accessible voice channel
+				const voiceChannels = guild.channels.cache.filter(c => c.type === 2);
+				const targetChannel = voiceChannels.find(c => c.members && c.members.size > 0) || voiceChannels.first();
+
+				if (targetChannel) {
+					connection = joinVoiceChannel({
+						channelId: targetChannel.id,
+						guildId: guild.id,
+						adapterCreator: guild.voiceAdapterCreator,
+					});
+				}
+			}
+
+			if (!connection) {
+				if (process.send) process.send({ target: 'web', type: 'force_add_audio_queue_response', reqId: msg.reqId, success: false, error: 'No active voice connection or voice channel found in server.' });
+				return;
+			}
+
+			const options = {
+				userName: msg.userName || 'Developer Console',
+				engine: msg.engine || 'EDGE_TTS',
+				voice: msg.voice || 'th-TH-NiwatNeural',
+				lang: msg.lang || 'th',
+			};
+
+			const result = addToQueue(guild.id, guild.name, connection, msg.text, options);
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'force_add_audio_queue_response',
+					reqId: msg.reqId,
+					success: !!result.id,
+					id: result.id,
+				});
+			}
+		}
+		catch (err) {
+			if (process.send) {
+				process.send({
+					target: 'web',
+					type: 'force_add_audio_queue_response',
+					reqId: msg.reqId,
+					success: false,
+					error: err.message,
+				});
+			}
+		}
+	}
 	else if (msg.type === 'clear_all_audio_queues') {
 		try {
 			const { audioQueueManager } = require('./audio_queue.js');

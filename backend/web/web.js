@@ -1238,6 +1238,79 @@ app.get('/api/developer/logs', requireDeveloper, (req, res) => {
 	res.json({ success: true, logs: getRecentLogs() });
 });
 
+app.get('/api/developer/audio-queues', requireDeveloper, async (req, res) => {
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'get_audio_queues' }, 3000);
+		res.json({ success: true, queues: ipcRes?.queues || [] });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch active audio queues.', queues: [] });
+	}
+});
+
+app.post('/api/developer/audio-queues/skip', requireDeveloper, async (req, res) => {
+	const { guildId } = req.body || {};
+	if (!guildId) return res.status(400).json({ success: false, error: 'Missing guildId parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'skip_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `Developer ${req.session.user.username} force skipped audio in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Track skipped successfully!' : 'No track active to skip.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to skip audio queue item.' });
+	}
+});
+
+app.post('/api/developer/audio-queues/remove', requireDeveloper, async (req, res) => {
+	const { guildId, itemId } = req.body || {};
+	if (!guildId || !itemId) return res.status(400).json({ success: false, error: 'Missing guildId or itemId parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'remove_audio_queue_item', guildId, itemId }, 4000);
+		BotLogs('TTS', `Developer ${req.session.user.username} force removed queue item ${itemId} in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Queue item removed successfully!' : 'Item not found.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to remove audio queue item.' });
+	}
+});
+
+app.post('/api/developer/audio-queues/clear', requireDeveloper, async (req, res) => {
+	const { guildId } = req.body || {};
+	if (!guildId) return res.status(400).json({ success: false, error: 'Missing guildId parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'clear_guild_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `Developer ${req.session.user.username} cleared audio queue for server ${guildId}`);
+		res.json({ success: true, message: 'Server audio queue cleared successfully!' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to clear guild audio queue.' });
+	}
+});
+
+app.post('/api/developer/audio-queues/add', requireDeveloper, async (req, res) => {
+	const { guildId, text, userName, engine, voice, lang } = req.body || {};
+	if (!guildId || !text) return res.status(400).json({ success: false, error: 'Missing guildId or text parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({
+			type: 'force_add_audio_queue',
+			guildId,
+			text,
+			userName: userName || req.session.user.username,
+			engine: engine || 'EDGE_TTS',
+			voice: voice || 'th-TH-NiwatNeural',
+			lang: lang || 'th',
+		}, 5000);
+		if (ipcRes && ipcRes.success) {
+			BotLogs('TTS', `Developer ${req.session.user.username} force enqueued TTS to server ${guildId}: "${text}"`);
+			return res.json({ success: true, message: 'TTS enqueued successfully!', id: ipcRes.id });
+		}
+		return res.status(400).json({ success: false, error: ipcRes?.error || 'Failed to enqueue TTS.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to add item to audio queue.' });
+	}
+});
+
 app.get('/api/developer/audit-logs', requireDeveloper, async (req, res) => {
 	const { limit, filter, search } = req.query;
 	try {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import CustomSelect from '../CustomSelect.js';
 
 export default function MemberManagerTab({ guildId, roles, initialMembers = [], showToast, onRefresh }) {
 	const [memberSearch, setMemberSearch] = useState('');
@@ -275,33 +276,37 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
 							Sort By:
 						</span>
-						<select
-							className="form-control"
-							value={sortBy}
-							onChange={e => setSortBy(e.target.value)}
-							style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', width: 'auto' }}
-						>
-							<option value="name_asc">Name (A → Z)</option>
-							<option value="name_desc">Name (Z → A)</option>
-							<option value="id_asc">User ID (Oldest Account)</option>
-							<option value="id_desc">User ID (Newest Account)</option>
-							<option value="roles_desc">Most Assigned Roles</option>
-						</select>
+						<div style={{ width: '220px' }}>
+							<CustomSelect
+								value={sortBy}
+								onChange={(val) => setSortBy(val)}
+								options={[
+									{ value: 'name_asc', label: 'Name (A → Z)', icon: '🔤' },
+									{ value: 'name_desc', label: 'Name (Z → A)', icon: '🔤' },
+									{ value: 'id_asc', label: 'User ID (Oldest Account)', icon: '⌛' },
+									{ value: 'id_desc', label: 'User ID (Newest Account)', icon: '⚡' },
+									{ value: 'roles_desc', label: 'Most Assigned Roles', icon: '🎖️' },
+								]}
+								searchable={false}
+							/>
+						</div>
 					</div>
 
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
 							Per Page:
 						</span>
-						<select
-							className="form-control"
-							value={pageSize}
-							onChange={e => setPageSize(Number(e.target.value))}
-							style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', width: 'auto' }}
-						>
-							<option value="15">15 members</option>
-							<option value="30">30 members</option>
-						</select>
+						<div style={{ width: '140px' }}>
+							<CustomSelect
+								value={pageSize}
+								onChange={(val) => setPageSize(Number(val))}
+								options={[
+									{ value: 15, label: '15 members' },
+									{ value: 30, label: '30 members' },
+								]}
+								searchable={false}
+							/>
+						</div>
 					</div>
 				</div>
 			</div>
