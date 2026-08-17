@@ -41,6 +41,7 @@ scripts/               seed-demo, db-audit, contrast-audit
 
 - [DATABASE.md](DATABASE.md) — ตั้งค่าฐานข้อมูลบน Supabase ตั้งแต่ศูนย์ ทำตามได้เลยโดยไม่ต้องอ่านไฟล์อื่น
 - [HANDOFF.md](HANDOFF.md) — รายละเอียดการออกแบบและสิ่งที่ยังไม่ได้ทำ
+- [DISCORD-RATE-LIMITS.md](DISCORD-RATE-LIMITS.md) — กฎที่ห้ามฝ่าฝืน ไม่งั้น Cloudflare จะบล็อก IP ของเซิร์ฟเวอร์จาก Discord ทั้งตัว อ่านก่อนเขียนอะไรที่คุยกับ Discord แบบวนซ้ำหรือตั้งเวลา
 - [CHANGES.md](CHANGES.md) — สาขานี้เปลี่ยนอะไรเทียบกับ main สำหรับคนรีวิว PR
 
 ## ตรวจสอบ

@@ -45,6 +45,7 @@ desktop.ini
 !HANDOFF.md
 !CHANGES.md
 !DATABASE.md
+!DISCORD-RATE-LIMITS.md
 
 # Local env backups
 .env.backup*
