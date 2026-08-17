@@ -50,6 +50,7 @@ function rowToActivity(row) {
 		currency: row.currency,
 		recurrence: row.recurrence,
 		dueDay: row.due_day,
+		payeeParticipantId: row.payee_participant_id || null,
 		guildId: row.guild_id,
 		channelId: row.channel_id,
 		createdAt: row.created_at,
@@ -216,15 +217,87 @@ async function loadActivity(where, value) {
 		periodId: r.period_id,
 		participantId: r.participant_id,
 		amountSatang: Number(r.amount_satang),
+		expectedSatang: r.expected_satang == null ? null : Number(r.expected_satang),
+		promptpayTarget: r.promptpay_target || null,
 		method: r.method,
 		status: r.status,
 		reference: r.reference,
+		// The image itself is never loaded here — it is fetched by the one route
+		// that serves it, so a page render does not drag a megabyte of other
+		// people's bank slips through memory to display a list of names.
+		hasSlip: Boolean(r.slip_uploaded_at),
+		slipVerdict: r.slip_verdict || null,
+		slipUploadedAt: r.slip_uploaded_at,
 		confirmedBy: r.confirmed_by,
 		createdAt: r.created_at,
 		confirmedAt: r.confirmed_at,
 	}));
 
+	activity.payee = await resolvePayee(activity);
+
 	return activity;
+}
+
+/**
+ * Who the group actually pays, and where.
+ *
+ * Whoever fronted the money is the one owed it, which is usually but not
+ * always the owner — on a shared subscription it is whoever's card the bill
+ * lands on. An explicit `payee_participant_id` wins; otherwise it falls back
+ * to the owner's own row on the roster.
+ *
+ * The PromptPay number comes from that person's account, so it follows them
+ * across every activity rather than being retyped into each one. A participant
+ * who has never signed in has no account and therefore no number — the page
+ * says so rather than showing a QR that goes nowhere.
+ */
+async function resolvePayee(activity) {
+	const explicit = activity.payeeParticipantId
+		? activity.participants.find(p => p.id === activity.payeeParticipantId)
+		: null;
+	const participant = explicit
+		|| activity.participants.find(p => p.userId === activity.ownerUserId)
+		|| null;
+
+	if (!participant) return null;
+
+	const base = {
+		participantId: participant.id,
+		displayName: participant.displayName,
+		userId: participant.userId || null,
+		promptpayId: null,
+		promptpayName: null,
+	};
+	if (!participant.userId) return base;
+
+	const res = await query(
+		'SELECT promptpay_id, promptpay_name FROM users WHERE id = $1',
+		[participant.userId],
+	);
+	return {
+		...base,
+		promptpayId: res.rows[0]?.promptpay_id || null,
+		promptpayName: res.rows[0]?.promptpay_name || null,
+	};
+}
+
+/**
+ * Point the money at a different person on the roster. Passing null hands it
+ * back to the owner.
+ */
+async function setPayee(activityId, participantId) {
+	if (participantId) {
+		const found = await query(
+			'SELECT id FROM participants WHERE id = $1 AND activity_id = $2',
+			[participantId, activityId],
+		);
+		if (found.rows.length === 0) throw new Error('participant_not_in_activity');
+	}
+	const res = await query(
+		'UPDATE activities SET payee_participant_id = $2, updated_at = now() WHERE id = $1 RETURNING *',
+		[activityId, participantId || null],
+	);
+	return rowToActivity(res.rows[0]);
 }
 
 function getActivity(id) {
@@ -652,19 +725,124 @@ async function updateActivity(activityId, input) {
 	return rowToActivity(res.rows[0]);
 }
 
+/**
+ * `expectedSatang` and `promptpayTarget` are what we asked for and where we
+ * told them to send it, copied onto the row rather than looked up later.
+ * Both move: the owner changes their PromptPay number, or a ฿4,000 typo is
+ * corrected to ฿400. Without the copy, a payment settled months ago stops
+ * agreeing with the page that produced it.
+ */
 async function recordPayment(activityId, participantId, input) {
-	const { amountSatang, method = 'manual', reference = null, periodId = null } = input;
+	const {
+		amountSatang,
+		method = 'manual',
+		reference = null,
+		periodId = null,
+		expectedSatang = null,
+		promptpayTarget = null,
+	} = input;
 	if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
 		throw new Error('amountSatang must be a positive integer');
 	}
 
 	const res = await query(
-		`INSERT INTO payments (id, activity_id, period_id, participant_id, amount_satang, method, reference)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-		[newId('pay'), activityId, periodId, participantId, amountSatang, method, reference],
+		`INSERT INTO payments
+		   (id, activity_id, period_id, participant_id, amount_satang, method, reference, expected_satang, promptpay_target)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+		[
+			newId('pay'), activityId, periodId, participantId, amountSatang, method, reference,
+			expectedSatang == null ? null : Number(expectedSatang),
+			promptpayTarget,
+		],
 	);
 	const row = res.rows[0];
 	return { id: row.id, participantId: row.participant_id, amountSatang: Number(row.amount_satang), status: row.status };
+}
+
+// ── slips ───────────────────────────────────────────────────────────────────
+//
+// A slip is evidence, not proof. Nothing here contacts a bank, so nothing here
+// can say the money arrived — the owner still confirms, exactly as they did
+// before. What a slip buys is that confirming takes one glance instead of a
+// trip to a banking app, and that the same slip cannot be sent twice.
+//
+// That last part is the only check with teeth, and it is enforced by a unique
+// index rather than by reading anything out of the image.
+
+const SLIP_VERDICTS = ['unread', 'matched', 'duplicate'];
+
+/**
+ * Attach an image to a payment claim.
+ *
+ * `ref` is the transaction reference read off the slip's own QR by the browser
+ * that uploaded it. A caller could invent one, which is why it is not trusted
+ * to *confirm* anything — it only has to be unique. Inventing a reference gets
+ * you a row that still says "waiting for confirmation"; reusing a real one is
+ * refused by the database.
+ */
+async function attachSlip(paymentId, { image, mime, ref = null }) {
+	if (!Buffer.isBuffer(image) || image.length === 0) throw new Error('slip_unreadable');
+
+	const verdict = ref ? 'matched' : 'unread';
+	try {
+		const res = await query(
+			`UPDATE payments
+			 SET slip_image = $2, slip_mime = $3, slip_ref = $4,
+			     slip_verdict = $5, slip_uploaded_at = now(), method = 'promptpay'
+			 WHERE id = $1
+			 RETURNING id, slip_verdict, slip_uploaded_at`,
+			[paymentId, image, mime || 'image/jpeg', ref, verdict],
+		);
+		if (res.rows.length === 0) throw new Error('payment_not_found');
+		return { id: res.rows[0].id, verdict: res.rows[0].slip_verdict };
+	}
+	catch (error) {
+		// 23505 is a unique violation, and the only unique thing about a slip
+		// is its reference — this slip has already been used somewhere.
+		if (error.code === '23505') {
+			// Best effort: leaving a note on the row is useful, but the caller
+			// has to hear about the duplicate either way, so a failure here
+			// must not replace the error that actually matters.
+			await query(
+				'UPDATE payments SET slip_verdict = \'duplicate\' WHERE id = $1',
+				[paymentId],
+			).catch(() => null);
+			const duplicate = new Error('slip_duplicate');
+			duplicate.code = 'slip_duplicate';
+			throw duplicate;
+		}
+		throw error;
+	}
+}
+
+async function getSlip(paymentId) {
+	const res = await query(
+		'SELECT slip_image, slip_mime FROM payments WHERE id = $1 AND slip_image IS NOT NULL',
+		[paymentId],
+	);
+	if (res.rows.length === 0) return null;
+	return { image: res.rows[0].slip_image, mime: res.rows[0].slip_mime || 'image/jpeg' };
+}
+
+/**
+ * Forget the slips for activities that finished long enough ago.
+ *
+ * These are other people's bank documents, carrying account names and partial
+ * account numbers. Keeping them past the point where anyone might dispute the
+ * payment is storing a liability for no benefit, so the images are dropped
+ * while the payment rows they belonged to stay exactly as they were.
+ */
+async function forgetOldSlips(olderThanDays = 90) {
+	const res = await query(
+		`UPDATE payments
+		 SET slip_image = NULL
+		 WHERE slip_image IS NOT NULL
+		   AND status = 'confirmed'
+		   AND confirmed_at < now() - ($1 * INTERVAL '1 day')
+		 RETURNING id`,
+		[olderThanDays],
+	);
+	return res.rowCount || 0;
 }
 
 async function confirmPayment(paymentId, confirmedByUserId) {
@@ -774,6 +952,7 @@ module.exports = {
 	KINDS,
 	RSVP,
 	SLOT_ANSWERS,
+	SLIP_VERDICTS,
 	canTransition,
 	proposeSlots,
 	voteSlot,
@@ -808,4 +987,9 @@ module.exports = {
 	removePayment,
 	rejectPayment,
 	settlement,
+	resolvePayee,
+	setPayee,
+	attachSlip,
+	getSlip,
+	forgetOldSlips,
 };

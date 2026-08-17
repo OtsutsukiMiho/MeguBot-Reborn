@@ -196,6 +196,73 @@ enthusiasm but two people who cannot make it.
 Locking the winner sets `starts_at`, moves the plan to `confirmed`, and marks
 anyone who voted no on that slot as not coming — so nobody has to ask them.
 
+## Paying
+
+A PromptPay QR is a string, not a transaction. `core/promptpay.js` builds the
+EMVCo payload — the PromptPay AID in field 29, the amount in field 54, a
+CRC-16/CCITT checksum in field 63 — and `qrcode` renders it. No gateway, no
+merchant account, no fee, because none of that is involved in *encoding* a
+request for ฿60. What costs money is the bank telling you it arrived, and that
+is the part we do not have.
+
+So the flow stops one step short of automatic on purpose:
+
+    QR with the exact amount → they transfer → they say so → optional slip
+                                                          → the owner confirms
+
+The owner confirming is not a placeholder. It is the product's existing rule —
+a claim is not a payment — and a slip does not change it, because a slip is an
+image and we cannot verify one. What a slip buys is that confirming takes a
+glance instead of a trip to a banking app, and that the same slip cannot be
+used twice: the browser reads the transaction reference off the slip's own QR
+with `jsqr`, and a unique index on `payments.slip_ref` refuses a repeat across
+every activity, not just this one. A caller can invent a reference; inventing
+one gets you a row that still says "waiting for confirmation".
+
+**The thing that is easy to get wrong.** The person paying is holding the phone
+the QR is displayed on, and a phone cannot scan its own screen. Saving the
+image to the photo library and letting the banking app read it from there is
+the primary path in Thailand, not a fallback — so the pay screen offers an
+explicit save button (share sheet on iOS, download elsewhere), a long-press
+hint, and the number and amount as separate copy buttons for anyone who would
+rather type. A QR alone would fail for most of the people this is built for.
+
+Two rules the code enforces rather than assumes:
+
+- **The full number never renders.** `payTo.masked` goes on screen and
+  `payTo.number` goes to the clipboard, and both are gated behind the same
+  `viewAmounts` check that hides everyone's balances — a forwarded link gets
+  neither. Screens end up in screenshots; clipboards do not.
+- **The QR keeps a white ground in dark mode.** `.pay-qr` carries its own
+  background rather than the theme's. An inverted code is one a good many Thai
+  banking apps quietly fail to read, and the person holding the phone has no
+  way to know the theme is why.
+
+Slips live in Postgres as `bytea` and are served by one route that checks who
+is asking. That is deliberate: every alternative starts by making them
+reachable over HTTP, and they carry account names. `forgetOldSlips()` drops the
+images 90 days after settlement and leaves the payment rows intact.
+
+## Two languages, and how not to freeze one in
+
+English leads and Thai follows — reversed from the original decision, because
+the link travels further than the group it started in. `app/copy/{en,th}.js`
+hold the interface copy, `core/megu/voice.js` holds Megu's own lines in both,
+and `core/format.js` holds everything built from data. `tests/copy.test.js`
+fails the build when the two dictionaries drift apart, including when a phrase
+that takes a value forgets to print it.
+
+The bug worth remembering: `periods.label` used to store `"สิงหาคม 2569"`,
+written on the day the month opened. A stored rendering cannot be re-rendered,
+so every month created before the switch would have kept its language forever.
+The key (`2026-08`) is the fact and the label is a view of it, so the API now
+sends `period.key` and the browser formats it. The column still exists and is
+no longer read.
+
+`core/format.js` also fixed a live bug on the way past: month boundaries are
+Bangkok's now, not the server's. `periodKeyFor` used `getUTCMonth`, so a period
+opened at 02:00 on the first of September in Thailand was filed under August.
+
 ## Reminders
 
 `core/reminders.js` decides who is late and writes the statement;
@@ -209,8 +276,8 @@ silently counted as reminded.
 
 Frozen out of V0, per the scope we agreed:
 
-- PromptPay QR and slip verification — `payments.method` accepts them,
-  only `manual` is implemented
+- Bank-verified payments — the QR and the slip are in (see below), but nothing
+  contacts a bank, so the owner still confirms every payment by hand
 - A `Group` entity — activities are the root; groups emerge later from repeats
 - Discord slash commands for activities (the bot only sends reminders so far)
 - Automatic month rollover — a new period opens when the owner asks for it,
@@ -223,6 +290,8 @@ core/                    knows nothing about Discord, HTTP or React
   activities.js          activity, participants, expenses, shares, payments
   users.js               accounts, multi-provider identity, participant merge
   money.js               satang integers; splits always sum back to the total
+  promptpay.js           the EMVCo QR payload, and nothing that talks to a bank
+  format.js              months, dates and money, per language, from keys only
   auth/access.js         the two permission domains
   megu/voice.js          every line Megu says, in one place
   reminders.js           who is late, and the statement she sends them
@@ -231,6 +300,8 @@ adapters/
   http/megu-api.js       REST over core, mounted at /api/megu
   discord/reminder-sender.js   opens the DM and records delivery
 app/
+  copy/{en,th}.js        every word of the interface, one shape, two languages
+  components/PayPanel.js the QR, the save button, the number, the slip
   a/[code]/page.js       public activity page, no login required
   activities/page.js     organizer view — the group/money product
   servers/page.js        server list

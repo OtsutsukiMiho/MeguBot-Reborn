@@ -5,6 +5,8 @@ const log = require('./log.js');
 const db = require('./db.js');
 const ids = require('./ids.js');
 const money = require('./money.js');
+const format = require('./format.js');
+const promptpay = require('./promptpay.js');
 const { initCoreSchema } = require('./schema.js');
 const users = require('./users.js');
 const activities = require('./activities.js');
@@ -19,6 +21,8 @@ module.exports = {
 	db,
 	ids,
 	money,
+	format,
+	promptpay,
 	users,
 	activities,
 	reminders,

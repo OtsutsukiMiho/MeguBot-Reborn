@@ -1,8 +1,27 @@
 const express = require('express');
+const QRCode = require('qrcode');
 const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
 
-const { activities, users, access, tokens, money, voice } = core;
+const { activities, users, access, tokens, money, voice, promptpay } = core;
+
+// A slip photographed on a phone is a few hundred kilobytes once the browser
+// has shrunk it. The ceiling is generous enough that nobody meets it by
+// accident and low enough that nobody can post a video file to the database.
+const SLIP_MAX_BYTES = 2 * 1024 * 1024;
+const SLIP_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+/**
+ * Answer with a machine-readable code as well as a sentence.
+ *
+ * The sentence is a fallback: the browser knows which language the reader
+ * chose and translates the code itself, so an error stops being the one part
+ * of the interface that is always in whichever language the server was
+ * written in.
+ */
+function fail(res, status, code, message) {
+	return res.status(status).json({ error: message || code, code });
+}
 
 const DEVICE_COOKIE = 'megu_pt';
 const DEVICE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
@@ -29,6 +48,15 @@ function attachActor(req, res, next) {
 		userId: req.session?.meguUserId || null,
 		discordUid: req.session?.user?.id || null,
 		deviceToken,
+		// Which language to answer in. It travels with the caller rather than
+		// as a separate argument because Megu's own sentences are built on the
+		// server, and every route that returns an activity returns one of them
+		// — an extra parameter is a parameter somebody forgets to pass, and
+		// forgetting it means a Thai sentence in the middle of an English page.
+		//
+		// The browser states its choice explicitly; the header is only a
+		// fallback for callers that have not, such as the bot.
+		lang: core.format.resolveLang(req.query?.lang || req.headers['accept-language']),
 	};
 	next();
 }
@@ -68,11 +96,9 @@ function publicParticipant(p, meId, showAmounts, settlementRow) {
  * Megu reads whichever axis is actually asking for attention: money first when
  * someone is behind, the plan otherwise.
  */
-function meguLineFor(activity, sum, period) {
-	const seed = { seed: activity.id };
-	const when = activity.startsAt
-		? new Date(activity.startsAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })
-		: null;
+function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
+	const seed = { seed: activity.id, lang };
+	const when = activity.startsAt ? core.format.formatWhen(activity.startsAt, lang) : null;
 
 	if (activity.planState === 'cancelled') return voice.say('cancelled', { title: activity.title }, seed);
 
@@ -83,7 +109,7 @@ function meguLineFor(activity, sum, period) {
 
 	if (sum.state === 'settled') {
 		return activity.kind === 'recurring' && period
-			? voice.say('recurringSettled', { title: activity.title, period: period.label }, seed)
+			? voice.say('recurringSettled', { title: activity.title, period: core.format.formatPeriod(period.key, lang) }, seed)
 			: voice.say('allSettled', { title: activity.title }, seed);
 	}
 
@@ -101,7 +127,7 @@ function meguLineFor(activity, sum, period) {
 			return voice.say('pollDeadlocked', { title: activity.title }, seed);
 		}
 		return voice.say('pollDecided', {
-			when: new Date(winner.startsAt).toLocaleString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+			when: core.format.formatWhen(winner.startsAt, lang),
 			count: winner.yes + winner.maybe,
 		}, seed);
 	}
@@ -114,12 +140,17 @@ function meguLineFor(activity, sum, period) {
 	}
 	if (activity.planState === 'confirmed') {
 		const going = activity.participants.filter(p => p.rsvp === 'yes').length;
-		return voice.say('confirmed', { title: activity.title, when: when || 'เร็ว ๆ นี้', count: going }, seed);
+		return voice.say('confirmed', {
+			title: activity.title,
+			when: when || voice.say('soon', {}, seed),
+			count: going,
+		}, seed);
 	}
 	return voice.say('activityCreated', { title: activity.title }, seed);
 }
 
 function serializeActivity(activity, actor, { periodId } = {}) {
+	const lang = core.format.resolveLang(actor?.lang);
 	const role = access.activityRole(actor, activity);
 	const showAmounts = access.can(role, 'viewAmounts');
 	const me = access.matchParticipant(actor, activity.participants);
@@ -147,8 +178,11 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		createdAt: activity.createdAt,
 		role,
 		me: me ? { id: me.id, displayName: me.displayName, rsvp: me.rsvp } : null,
-		megu: meguLineFor(activity, sum, period),
-		period: period ? { id: period.id, key: period.key, label: period.label, dueAt: period.dueAt } : null,
+		megu: meguLineFor(activity, sum, period, lang),
+		// `key` travels and `label` does not: a month's name is rendered by
+		// the reader's browser in the reader's language, rather than frozen
+		// into the row on whatever day the month happened to be opened.
+		period: period ? { id: period.id, key: period.key, dueAt: period.dueAt } : null,
 		poll: activity.slots.length > 0
 			? {
 				ready: activities.pollReady(activity),
@@ -165,7 +199,7 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				})),
 			}
 			: null,
-		periods: activity.periods.map(p => ({ id: p.id, key: p.key, label: p.label, dueAt: p.dueAt })),
+		periods: activity.periods.map(p => ({ id: p.id, key: p.key, dueAt: p.dueAt })),
 		participants: activity.participants.map(p => publicParticipant(p, me?.id, showAmounts, byParticipant[p.id])),
 		expenses: showAmounts
 			? activity.expenses.filter(inScope).map(e => ({
@@ -180,13 +214,45 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				id: p.id,
 				participantId: p.participantId,
 				amountSatang: p.amountSatang,
+				// What we asked for at the time. The owner's list prints it
+				// beside the claimed figure when the two disagree, which is how
+				// transferring ฿60 and typing ฿6 gets noticed.
+				expectedSatang: p.expectedSatang,
 				status: p.status,
 				method: p.method,
+				// Whether a slip exists, never the slip. The image is served by
+				// the one route that checks who is asking.
+				hasSlip: p.hasSlip,
+				slipVerdict: p.slipVerdict,
+				slipUploadedAt: p.slipUploadedAt,
 				createdAt: p.createdAt,
 			}))
 			: [],
 		totals: showAmounts
 			? { total: sum.total, unpaidCount: sum.unpaid.length, fullySettled: sum.fullySettled }
+			: null,
+
+		// Where the money goes.
+		//
+		// `masked` is what the page prints; `number` is what the copy button
+		// puts on the clipboard. They are separated because a full phone
+		// number rendered on screen ends up in screenshots and shared Discord
+		// windows, and there is no reason for it to be visible when what the
+		// reader needs is to paste it into a banking app.
+		//
+		// Both are gated on `showAmounts`, so someone holding a forwarded link
+		// who is not on the roster gets neither — the same rule that already
+		// hides what everyone owes.
+		payTo: showAmounts && activity.payee
+			? {
+				participantId: activity.payee.participantId,
+				displayName: activity.payee.displayName,
+				accountName: activity.payee.promptpayName || null,
+				masked: activity.payee.promptpayId ? promptpay.maskTarget(activity.payee.promptpayId) : null,
+				number: activity.payee.promptpayId || null,
+				ready: Boolean(activity.payee.promptpayId),
+				isMe: Boolean(me && me.id === activity.payee.participantId),
+			}
 			: null,
 	};
 }
@@ -213,6 +279,25 @@ function router(deps = {}) {
 		}
 
 		res.json({ loggedIn: true, user, servers: access.visibleServers(myGuilds, botGuildIds) });
+	});
+
+	// Where this person wants to be paid. Their own account, their own bank —
+	// Megu prints the address on a QR and never stands between the two ends of
+	// the transfer.
+	api.patch('/me', requireAccount, async (req, res, next) => {
+		try {
+			const user = await users.setPromptPay(req.actor.userId, {
+				promptpayId: req.body?.promptpayId,
+				promptpayName: req.body?.promptpayName,
+			});
+			res.json({ user });
+		}
+		catch (error) {
+			if (error.message === 'promptpay_unrecognised' || error.message === 'promptpay_missing') {
+				return fail(res, 400, error.message);
+			}
+			next(error);
+		}
 	});
 
 	api.get('/activities', requireAccount, async (req, res) => {
@@ -328,30 +413,217 @@ function router(deps = {}) {
 		}
 	});
 
+	/**
+	 * What this caller is being asked for, on this activity, right now.
+	 *
+	 * Both the QR and the payment claim need the same three answers — who is
+	 * asking, which month, and how much is outstanding — and getting them out
+	 * of step would mean scanning a QR for one amount and claiming another.
+	 */
+	async function payContext(req, res) {
+		const activity = await activities.getActivityByCode(req.params.code);
+		if (!activity) {
+			fail(res, 404, 'notFound');
+			return null;
+		}
+
+		const role = access.activityRole(req.actor, activity);
+		if (!access.can(role, 'viewAmounts')) {
+			fail(res, 403, 'not_on_this_activity');
+			return null;
+		}
+
+		const me = access.matchParticipant(req.actor, activity.participants);
+		const period = activity.kind === 'recurring'
+			? (activity.periods.find(p => p.id === (req.body?.periodId || req.query?.period)) || activities.currentPeriod(activity))
+			: null;
+		const scope = period ? period.id : null;
+
+		const sum = activities.settlement(activity, scope);
+		const row = me ? sum.rows.find(r => r.participantId === me.id) : null;
+
+		return { activity, role, me, period, scope, sum, outstanding: row?.outstanding || 0 };
+	}
+
+	/**
+	 * The QR itself, as an image.
+	 *
+	 * A route rather than a data URL inside the activity JSON, for two reasons
+	 * a reader will feel: an <img> can be long-pressed and saved to the photo
+	 * library — which is how anyone paying from the same phone they are reading
+	 * on gets the code into their banking app — and a page that is not showing
+	 * a QR does not pay to build one.
+	 *
+	 * It is never cached: it encodes a specific amount owed by a specific
+	 * person, and both change.
+	 */
+	api.get('/a/:code/qr', async (req, res, next) => {
+		try {
+			const ctx = await payContext(req, res);
+			if (!ctx) return;
+
+			const payee = ctx.activity.payee;
+			if (!payee?.promptpayId) return fail(res, 404, 'promptpay_missing');
+
+			const requested = Number(req.query.amount);
+			const amount = Number.isInteger(requested) && requested > 0 ? requested : ctx.outstanding;
+			if (amount <= 0) return fail(res, 400, 'nothing_outstanding');
+
+			const payload = promptpay.buildPayload(payee.promptpayId, amount);
+			const png = await QRCode.toBuffer(payload, {
+				type: 'png',
+				errorCorrectionLevel: 'M',
+				margin: 2,
+				width: 640,
+				color: { dark: '#000000', light: '#FFFFFF' },
+			});
+
+			res.setHeader('Content-Type', 'image/png');
+			res.setHeader('Cache-Control', 'private, no-store');
+			res.setHeader('Content-Disposition', `inline; filename="megu-${ctx.activity.code}-${amount}.png"`);
+			res.send(png);
+		}
+		catch (error) {
+			if (error.message === 'promptpay_unrecognised') return fail(res, 400, error.message);
+			next(error);
+		}
+	});
+
 	// A payment claim from a participant lands as pending on purpose.
 	api.post('/a/:code/pay', async (req, res, next) => {
 		try {
-			const activity = await activities.getActivityByCode(req.params.code);
-			if (!activity) return res.status(404).json({ error: 'ไม่พบกิจกรรมนี้' });
+			const ctx = await payContext(req, res);
+			if (!ctx) return;
+			if (!ctx.me) return fail(res, 403, 'claim_your_name_first');
 
-			const me = access.matchParticipant(req.actor, activity.participants);
-			if (!me) return res.status(403).json({ error: 'เลือกชื่อตัวเองก่อน' });
+			const amount = Number(req.body?.amountSatang) || ctx.outstanding;
+			if (amount <= 0) return fail(res, 400, 'nothing_outstanding');
 
-			const period = activity.kind === 'recurring'
-				? (activity.periods.find(p => p.id === req.body?.periodId) || activities.currentPeriod(activity))
-				: null;
-			const scope = period ? period.id : null;
+			const payment = await activities.recordPayment(ctx.activity.id, ctx.me.id, {
+				amountSatang: amount,
+				method: ctx.activity.payee?.promptpayId ? 'promptpay' : 'manual',
+				periodId: ctx.scope,
+				// What was asked for, and where we sent them. Kept on the row so
+				// the record still explains itself after the expense is corrected
+				// or the owner changes their number.
+				expectedSatang: ctx.outstanding || amount,
+				promptpayTarget: ctx.activity.payee?.promptpayId || null,
+			});
 
-			const sum = activities.settlement(activity, scope);
-			const row = sum.rows.find(r => r.participantId === me.id);
-			const amount = Number(req.body?.amountSatang) || row?.outstanding || 0;
-			if (amount <= 0) return res.status(400).json({ error: 'ไม่มียอดค้างที่ต้องจ่าย' });
-
-			await activities.recordPayment(activity.id, me.id, { amountSatang: amount, method: 'manual', periodId: scope });
-			const full = await activities.getActivity(activity.id);
-			res.json({ activity: serializeActivity(full, req.actor, { periodId: scope }) });
+			const full = await activities.getActivity(ctx.activity.id);
+			res.json({
+				paymentId: payment.id,
+				activity: serializeActivity(full, req.actor, { periodId: ctx.scope }),
+			});
 		}
 		catch (error) {
+			next(error);
+		}
+	});
+
+	/**
+	 * Attach the slip to a claim already made.
+	 *
+	 * The image arrives base64 in JSON rather than as multipart, because the
+	 * browser has already decoded, downscaled and re-encoded it to keep a 4MB
+	 * phone photo off the wire — at which point it is a string, and adding a
+	 * multipart parser to the stack would buy nothing.
+	 *
+	 * `ref` is whatever the browser read out of the slip's own QR. It is not
+	 * trusted to prove anything; it only has to be unique, and the database is
+	 * what enforces that.
+	 */
+	api.post('/a/:code/payments/:paymentId/slip', async (req, res, next) => {
+		try {
+			const activity = await activities.getActivityByCode(req.params.code);
+			if (!activity) return fail(res, 404, 'notFound');
+
+			const payment = activity.payments.find(p => p.id === req.params.paymentId);
+			if (!payment) return fail(res, 404, 'payment_not_found');
+
+			// Only the person the claim belongs to, or the owner correcting it.
+			const me = access.matchParticipant(req.actor, activity.participants);
+			const isOwner = access.activityRole(req.actor, activity) === 'owner';
+			if (!isOwner && payment.participantId !== me?.id) return fail(res, 403, 'not_your_payment');
+
+			const { dataUrl, ref } = req.body || {};
+			const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(String(dataUrl || ''));
+			if (!match) return fail(res, 400, 'slip_unreadable');
+
+			const [, mime, base64] = match;
+			if (!SLIP_TYPES.has(mime.toLowerCase())) return fail(res, 400, 'slip_unreadable');
+
+			const image = Buffer.from(base64, 'base64');
+			if (image.length === 0) return fail(res, 400, 'slip_unreadable');
+			if (image.length > SLIP_MAX_BYTES) return fail(res, 413, 'slip_too_large');
+
+			const result = await activities.attachSlip(payment.id, {
+				image,
+				mime: mime.toLowerCase(),
+				ref: ref ? String(ref).slice(0, 200) : null,
+			});
+
+			const full = await activities.getActivity(activity.id);
+			res.json({
+				verdict: result.verdict,
+				activity: serializeActivity(full, req.actor, { periodId: payment.periodId || undefined }),
+			});
+		}
+		catch (error) {
+			if (error.code === 'slip_duplicate') return fail(res, 409, 'slip_duplicate');
+			if (error.message === 'slip_unreadable') return fail(res, 400, 'slip_unreadable');
+			next(error);
+		}
+	});
+
+	/**
+	 * Serve a slip back.
+	 *
+	 * This is somebody's bank document — it carries an account name and part of
+	 * an account number — so it is readable by exactly two people: the person
+	 * who sent it, and the person who is owed the money. Not the rest of the
+	 * roster, and not anyone holding the link.
+	 */
+	api.get('/a/:code/payments/:paymentId/slip', async (req, res, next) => {
+		try {
+			const activity = await activities.getActivityByCode(req.params.code);
+			if (!activity) return fail(res, 404, 'notFound');
+
+			const payment = activity.payments.find(p => p.id === req.params.paymentId);
+			if (!payment) return fail(res, 404, 'payment_not_found');
+
+			const me = access.matchParticipant(req.actor, activity.participants);
+			const isOwner = access.activityRole(req.actor, activity) === 'owner';
+			const isPayee = me && activity.payee && me.id === activity.payee.participantId;
+			if (!isOwner && !isPayee && payment.participantId !== me?.id) {
+				return fail(res, 403, 'not_your_slip');
+			}
+
+			const slip = await activities.getSlip(payment.id);
+			if (!slip) return fail(res, 404, 'no_slip');
+
+			res.setHeader('Content-Type', slip.mime);
+			res.setHeader('Cache-Control', 'private, no-store');
+			res.send(slip.image);
+		}
+		catch (error) {
+			next(error);
+		}
+	});
+
+	// Point the money at someone other than the owner — whoever actually
+	// fronted it is the one owed it.
+	api.post('/a/:code/payee', requireAccount, async (req, res, next) => {
+		try {
+			const activity = await ownerOnly(req, res);
+			if (!activity) return;
+
+			await activities.setPayee(activity.id, req.body?.participantId || null);
+			const full = await activities.getActivity(activity.id);
+			res.json({ activity: serializeActivity(full, req.actor) });
+		}
+		catch (error) {
+			if (error.message === 'participant_not_in_activity') return fail(res, 400, error.message);
 			next(error);
 		}
 	});
@@ -662,7 +934,9 @@ function router(deps = {}) {
 	api.use((err, req, res, next) => {
 		log('Megu', `${req.method} ${req.originalUrl} → ${err.message}`);
 		if (res.headersSent) return next(err);
-		res.status(400).json({ error: err.message || 'ทำรายการไม่สำเร็จ' });
+		// `code` is what the browser translates; `error` is the sentence it
+		// falls back to when the code is one it has no words for yet.
+		res.status(400).json({ error: err.message || 'failed', code: err.code || null });
 	});
 
 	return api;
