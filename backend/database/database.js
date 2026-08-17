@@ -92,12 +92,12 @@ async function initDatabase() {
 				);
 			`);
 			await client.query(`
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS guild_name VARCHAR(100);
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_type VARCHAR(50);
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action_type VARCHAR(50);
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS username VARCHAR(100);
-				ALTER TABLE audit_logs ALTER COLUMN action_type DROP NOT NULL;
-			`).catch(() => undefined);
+				CREATE TABLE IF NOT EXISTS developer_users (
+					user_id VARCHAR(30) PRIMARY KEY,
+					username VARCHAR(100),
+					added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+				);
+			`);
 			client.release();
 			BotLogs('Database', `${COLOR.green}PostgreSQL tables verified/created successfully.`);
 			cleanOldAuditLogs(7).catch(() => undefined);
@@ -748,6 +748,52 @@ async function getGlobalAuditLogs(limit = 100, filterType = null, guildSearch = 
 	return [];
 }
 
+async function getDeveloperUserIds() {
+	if (pool) {
+		try {
+			const res = await pool.query('SELECT user_id FROM developer_users');
+			return res.rows.map(r => String(r.user_id));
+		}
+		catch {
+			return [];
+		}
+	}
+	return [];
+}
+
+async function addDeveloperUser(userId, username = null) {
+	if (!isValidSnowflake(userId)) return false;
+	if (pool) {
+		try {
+			await pool.query(
+				'INSERT INTO developer_users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET username = COALESCE($2, developer_users.username)',
+				[String(userId), username]
+			);
+			return true;
+		}
+		catch (err) {
+			BotLogs('Database', `Error adding developer user: ${err.message}`);
+			return false;
+		}
+	}
+	return false;
+}
+
+async function removeDeveloperUser(userId) {
+	if (!isValidSnowflake(userId)) return false;
+	if (pool) {
+		try {
+			await pool.query('DELETE FROM developer_users WHERE user_id = $1', [String(userId)]);
+			return true;
+		}
+		catch (err) {
+			BotLogs('Database', `Error removing developer user: ${err.message}`);
+			return false;
+		}
+	}
+	return false;
+}
+
 module.exports = {
 	initDatabase,
 	get isPostgres() {
@@ -772,4 +818,7 @@ module.exports = {
 	getGuildAuditLogs,
 	getGlobalAuditLogs,
 	cleanOldAuditLogs,
+	getDeveloperUserIds,
+	addDeveloperUser,
+	removeDeveloperUser,
 };

@@ -1161,33 +1161,41 @@ app.get('/api/guilds/:guildId/audit-logs', requireAdminGuild, async (req, res) =
 	}
 });
 
-function isUserDeveloper(userId) {
+let dbDevIdsCache = [];
+let lastDbDevFetch = 0;
+
+async function isUserDeveloperAsync(userId) {
 	if (!userId) return false;
 	try {
-		const freshConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-		const devIds = [freshConfig.ownerId, ...(freshConfig.developerUserIds || [])]
-			.filter(Boolean)
-			.map(id => String(id));
-		if (devIds.length > 0) {
-			return devIds.includes(String(userId));
+		if (Date.now() - lastDbDevFetch > 5000 || dbDevIdsCache.length === 0) {
+			dbDevIdsCache = await database.getDeveloperUserIds();
+			lastDbDevFetch = Date.now();
 		}
+		return dbDevIdsCache.includes(String(userId));
 	}
-	catch {}
-	return true;
+	catch {
+		return false;
+	}
 }
 
-function requireDeveloper(req, res, next) {
+function isUserDeveloper(userId) {
+	if (!userId) return false;
+	return dbDevIdsCache.includes(String(userId));
+}
+
+async function requireDeveloper(req, res, next) {
 	if (!req.session || !req.session.user) {
 		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
 	}
-	if (!isUserDeveloper(req.session.user.id)) {
+	const isDev = await isUserDeveloperAsync(req.session.user.id);
+	if (!isDev) {
 		return res.status(403).json({ error: 'Forbidden: Developer access required.' });
 	}
 	next();
 }
 
-app.get('/api/developer/check', (req, res) => {
-	const isDev = req.session && req.session.user ? isUserDeveloper(req.session.user.id) : false;
+app.get('/api/developer/check', async (req, res) => {
+	const isDev = req.session && req.session.user ? await isUserDeveloperAsync(req.session.user.id) : false;
 	res.json({ success: true, isDeveloper: isDev });
 });
 
