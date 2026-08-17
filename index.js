@@ -51,7 +51,13 @@ function logMaster(host, msg) {
 
 function startWeb() {
 	logMaster('System', `${COLOR.cyan}Starting Express REST API process (Port ${EXPRESS_PORT})...`);
-	webProcess = fork(path.join(__dirname, 'backend', 'web', 'web.js'), [], { stdio: 'inherit' });
+	webProcess = fork(path.join(__dirname, 'backend', 'web', 'web.js'), [], {
+		stdio: 'inherit',
+		env: {
+			...process.env,
+			EXPRESS_PORT: String(EXPRESS_PORT),
+		},
+	});
 
 	webProcess.on('message', (message) => {
 		if (message.type === 'ping_bot') {
@@ -76,7 +82,13 @@ function startNext() {
 	logMaster('System', `${COLOR.cyan}Starting Next.js App Router Frontend server (Port ${NEXT_PORT})...`);
 	const nextBin = path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next');
 	const mode = process.env.NODE_ENV === 'production' ? 'start' : 'dev';
-	nextProcess = fork(nextBin, [mode, '-p', String(NEXT_PORT)], { stdio: ['inherit', 'pipe', 'pipe', 'ipc'] });
+	nextProcess = fork(nextBin, [mode, '-p', String(NEXT_PORT)], {
+		stdio: ['inherit', 'pipe', 'pipe', 'ipc'],
+		env: {
+			...process.env,
+			EXPRESS_PORT: String(EXPRESS_PORT),
+		},
+	});
 
 	nextProcess.stdout.on('data', (data) => {
 		const lines = data.toString().split('\n');
@@ -111,7 +123,13 @@ function startNext() {
 
 function startBot() {
 	logMaster('System', `${COLOR.cyan}Starting Discord Bot process...`);
-	botProcess = fork(path.join(__dirname, 'backend', 'bot', 'bot.js'), [], { stdio: 'inherit' });
+	botProcess = fork(path.join(__dirname, 'backend', 'bot', 'bot.js'), [], {
+		stdio: 'inherit',
+		env: {
+			...process.env,
+			EXPRESS_PORT: String(EXPRESS_PORT),
+		},
+	});
 
 	botProcess.on('message', (message) => {
 		if (message.target === 'web') {

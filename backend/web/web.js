@@ -1184,19 +1184,29 @@ function isUserDeveloper(userId) {
 }
 
 async function requireDeveloper(req, res, next) {
-	if (!req.session || !req.session.user) {
-		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+	try {
+		if (!req.session || !req.session.user) {
+			return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+		}
+		const isDev = await isUserDeveloperAsync(req.session.user.id);
+		if (!isDev) {
+			return res.status(403).json({ error: 'Forbidden: Developer access required.' });
+		}
+		next();
 	}
-	const isDev = await isUserDeveloperAsync(req.session.user.id);
-	if (!isDev) {
-		return res.status(403).json({ error: 'Forbidden: Developer access required.' });
+	catch (err) {
+		res.status(500).json({ error: 'Failed to verify developer status.' });
 	}
-	next();
 }
 
 app.get('/api/developer/check', async (req, res) => {
-	const isDev = req.session && req.session.user ? await isUserDeveloperAsync(req.session.user.id) : false;
-	res.json({ success: true, isDeveloper: isDev });
+	try {
+		const isDev = req.session && req.session.user ? await isUserDeveloperAsync(req.session.user.id) : false;
+		res.json({ success: true, isDeveloper: isDev });
+	}
+	catch {
+		res.json({ success: true, isDeveloper: false });
+	}
 });
 
 app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
@@ -1236,7 +1246,12 @@ app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
 });
 
 app.get('/api/developer/logs', requireDeveloper, (req, res) => {
-	res.json({ success: true, logs: getRecentLogs() });
+	try {
+		res.json({ success: true, logs: getRecentLogs() || [] });
+	}
+	catch (err) {
+		res.status(500).json({ success: false, logs: [] });
+	}
 });
 
 app.get('/api/developer/audio-queues', requireDeveloper, async (req, res) => {
@@ -1420,7 +1435,11 @@ core.initCoreSchema().catch((error) => {
 	BotLogs('Megu', `${COLOR.red}Core schema init failed: ${error.message}. Activity features will not work.`);
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
 	BotLogs('SYSTEM', `Express health check & dashboard server running on port ${PORT}`);
 });
+
+// Configure Keep-Alive timeouts to prevent ECONNRESET proxy race conditions with Next.js rewrites
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
