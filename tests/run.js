@@ -7,6 +7,7 @@ const path = require('node:path');
 const db = require('../core/db.js');
 
 const SUITES = [
+	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
 	// First against Postgres, because it rebuilds the schema into its pre-rename
 	// shape and migrates it forward — which is where the suites below start.

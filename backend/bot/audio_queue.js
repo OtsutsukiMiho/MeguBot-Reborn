@@ -47,6 +47,10 @@ class AudioQueueManager extends EventEmitter {
 		this.queues = new Map();
 		this.players = new Map();
 		this.lastAddedMap = new Map();
+		// Guilds with a clip in flight. processNext returns while the audio is
+		// still playing, so "am I busy" cannot be answered by whether it has
+		// returned; it is cleared by whichever path finishes the clip.
+		this.busy = new Set();
 	}
 
 	getQueue(guildId) {
@@ -59,14 +63,21 @@ class AudioQueueManager extends EventEmitter {
 	getPlayer(guildId) {
 		if (!this.players.has(guildId)) {
 			const player = createAudioPlayer();
-			player.on('stateChange', (oldState, newState) => {
-				if (newState.status === 'idle' && oldState.status !== 'idle') {
-					this.processNext(guildId);
-				}
-			});
+
+			// This used to also listen for stateChange reaching idle and call
+			// processNext from there, which is why every clip was heard twice.
+			// AudioPlayer emits stateChange *before* it emits the named status
+			// event, so that handler ran while the clip that had just finished
+			// was still sitting at queue[0] — it started the same one again, and
+			// only afterwards did the idle handler in processNext shift it off.
+			//
+			// Advancing the queue is now the job of exactly one place: the
+			// once('idle') handler processNext attaches for each clip.
 			player.on('error', error => {
+				// The player transitions to idle after an error, so that handler
+				// drops the clip and moves on. Doing it here as well would skip
+				// the clip behind it.
 				BotLogs('SYSTEM', `${COLOR.red}Audio player error in guild ${guildId}: ${error.message}`);
-				this.processNext(guildId);
 			});
 			this.players.set(guildId, player);
 		}
@@ -135,9 +146,27 @@ class AudioQueueManager extends EventEmitter {
 	async processNext(guildId) {
 		const queue = this.getQueue(guildId);
 		if (queue.length === 0) return;
+		// A second caller arriving while a clip is in flight would read the same
+		// queue[0] and play it again. Nothing should call in that way any more,
+		// but this is the invariant the double-speech bug broke, so state it.
+		if (this.busy.has(guildId)) return;
+		this.busy.add(guildId);
 
 		const currentItem = queue[0];
 		const player = this.getPlayer(guildId);
+
+		// Finishing a clip happens down one of two paths — it played out, or it
+		// threw on the way. Both land here, and only the first one counts.
+		let finished = false;
+		const advance = () => {
+			if (finished) return;
+			finished = true;
+			this.busy.delete(guildId);
+			queue.shift();
+			if (queue.length > 0) {
+				this.processNext(guildId);
+			}
+		};
 
 		try {
 			let audioPath = null;
@@ -178,18 +207,12 @@ class AudioQueueManager extends EventEmitter {
 					if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
 				}
 				catch {}
-				queue.shift();
-				if (queue.length > 0) {
-					this.processNext(guildId);
-				}
+				advance();
 			});
 		}
 		catch (error) {
 			BotLogs('TTS', `${COLOR.red}Failed to process TTS ${COLOR.gray}(${currentItem.guildName})${COLOR.red}: ${error.message}`);
-			queue.shift();
-			if (queue.length > 0) {
-				this.processNext(guildId);
-			}
+			advance();
 		}
 	}
 
@@ -197,6 +220,9 @@ class AudioQueueManager extends EventEmitter {
 		if (this.queues.has(guildId)) {
 			this.queues.set(guildId, []);
 		}
+		// Or the guild stays marked busy for a clip that will never finish, and
+		// nothing it queues afterwards ever plays.
+		this.busy.delete(guildId);
 		if (this.players.has(guildId)) {
 			const player = this.players.get(guildId);
 			player.stop();
@@ -226,6 +252,9 @@ function clearQueue(guildId) {
 }
 
 module.exports = {
+	// Exported for tests/audio-queue.test.js, which needs a manager of its own
+	// rather than the process-wide singleton.
+	AudioQueueManager,
 	audioQueueManager,
 	addToQueue,
 	clearQueue,
