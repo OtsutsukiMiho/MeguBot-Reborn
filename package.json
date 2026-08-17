@@ -20,7 +20,8 @@
     "db:reset": "docker compose down -v && docker compose up -d",
     "db:seed": "node scripts/seed-demo.js",
     "db:audit": "node scripts/db-audit.js",
-    "contrast": "node scripts/contrast-audit.js"
+    "contrast": "node scripts/contrast-audit.js",
+    "bot:instances": "node scripts/instance-audit.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",

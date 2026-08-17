@@ -1,5 +1,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
+
+// Two copies of the bot running on one token both receive every event and both
+// answer it, which in Discord reads as the bot replying twice. Neither process
+// can see its twin, so each one stamps who it is.
+//
+// The boot line below carries it, and so does every slash command — into
+// audit_logs, which lives in the shared database. That is the part that matters:
+// two instances deployed in different places have console logs nobody can put
+// side by side, but they write to the same table, so a duplicate shows up there
+// as two rows for one invocation with two different stamps.
+const INSTANCE = `${os.hostname()}#${process.pid}.${crypto.randomBytes(2).toString('hex')}`;
 
 if (fs.existsSync('.env')) {
 	require('dotenv').config();
@@ -88,6 +101,9 @@ function autoJoinActiveVC(guild) {
 
 client.once(Events.ClientReady, async (readyClient) => {
 	BotLogs('Bot', `${COLOR.green}Discord client connected -> ${COLOR.white}${readyClient.user.tag}`);
+	// If you see this line twice for one deploy, or once here and once in
+	// another host's log, that is the bot answering twice.
+	BotLogs('Bot', `${COLOR.green}Gateway instance ${COLOR.white}${INSTANCE}${COLOR.reset} — one token, one of these. Two means duplicate replies.`);
 
 	await database.initDatabase();
 
@@ -260,7 +276,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 					'COMMAND_EXEC',
 					interaction.user.id,
 					interaction.user.username,
-					`Executed /${interaction.commandName} ${optsStr}`.trim(),
+					`Executed /${interaction.commandName} ${optsStr}`.trim() + ` [${INSTANCE}]`,
 					interaction.guild.name
 				).catch(() => undefined);
 			}
