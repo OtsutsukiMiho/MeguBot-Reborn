@@ -31,8 +31,28 @@ const app = express();
 const PORT = process.env.EXPRESS_PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${process.env.NEXT_PORT || 3000}`;
 
+// Where Discord sends the user back to. It used to default to Express's own
+// port, which is wrong in every environment: the callback is reached through
+// the site, not through the internal API port. Deriving it from FRONTEND_URL
+// means the one variable that names the site names it here too, and setting
+// DISCORD_REDIRECT_URI is only needed when the callback genuinely lives
+// somewhere else.
+//
+// Whatever this resolves to must also be registered in the Discord Developer
+// Portal under OAuth2 → Redirects, or Discord rejects the request outright.
+const OAUTH_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || `${FRONTEND_URL}/api/auth/callback`;
+
 if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
-	BotLogs('SYSTEM', `${COLOR.red}FRONTEND_URL is not set. Anything that has to name the site from the outside — the OAuth return, the links in payment reminder DMs — will fall back to ${FRONTEND_URL}, which is not reachable from a browser.`);
+	BotLogs('SYSTEM', `${COLOR.red}FRONTEND_URL is not set. Everything that has to name the site from outside falls back to ${FRONTEND_URL}, which no browser can reach: the Discord login returns to ${OAUTH_REDIRECT_URI}, and payment reminder DMs go out with no link at all.`);
+}
+
+// A cloud host terminates TLS at its proxy and forwards plain HTTP, so without
+// this Express believes the connection is insecure. The session cookie below is
+// Secure in production, and a Secure cookie on a connection Express thinks is
+// plain HTTP is silently never sent — the user completes the Discord login and
+// lands back logged out, with nothing in the logs to say why.
+if (process.env.NODE_ENV === 'production') {
+	app.set('trust proxy', 1);
 }
 
 app.use(express.json({ strict: false }));
@@ -316,7 +336,7 @@ app.post('/api/ping', (req, res) => {
 
 app.get('/api/auth/login', (req, res) => {
 	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
-	const redirectUri = process.env.DISCORD_REDIRECT_URI || `http://localhost:${PORT}/api/auth/callback`;
+	const redirectUri = OAUTH_REDIRECT_URI;
 
 	if (!clientId) {
 		return res.status(500).send('Missing DISCORD_CLIENT_ID configuration.');
@@ -370,7 +390,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
 	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 	const clientSecret = process.env.DISCORD_CLIENT_SECRET || config.clientSecret || config.client_secret;
-	const redirectUri = process.env.DISCORD_REDIRECT_URI || `http://localhost:${PORT}/api/auth/callback`;
+	const redirectUri = OAUTH_REDIRECT_URI;
 
 	try {
 		const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {

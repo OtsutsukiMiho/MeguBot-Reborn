@@ -12,8 +12,12 @@ function clientSecret() {
 	return process.env.DISCORD_CLIENT_SECRET || '';
 }
 
+// The callback is reached through the site, so FRONTEND_URL names it. The port
+// argument is only the last resort, for a caller with no FRONTEND_URL set.
 function redirectUri(fallbackPort) {
-	return process.env.DISCORD_REDIRECT_URI || `http://localhost:${fallbackPort}/api/auth/callback`;
+	if (process.env.DISCORD_REDIRECT_URI) return process.env.DISCORD_REDIRECT_URI;
+	const site = process.env.FRONTEND_URL || `http://localhost:${fallbackPort}`;
+	return `${site}/api/auth/callback`;
 }
 
 /**
