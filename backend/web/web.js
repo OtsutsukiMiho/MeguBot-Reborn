@@ -42,8 +42,29 @@ const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${process.env
 // Portal under OAuth2 → Redirects, or Discord rejects the request outright.
 const OAUTH_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || `${FRONTEND_URL}/api/auth/callback`;
 
-if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
-	BotLogs('SYSTEM', `${COLOR.red}FRONTEND_URL is not set. Everything that has to name the site from outside falls back to ${FRONTEND_URL}, which no browser can reach: the Discord login returns to ${OAUTH_REDIRECT_URI}, and payment reminder DMs go out with no link at all.`);
+// Each of these fails silently and late. On a cloud host that means hearing
+// about it from a user rather than from a log, so say it once at boot instead.
+if (process.env.NODE_ENV === 'production') {
+	const missing = [];
+
+	if (!process.env.FRONTEND_URL) {
+		missing.push(`FRONTEND_URL — everything that has to name the site from outside falls back to ${FRONTEND_URL}, which no browser can reach. The Discord login would return to ${OAUTH_REDIRECT_URI}, and payment reminder DMs go out with no link at all.`);
+	}
+
+	// The client id falls back to config.json. The secret has no fallback
+	// anywhere, and an unset one is sent to Discord as the string "undefined",
+	// so signing in gets all the way to the callback and only then fails.
+	if (!process.env.DISCORD_CLIENT_SECRET && !config.clientSecret && !config.client_secret) {
+		missing.push('DISCORD_CLIENT_SECRET — unlike the client id this has no config.json fallback. Signing in will reach Discord, come back, and fail at the token exchange with invalid_client.');
+	}
+
+	if (!process.env.SESSION_SECRET) {
+		missing.push('SESSION_SECRET — a random one is generated per boot, so every restart signs everyone out, and two instances never share a session at all.');
+	}
+
+	for (const line of missing) {
+		BotLogs('SYSTEM', `${COLOR.red}Missing configuration: ${line}`);
+	}
 }
 
 // A cloud host terminates TLS at its proxy and forwards plain HTTP, so without
