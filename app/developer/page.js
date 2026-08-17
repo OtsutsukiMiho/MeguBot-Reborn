@@ -53,6 +53,25 @@ function getAuditBadgeStyle(eventType) {
 	}
 }
 
+function getAudioStatusBadgeStyle(status) {
+	switch (status) {
+	case 'PLAYING':
+		return { background: 'color-mix(in srgb, var(--gold) 15%, transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 40%, transparent)' };
+	case 'COMPLETED':
+		return { background: 'color-mix(in srgb, var(--settled) 15%, transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 40%, transparent)' };
+	case 'ENQUEUED':
+		return { background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)' };
+	case 'SKIPPED':
+		return { background: 'color-mix(in srgb, var(--cat-orange) 15%, transparent)', color: 'var(--cat-orange)', border: '1px solid color-mix(in srgb, var(--cat-orange) 40%, transparent)' };
+	case 'REMOVED':
+	case 'ERROR':
+		return { background: 'color-mix(in srgb, var(--due) 15%, transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 40%, transparent)' };
+	case 'CLEARED':
+	default:
+		return { background: 'color-mix(in srgb, var(--cat-neutral) 15%, transparent)', color: 'var(--muted)', border: '1px solid color-mix(in srgb, var(--cat-neutral) 40%, transparent)' };
+	}
+}
+
 const ALL_CATEGORIES = ['System', 'Bot', 'Web', 'TTS', 'AutoMod', 'Database'];
 
 const AUDIT_FILTER_OPTIONS = [
@@ -64,6 +83,17 @@ const AUDIT_FILTER_OPTIONS = [
 	{ value: 'AUTOMOD', label: 'Auto-Moderation' },
 	{ value: 'REACTION_ROLE', label: 'Reaction Roles' },
 	{ value: 'COMMAND_EXEC', label: 'Slash Commands' },
+];
+
+const AUDIO_STATUS_OPTIONS = [
+	{ value: 'ALL', label: 'All Audio Statuses' },
+	{ value: 'PLAYING', label: 'Currently Playing' },
+	{ value: 'COMPLETED', label: 'Completed Playback' },
+	{ value: 'ENQUEUED', label: 'Queued (Incoming)' },
+	{ value: 'SKIPPED', label: 'Force Skipped' },
+	{ value: 'REMOVED', label: 'Force Removed' },
+	{ value: 'ERROR', label: 'Playback Error' },
+	{ value: 'CLEARED', label: 'Queue Cleared' },
 ];
 
 const TTS_VOICE_OPTIONS = [
@@ -84,9 +114,18 @@ export default function DeveloperPage() {
 	const [stats, setStats] = useState(null);
 	const [logs, setLogs] = useState([]);
 	const [audioQueues, setAudioQueues] = useState([]);
+	const [audioLogs, setAudioLogs] = useState([]);
+	const [audioStatusFilter, setAudioStatusFilter] = useState('ALL');
+	const [audioSearch, setAudioSearch] = useState('');
+	const [audioPage, setAudioPage] = useState(1);
+	const audioPageSize = 10;
+
 	const [auditLogs, setAuditLogs] = useState([]);
 	const [auditSearch, setAuditSearch] = useState('');
 	const [auditFilter, setAuditFilter] = useState('ALL');
+	const [auditPage, setAuditPage] = useState(1);
+	const auditPageSize = 10;
+
 	const [activeCategories, setActiveCategories] = useState(ALL_CATEGORIES);
 	const [logFilter, setLogFilter] = useState('');
 	const [autoScroll, setAutoScroll] = useState(true);
@@ -104,6 +143,51 @@ export default function DeveloperPage() {
 	const [injectSender, setInjectSender] = useState('');
 
 	const logTerminalRef = useRef(null);
+
+	const connectedGuildOptions = useMemo(() => {
+		const list = [];
+		const seen = new Set();
+
+		(audioQueues || []).forEach(q => {
+			if (q.guildId && !seen.has(q.guildId)) {
+				seen.add(q.guildId);
+				list.push({
+					value: q.guildId,
+					label: q.guildName || `Server (${q.guildId})`,
+					subtitle: `Active Voice Player • ID: ${q.guildId}`,
+				});
+			}
+		});
+
+		(stats?.bot?.guilds || []).forEach(g => {
+			if (g.id && !seen.has(g.id)) {
+				seen.add(g.id);
+				list.push({
+					value: g.id,
+					label: g.name || `Server (${g.id})`,
+					subtitle: `ID: ${g.id}${g.memberCount ? ` • ${g.memberCount} members` : ''}`,
+				});
+			}
+		});
+
+		return list;
+	}, [stats, audioQueues]);
+
+	// Paginated Audio Logs
+	const totalAudioPages = Math.max(1, Math.ceil(audioLogs.length / audioPageSize));
+	const currentAudioPage = Math.min(audioPage, totalAudioPages);
+	const paginatedAudioLogs = useMemo(() => {
+		const start = (currentAudioPage - 1) * audioPageSize;
+		return audioLogs.slice(start, start + audioPageSize);
+	}, [audioLogs, currentAudioPage, audioPageSize]);
+
+	// Paginated Audit Logs
+	const totalAuditPages = Math.max(1, Math.ceil(auditLogs.length / auditPageSize));
+	const currentAuditPage = Math.min(auditPage, totalAuditPages);
+	const paginatedAuditLogs = useMemo(() => {
+		const start = (currentAuditPage - 1) * auditPageSize;
+		return auditLogs.slice(start, start + auditPageSize);
+	}, [auditLogs, currentAuditPage, auditPageSize]);
 
 	const showToast = (msg, isErr = false) => {
 		setToastMsg(msg);
@@ -164,50 +248,36 @@ export default function DeveloperPage() {
 		catch {}
 	};
 
+	const fetchAudioLogs = async () => {
+		try {
+			const res = await fetch(`/api/developer/audio-logs?limit=100&status=${audioStatusFilter}&search=${encodeURIComponent(audioSearch)}`);
+			if (res.ok) {
+				const data = await res.json();
+				if (data.success && Array.isArray(data.logs)) {
+					setAudioLogs(data.logs);
+				}
+			}
+		}
+		catch {}
+	};
+
 	useEffect(() => {
 		fetchDevData();
 		fetchAuditLogs();
+		fetchAudioLogs();
 		const interval = setInterval(() => {
 			fetchDevData();
 			fetchAuditLogs();
+			fetchAudioLogs();
 		}, 3000);
 		return () => clearInterval(interval);
-	}, [auditFilter, auditSearch]);
+	}, [auditFilter, auditSearch, audioStatusFilter, audioSearch]);
 
 	useEffect(() => {
 		if (autoScroll && logTerminalRef.current) {
 			logTerminalRef.current.scrollTop = logTerminalRef.current.scrollHeight;
 		}
 	}, [logs, autoScroll]);
-
-	const connectedGuildOptions = useMemo(() => {
-		const list = [];
-		const seen = new Set();
-
-		(audioQueues || []).forEach(q => {
-			if (q.guildId && !seen.has(q.guildId)) {
-				seen.add(q.guildId);
-				list.push({
-					value: q.guildId,
-					label: q.guildName || `Server (${q.guildId})`,
-					subtitle: `Active Voice Player • ID: ${q.guildId}`,
-				});
-			}
-		});
-
-		(stats?.bot?.guilds || []).forEach(g => {
-			if (g.id && !seen.has(g.id)) {
-				seen.add(g.id);
-				list.push({
-					value: g.id,
-					label: g.name || `Server (${g.id})`,
-					subtitle: `ID: ${g.id}${g.memberCount ? ` • ${g.memberCount} members` : ''}`,
-				});
-			}
-		});
-
-		return list;
-	}, [stats, audioQueues]);
 
 	const toggleCategory = (cat) => {
 		if (cat === 'ALL') {
@@ -240,6 +310,7 @@ export default function DeveloperPage() {
 			if (data.success) {
 				showToast(data.message || 'Action executed successfully!');
 				fetchDevData();
+				fetchAudioLogs();
 			}
 			else {
 				showToast(data.error || 'Action failed.', true);
@@ -265,6 +336,7 @@ export default function DeveloperPage() {
 			if (data.success) {
 				showToast(data.message || 'Track skipped successfully.');
 				fetchDevData();
+				fetchAudioLogs();
 			}
 			else {
 				showToast(data.error || 'Failed to skip track.', true);
@@ -286,6 +358,7 @@ export default function DeveloperPage() {
 			if (data.success) {
 				showToast(data.message || 'Item removed from queue.');
 				fetchDevData();
+				fetchAudioLogs();
 			}
 			else {
 				showToast(data.error || 'Failed to remove queue item.', true);
@@ -307,6 +380,7 @@ export default function DeveloperPage() {
 			if (data.success) {
 				showToast(data.message || 'Guild audio queue cleared.');
 				fetchDevData();
+				fetchAudioLogs();
 			}
 			else {
 				showToast(data.error || 'Failed to clear guild queue.', true);
@@ -333,7 +407,7 @@ export default function DeveloperPage() {
 					text: injectText.trim(),
 					userName: injectSender || 'Developer Console',
 					engine: injectEngine,
-					voice: injectVoice,
+					voice: injectEngine === 'EDGE_TTS' ? injectVoice : undefined,
 				}),
 			});
 			const data = await res.json();
@@ -342,6 +416,7 @@ export default function DeveloperPage() {
 				setShowInjectModal(false);
 				setInjectText('');
 				fetchDevData();
+				fetchAudioLogs();
 			}
 			else {
 				showToast(data.error || 'Failed to inject TTS.', true);
@@ -372,6 +447,32 @@ export default function DeveloperPage() {
 		}
 		catch {
 			showToast('Network error purging audit logs.', true);
+		}
+		finally {
+			setActionLoading(false);
+		}
+	};
+
+	const purgeAudioLogs = async () => {
+		if (!confirm('Are you sure you want to purge audio playback logs older than 7 days?')) return;
+		setActionLoading(true);
+		try {
+			const res = await fetch('/api/developer/audio-logs/purge', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ days: 7 }),
+			});
+			const data = await res.json();
+			if (data.success) {
+				showToast(data.message || 'Audio logs purged.');
+				fetchAudioLogs();
+			}
+			else {
+				showToast(data.error || 'Purge failed.', true);
+			}
+		}
+		catch {
+			showToast('Network error purging audio logs.', true);
 		}
 		finally {
 			setActionLoading(false);
@@ -432,7 +533,7 @@ export default function DeveloperPage() {
 							Developer Command Center
 						</h1>
 						<span style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', border: '1px solid var(--accent)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-							Developer Portal
+							SYSTEM ROOT
 						</span>
 					</div>
 					<p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
@@ -711,7 +812,10 @@ export default function DeveloperPage() {
 							Inject TTS
 						</button>
 						<button
-							onClick={fetchDevData}
+							onClick={() => {
+								fetchDevData();
+								fetchAudioLogs();
+							}}
 							className="btn btn-secondary btn-sm"
 						>
 							Refresh Queues
@@ -721,12 +825,12 @@ export default function DeveloperPage() {
 
 				{/* Active Queue Cards */}
 				{audioQueues.length === 0 ? (
-					<div style={{ background: 'var(--sunk)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+					<div style={{ background: 'var(--sunk)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '2rem', textAlign: 'center', color: 'var(--muted)', marginBottom: '1.5rem' }}>
 						<div style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>No Active Audio Queues</div>
 						<div style={{ fontSize: '0.85rem' }}>The bot voice player is currently idle. When members use TTS or audio features, active queues will appear here in real-time.</div>
 					</div>
 				) : (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem' }}>
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
 						{audioQueues.map((q) => {
 							const isPlaying = q.playerState === 'playing' || q.isBusy;
 							const current = q.currentItem;
@@ -887,6 +991,150 @@ export default function DeveloperPage() {
 						})}
 					</div>
 				)}
+
+				{/* 📜 Audio History & Playback Logs Stream */}
+				<div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
+					<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+						<div>
+							<h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
+								Audio Playback History &amp; Logs
+							</h4>
+							<p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+								Track past, ongoing, and queued voice playback clips across all servers (Auto-pruned after 7 days).
+							</p>
+						</div>
+
+						<div style={{ display: 'flex', gap: '0.5rem' }}>
+							<button
+								onClick={purgeAudioLogs}
+								disabled={actionLoading}
+								className="btn btn-secondary btn-sm"
+								style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
+							>
+								Purge Audio Logs
+							</button>
+							<button
+								onClick={fetchAudioLogs}
+								className="btn btn-secondary btn-sm"
+							>
+								Refresh Logs
+							</button>
+						</div>
+					</div>
+
+					{/* Audio Log Filters */}
+					<div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+						<div style={{ flex: 1, minWidth: '220px' }}>
+							<input
+								type="text"
+								placeholder="Search audio logs by server, speaker, or spoken text..."
+								value={audioSearch}
+								onChange={e => {
+									setAudioSearch(e.target.value);
+									setAudioPage(1);
+								}}
+								style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
+							/>
+						</div>
+
+						<div style={{ width: '220px' }}>
+							<CustomSelect
+								value={audioStatusFilter}
+								onChange={(val) => {
+									setAudioStatusFilter(val);
+									setAudioPage(1);
+								}}
+								options={AUDIO_STATUS_OPTIONS}
+								searchable={false}
+							/>
+						</div>
+					</div>
+
+					{/* Audio Logs Table */}
+					{audioLogs.length === 0 ? (
+						<div style={{ background: 'var(--sunk)', borderRadius: '10px', padding: '1.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+							No audio playback events found for the selected filter.
+						</div>
+					) : (
+						<div style={{ background: 'var(--sunk)', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+							<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+								<thead>
+									<tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border-color)', color: 'var(--muted)' }}>
+										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Timestamp</th>
+										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Server</th>
+										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Speaker</th>
+										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Status</th>
+										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Engine / Voice</th>
+										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Spoken Message</th>
+									</tr>
+								</thead>
+								<tbody>
+									{paginatedAudioLogs.map((log, idx) => {
+										const statusBadge = getAudioStatusBadgeStyle(log.status);
+										const timeStr = log.created_at ? new Date(log.created_at).toLocaleTimeString() : '';
+										return (
+											<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--line)' }}>
+												<td style={{ padding: '0.65rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+													{timeStr}
+												</td>
+												<td style={{ padding: '0.65rem 1rem', fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
+													{log.guild_name || log.guild_id}
+												</td>
+												<td style={{ padding: '0.65rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+													{log.user_name || 'System'}
+												</td>
+												<td style={{ padding: '0.65rem 1rem', whiteSpace: 'nowrap' }}>
+													<span style={{ ...statusBadge, padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
+														{log.status}
+													</span>
+												</td>
+												<td style={{ padding: '0.65rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
+													{log.engine === 'EDGE_TTS' ? `${log.voice?.split('-')?.[2]?.replace('Neural', '') || 'Neural'}` : 'Google Standard'}
+												</td>
+												<td style={{ padding: '0.65rem 1rem', color: 'var(--ink)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+													&ldquo;{log.text}&rdquo;
+													{log.error_message && (
+														<span style={{ color: 'var(--due)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+															({log.error_message})
+														</span>
+													)}
+												</td>
+											</tr>
+										);
+									})}
+								</tbody>
+							</table>
+
+							{/* Audio Logs Pagination Bar */}
+							<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 1rem', background: 'var(--surface)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
+								<div>
+									Showing {(currentAudioPage - 1) * audioPageSize + 1} - {Math.min(currentAudioPage * audioPageSize, audioLogs.length)} of {audioLogs.length} entries
+								</div>
+								<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+									<button
+										onClick={() => setAudioPage(p => Math.max(1, p - 1))}
+										disabled={currentAudioPage <= 1}
+										className="btn btn-secondary btn-sm"
+										style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+									>
+										Previous
+									</button>
+									<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
+										Page {currentAudioPage} of {totalAudioPages}
+									</span>
+									<button
+										onClick={() => setAudioPage(p => Math.min(totalAudioPages, p + 1))}
+										disabled={currentAudioPage >= totalAudioPages}
+										className="btn btn-secondary btn-sm"
+										style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+									>
+										Next
+									</button>
+								</div>
+							</div>
+						</div>
+					)}
+				</div>
 			</div>
 
 			{/* 3. Global Audit Stream Section */}
@@ -923,7 +1171,10 @@ export default function DeveloperPage() {
 							type="text"
 							placeholder="Search by Guild Name or Server ID..."
 							value={auditSearch}
-							onChange={e => setAuditSearch(e.target.value)}
+							onChange={e => {
+								setAuditSearch(e.target.value);
+								setAuditPage(1);
+							}}
 							style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
 						/>
 					</div>
@@ -931,7 +1182,10 @@ export default function DeveloperPage() {
 					<div style={{ width: '250px' }}>
 						<CustomSelect
 							value={auditFilter}
-							onChange={(val) => setAuditFilter(val)}
+							onChange={(val) => {
+								setAuditFilter(val);
+								setAuditPage(1);
+							}}
 							options={AUDIT_FILTER_OPTIONS}
 							placeholder="Filter event types..."
 							searchable={false}
@@ -957,7 +1211,7 @@ export default function DeveloperPage() {
 								</tr>
 							</thead>
 							<tbody>
-								{auditLogs.map((log, idx) => {
+								{paginatedAuditLogs.map((log, idx) => {
 									const evtType = log.event_type || log.action_type || 'GENERAL';
 									const badgeStyle = getAuditBadgeStyle(evtType);
 									const dateStr = log.created_at ? new Date(log.created_at).toLocaleString() : '';
@@ -985,6 +1239,34 @@ export default function DeveloperPage() {
 								})}
 							</tbody>
 						</table>
+
+						{/* Audit Logs Pagination Bar */}
+						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--sunk)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
+							<div>
+								Showing {(currentAuditPage - 1) * auditPageSize + 1} - {Math.min(currentAuditPage * auditPageSize, auditLogs.length)} of {auditLogs.length} entries
+							</div>
+							<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+								<button
+									onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+									disabled={currentAuditPage <= 1}
+									className="btn btn-secondary btn-sm"
+									style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+								>
+									Previous
+								</button>
+								<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
+									Page {currentAuditPage} of {totalAuditPages}
+								</span>
+								<button
+									onClick={() => setAuditPage(p => Math.min(totalAuditPages, p + 1))}
+									disabled={currentAuditPage >= totalAuditPages}
+									className="btn btn-secondary btn-sm"
+									style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+								>
+									Next
+								</button>
+							</div>
+						</div>
 					</div>
 				)}
 			</div>
@@ -1079,17 +1361,20 @@ export default function DeveloperPage() {
 								/>
 							</div>
 
-							<div>
-								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-									Voice Model
-								</label>
-								<CustomSelect
-									value={injectVoice}
-									onChange={(val) => setInjectVoice(val)}
-									options={TTS_VOICE_OPTIONS}
-									searchable={false}
-								/>
-							</div>
+							{/* Only show Voice Model dropdown if Microsoft Edge Neural Engine is selected */}
+							{injectEngine === 'EDGE_TTS' && (
+								<div>
+									<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
+										Voice Model
+									</label>
+									<CustomSelect
+										value={injectVoice}
+										onChange={(val) => setInjectVoice(val)}
+										options={TTS_VOICE_OPTIONS}
+										searchable={false}
+									/>
+								</div>
+							)}
 
 							<div>
 								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>

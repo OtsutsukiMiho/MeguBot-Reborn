@@ -105,24 +105,32 @@ class AudioQueueManager extends EventEmitter {
 
 	skipCurrent(guildId) {
 		const queue = this.getQueue(guildId);
+		if (queue.length === 0) return false;
 		const current = queue[0];
 		const guildName = current?.guildName || 'Discord Server';
 
+		QueueLog(guildName, `${COLOR.yellow}⏭️ Force Skipped current TTS clip: "${current ? current.text : 'Unknown'}"`);
+
 		if (this.players.has(guildId)) {
 			const player = this.players.get(guildId);
-			QueueLog(guildName, `${COLOR.yellow}⏭️ Force Skipped current TTS clip: "${current ? current.text : 'Unknown'}"`);
-			player.stop();
-			return true;
-		}
-		else if (queue.length > 0) {
-			this.busy.delete(guildId);
-			queue.shift();
-			if (queue.length > 0) {
-				this.processNext(guildId);
+			try {
+				player.stop();
 			}
-			return true;
+			catch {}
 		}
-		return false;
+
+		try {
+			const database = require('../database/database.js');
+			if (database?.updateAudioStatus) database.updateAudioStatus(current.id, 'SKIPPED').catch(() => undefined);
+		}
+		catch {}
+
+		this.busy.delete(guildId);
+		queue.shift();
+		if (queue.length > 0) {
+			this.processNext(guildId);
+		}
+		return true;
 	}
 
 	removeItem(guildId, itemId) {
@@ -136,6 +144,12 @@ class AudioQueueManager extends EventEmitter {
 		if (index === 0) {
 			return this.skipCurrent(guildId);
 		}
+
+		try {
+			const database = require('../database/database.js');
+			if (database?.updateAudioStatus) database.updateAudioStatus(targetItem.id, 'REMOVED').catch(() => undefined);
+		}
+		catch {}
 
 		queue.splice(index, 1);
 		QueueLog(guildName, `${COLOR.red}🗑️ Force Removed item #${index + 1} from queue: "${targetItem.text}"`);
@@ -195,6 +209,24 @@ class AudioQueueManager extends EventEmitter {
 		queue.push(item);
 		QueueLog(item.guildName, `📥 Added TTS to Queue [${finalOptions.userName || 'System'} (${finalOptions.engine || 'EDGE_TTS'}) - "${finalText}"] (Queue position: #${queue.length})`);
 
+		try {
+			const database = require('../database/database.js');
+			if (database?.logAudioEvent) {
+				database.logAudioEvent({
+					itemId: id,
+					guildId,
+					guildName: item.guildName,
+					userName: finalOptions.userName,
+					text: finalText,
+					engine: finalOptions.engine,
+					voice: finalOptions.voice,
+					lang: finalOptions.lang,
+					status: 'ENQUEUED',
+				}).catch(() => undefined);
+			}
+		}
+		catch {}
+
 		if (queue.length === 1) {
 			this.processNext(guildId);
 		}
@@ -211,9 +243,29 @@ class AudioQueueManager extends EventEmitter {
 		const player = this.getPlayer(guildId);
 
 		let finished = false;
-		const advance = () => {
+		let safetyTimer = null;
+		let audioPath = null;
+
+		const advance = (finalStatus = 'COMPLETED', errorMsg = null) => {
 			if (finished) return;
 			finished = true;
+			if (safetyTimer) {
+				clearTimeout(safetyTimer);
+				safetyTimer = null;
+			}
+			try {
+				if (audioPath && fs.existsSync(audioPath)) {
+					fs.unlinkSync(audioPath);
+				}
+			}
+			catch {}
+			try {
+				const database = require('../database/database.js');
+				if (database?.updateAudioStatus) {
+					database.updateAudioStatus(currentItem.id, finalStatus, errorMsg).catch(() => undefined);
+				}
+			}
+			catch {}
 			this.busy.delete(guildId);
 			queue.shift();
 			if (queue.length > 0) {
@@ -222,7 +274,6 @@ class AudioQueueManager extends EventEmitter {
 		};
 
 		try {
-			let audioPath = null;
 			const tempDir = path.join(__dirname, '../../temp');
 			if (!fs.existsSync(tempDir)) {
 				fs.mkdirSync(tempDir, { recursive: true });
@@ -254,21 +305,32 @@ class AudioQueueManager extends EventEmitter {
 			if (currentItem.connection) {
 				currentItem.connection.subscribe(player);
 			}
+
+			try {
+				const database = require('../database/database.js');
+				if (database?.updateAudioStatus) {
+					database.updateAudioStatus(currentItem.id, 'PLAYING').catch(() => undefined);
+				}
+			}
+			catch {}
+
 			player.play(resource);
 			QueueLog(currentItem.guildName, `▶️ Playing TTS: "${currentItem.text}" [${currentItem.options.userName || 'System'}]`);
 
-			// Clean up file after playback
+			// Safety timeout: calculate expected audio length + padding, max 30s
+			const estimatedMs = Math.min(Math.max(8000, (currentItem.text ? currentItem.text.length : 10) * 350), 30000);
+			safetyTimer = setTimeout(() => {
+				advance('COMPLETED');
+			}, estimatedMs);
+
+			// Clean up file after playback completes
 			player.once('idle', () => {
-				try {
-					if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-				}
-				catch {}
-				advance();
+				advance('COMPLETED');
 			});
 		}
 		catch (error) {
 			BotLogs('TTS', `${COLOR.red}Failed to process TTS ${COLOR.gray}(${currentItem.guildName})${COLOR.red}: ${error.message}`);
-			advance();
+			advance('ERROR', error.message);
 		}
 	}
 
@@ -276,6 +338,19 @@ class AudioQueueManager extends EventEmitter {
 		const queue = this.getQueue(guildId);
 		const guildName = queue[0]?.guildName || 'Discord Server';
 		const count = queue.length;
+
+		if (queue && queue.length > 0) {
+			try {
+				const database = require('../database/database.js');
+				if (database?.updateAudioStatus) {
+					for (const it of queue) {
+						database.updateAudioStatus(it.id, 'CLEARED').catch(() => undefined);
+					}
+				}
+			}
+			catch {}
+		}
+
 		if (this.queues.has(guildId)) {
 			this.queues.set(guildId, []);
 		}

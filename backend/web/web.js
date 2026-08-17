@@ -1312,6 +1312,30 @@ app.post('/api/developer/audio-queues/add', requireDeveloper, async (req, res) =
 	}
 });
 
+app.get('/api/developer/audio-logs', requireDeveloper, async (req, res) => {
+	const { limit, status, search, guildId } = req.query;
+	try {
+		const logs = await database.getAudioLogs({ limit, status, search, guildId });
+		res.json({ success: true, logs });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch audio logs.', logs: [] });
+	}
+});
+
+app.post('/api/developer/audio-logs/purge', requireDeveloper, async (req, res) => {
+	const { days } = req.body || {};
+	try {
+		const retentionDays = parseInt(days || 7, 10);
+		const count = await database.cleanOldAudioLogs(retentionDays);
+		BotLogs('Web', `Developer ${req.session.user.username} purged audio logs older than ${retentionDays} days (${count} deleted)`);
+		res.json({ success: true, message: `Purged ${count} audio log entries older than ${retentionDays} days!`, count });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to purge expired audio logs.' });
+	}
+});
+
 app.get('/api/developer/audit-logs', requireDeveloper, async (req, res) => {
 	const { limit, filter, search } = req.query;
 	try {
