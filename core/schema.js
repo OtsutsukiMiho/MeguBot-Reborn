@@ -90,6 +90,16 @@ const STATEMENTS = [
 		created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
 
+	// Where money sent to this person ends up. It is their own bank account,
+	// reached by PromptPay, and Megu never stands between the two ends of that
+	// transfer — she only knows the address to print on the QR.
+	//
+	// `promptpay_name` is shown beside the number so whoever is about to send
+	// ฿60 can check the name their banking app offers back matches the person
+	// they think they are paying.
+	'ALTER TABLE users ADD COLUMN IF NOT EXISTS promptpay_id TEXT;',
+	'ALTER TABLE users ADD COLUMN IF NOT EXISTS promptpay_name TEXT;',
+
 	`CREATE TABLE IF NOT EXISTS identities (
 		id            TEXT PRIMARY KEY,
 		user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -170,6 +180,16 @@ const STATEMENTS = [
 	'CREATE INDEX IF NOT EXISTS participants_user_idx ON participants (user_id);',
 	'CREATE INDEX IF NOT EXISTS participants_discord_idx ON participants (discord_uid);',
 
+	// Who the group pays. Usually the owner, but not always — whoever fronted
+	// the court fee is the one owed the money, and on a shared subscription it
+	// is whoever's card the bill lands on.
+	//
+	// This sits here rather than with the other `activities` columns because it
+	// points at `participants`, which does not exist yet when that table is
+	// created. Left up there it would fail on a fresh database and succeed on
+	// an existing one, which is the worst of both.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payee_participant_id TEXT REFERENCES participants(id) ON DELETE SET NULL;',
+
 	// The part nobody in a group chat wants to own: proposing times, chasing
 	// answers, and saying out loud which one wins. Megu holds the slots and
 	// the votes so no human has to be the one who decides.
@@ -230,6 +250,40 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS period_id TEXT REFERENCES periods(id) ON DELETE CASCADE;',
 	'CREATE INDEX IF NOT EXISTS payments_activity_idx ON payments (activity_id);',
 	'CREATE INDEX IF NOT EXISTS payments_participant_idx ON payments (participant_id);',
+
+	// What we asked for, and where we told them to send it.
+	//
+	// Both are copied onto the row rather than looked up later, because both
+	// can move: the owner changes their PromptPay number, or the expense is
+	// corrected from ฿4,000 to ฿400. A payment has to keep saying what it was
+	// at the time, or a settled month stops making sense the moment anything
+	// upstream of it is edited.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS expected_satang BIGINT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS promptpay_target TEXT;',
+
+	// The slip.
+	//
+	// It lives in the database rather than on a disk or a bucket because it is
+	// a handful of images per group per year, and because every alternative
+	// starts by making them reachable over HTTP — which is the one thing a
+	// document carrying someone's bank account name must not be. Reading one
+	// goes through a route that checks who is asking.
+	//
+	// `slip_ref` is the transaction reference read off the slip's own QR. It is
+	// the only part of a slip worth trusting as an identifier, and it is what
+	// makes sending the same slip twice a thing the database refuses rather
+	// than a thing somebody has to notice.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_image BYTEA;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_mime TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_ref TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_verdict TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_uploaded_at TIMESTAMPTZ;',
+
+	// Unique across every activity, not just within one: a slip reused from
+	// another group is exactly the case worth catching, and it is the only one
+	// a per-activity constraint would miss. Partial, because almost every
+	// payment has no slip at all and NULLs must not collide.
+	'CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_key ON payments (slip_ref) WHERE slip_ref IS NOT NULL;',
 
 	// Nagging without spamming: one row per reminder actually delivered, so
 	// the scheduler can hold off if Megu already spoke to this person today.

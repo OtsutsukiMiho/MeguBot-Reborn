@@ -76,6 +76,21 @@ if (process.env.NODE_ENV === 'production') {
 	app.set('trust proxy', 1);
 }
 
+// One route carries an image and every other route carries a form's worth of
+// fields, so the ceiling is raised for that route alone rather than globally.
+// A payment slip is a photo the browser has already shrunk; the rest of the
+// API has no business accepting megabytes.
+//
+// This has to sit above the general parser: body-parser marks a request as
+// read, so whichever one runs first is the one whose limit applies, and the
+// general one would reject a slip with a 413 before the router ever sees it.
+const slipBody = express.json({ limit: '4mb' });
+app.use((req, res, next) => (
+	req.method === 'POST' && req.path.startsWith('/api/megu/') && req.path.endsWith('/slip')
+		? slipBody(req, res, next)
+		: next()
+));
+
 app.use(express.json({ strict: false }));
 app.use(express.urlencoded({ extended: true }));
 

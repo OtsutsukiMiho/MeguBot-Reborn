@@ -9,6 +9,8 @@ const db = require('../core/db.js');
 const SUITES = [
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
+	['promptpay.test.js', 'the PromptPay payload — checksum, accounts, amounts'],
+	['copy.test.js', 'both languages — matching keys, calendars and timezone'],
 	// First against Postgres, because it rebuilds the schema into its pre-rename
 	// shape and migrates it forward — which is where the suites below start.
 	['rename.test.js', 'the megu_ rename, run against a database that already had data'],
@@ -17,6 +19,7 @@ const SUITES = [
 	['poll.test.js', 'the time poll — proposing, voting, and Megu deciding'],
 	['corrections.test.js', 'editing, deleting and undoing — the ledger must be correctable'],
 	['api.test.js', 'HTTP layer — roles, redaction, claim and payment flow'],
+	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
 
 if (!db.isLocal(db.connectionString())) {

@@ -1,5 +1,6 @@
 const { query, transaction } = require('./db.js');
 const { newId } = require('./ids.js');
+const { normaliseTarget } = require('./promptpay.js');
 
 const PROVIDERS = new Set(['discord', 'google', 'line']);
 
@@ -15,6 +16,8 @@ function rowToUser(row) {
 		id: row.id,
 		displayName: row.display_name,
 		avatarUrl: row.avatar_url,
+		promptpayId: row.promptpay_id || null,
+		promptpayName: row.promptpay_name || null,
 		createdAt: row.created_at,
 	};
 }
@@ -148,6 +151,39 @@ async function unlinkIdentity(userId, provider) {
 }
 
 /**
+ * Set, or clear, where this person wants to be paid.
+ *
+ * The number is normalised before it is stored, so `081-234-5678` and
+ * `+66 81 234 5678` cannot end up as two different-looking rows for the same
+ * account. It is validated here rather than at the edge because an unusable
+ * number does not fail loudly — it produces a QR that a banking app simply
+ * refuses, at the moment somebody is standing there trying to pay.
+ *
+ * Passing null removes it, which has to stay possible: this is a phone number,
+ * and someone who no longer wants it in the database is entitled to that.
+ */
+async function setPromptPay(userId, { promptpayId, promptpayName }) {
+	const clearing = promptpayId == null || String(promptpayId).trim() === '';
+
+	let stored = null;
+	if (!clearing) {
+		// Throws `promptpay_unrecognised` for anything that is not a mobile,
+		// national id or e-wallet — the caller turns that into a message.
+		normaliseTarget(promptpayId);
+		stored = String(promptpayId).replace(/\s+/g, ' ').trim();
+	}
+
+	const name = promptpayName == null ? null : String(promptpayName).trim() || null;
+
+	const res = await query(
+		'UPDATE users SET promptpay_id = $2, promptpay_name = $3 WHERE id = $1 RETURNING *',
+		[userId, stored, clearing ? null : name],
+	);
+	if (res.rows.length === 0) throw new Error('user_not_found');
+	return rowToUser(res.rows[0]);
+}
+
+/**
  * When someone who has only ever tapped a link finally signs in, adopt every
  * participant row the organizer already created for them. This is why the
  * history survives the moment an account appears.
@@ -176,5 +212,6 @@ module.exports = {
 	loginWithIdentity,
 	linkIdentity,
 	unlinkIdentity,
+	setPromptPay,
 	claimParticipants,
 };

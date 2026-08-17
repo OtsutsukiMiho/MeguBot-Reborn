@@ -2448,3 +2448,192 @@ textarea.form-control {
 		display: none;
 	}
 }
+
+/* ------------------------------------------------------------ paying */
+
+.pay-panel {
+	border-color: var(--line);
+}
+
+.pay-body {
+	display: flex;
+	flex-direction: column;
+	gap: .9rem;
+	padding-top: .8rem;
+}
+
+.pay-figure {
+	display: flex;
+	flex-direction: column;
+	gap: .15rem;
+}
+
+.pay-amount {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: clamp(2rem, 8vw, 2.6rem);
+	font-weight: 600;
+	letter-spacing: -.045em;
+	line-height: 1;
+	color: var(--ink);
+}
+
+.pay-to {
+	font-size: .95rem;
+	color: var(--muted);
+}
+
+/* The QR keeps its own ground in both themes.
+   A code inverted for dark mode is a code a good many Thai banking apps
+   quietly fail to read, and the person holding the phone has no way to tell
+   that the theme is why. So this one surface does not follow the page. */
+.pay-qr {
+	margin: 0;
+	align-self: center;
+	background: #FFFFFF;
+	padding: .75rem;
+	border-radius: var(--r);
+	border: 1px solid var(--line);
+	line-height: 0;
+}
+
+.pay-qr img {
+	display: block;
+	width: min(248px, 62vw);
+	height: auto;
+	image-rendering: pixelated;
+}
+
+.pay-hint {
+	margin: 0;
+	font-size: .86rem;
+	line-height: 1.5;
+	color: var(--muted);
+	text-align: center;
+}
+
+.pay-fallback {
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+	padding: .85rem;
+	background: var(--sunk);
+	border-radius: var(--r);
+}
+
+.pay-copy-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: .6rem;
+}
+
+.pay-number {
+	display: block;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 1.02rem;
+	letter-spacing: .01em;
+	color: var(--ink);
+}
+
+.pay-account {
+	display: block;
+	font-size: .82rem;
+	color: var(--faint);
+}
+
+.pay-flash {
+	color: var(--settled);
+}
+
+.pay-claimed,
+.slip-state {
+	display: flex;
+	flex-direction: column;
+	gap: .55rem;
+}
+
+.slip-review {
+	margin-top: .4rem;
+}
+
+.slip-figure {
+	margin: .5rem 0 0;
+	display: flex;
+	flex-direction: column;
+	gap: .35rem;
+}
+
+.slip-figure img {
+	max-width: min(320px, 100%);
+	height: auto;
+	border-radius: var(--r-sm);
+	border: 1px solid var(--line);
+}
+
+.row-pending .row-main {
+	display: flex;
+	flex-direction: column;
+}
+
+/* ------------------------------------------------- where the money lands */
+
+.pp-setup {
+	padding-bottom: 1rem;
+	margin-bottom: .3rem;
+	border-bottom: 1px solid var(--line);
+}
+
+.pp-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: .6rem;
+	padding-top: .5rem;
+}
+
+.pp-summary {
+	margin: .35rem 0 0;
+	font-size: .9rem;
+	color: var(--muted);
+}
+
+.pp-missing {
+	color: var(--due);
+}
+
+.pp-form {
+	display: flex;
+	flex-direction: column;
+	gap: .7rem;
+	margin-top: .6rem;
+}
+
+.pp-note {
+	display: block;
+	margin: .3rem 0 0;
+	font-size: .8rem;
+	line-height: 1.5;
+	color: var(--faint);
+}
+
+.pp-actions {
+	display: flex;
+	align-items: center;
+	gap: .8rem;
+}
+
+/* Fingers, on the one screen that moves money.
+   The shared button sizes are tuned for a desktop console; here every control
+   is pressed one-handed, on a phone, by someone who is mid-transfer. 44px is
+   the smallest target that gets hit reliably, and a mis-tap on this panel
+   costs more than a mis-tap anywhere else in the product. */
+.pay-panel .btn {
+	min-height: 44px;
+}
+
+.pay-panel .btn-sm {
+	min-height: 40px;
+	padding-inline: .9rem;
+}

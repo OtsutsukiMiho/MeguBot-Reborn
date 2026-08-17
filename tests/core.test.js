@@ -124,6 +124,16 @@ ok(`same seed gives the same line — "${line}"`);
 assert.throws(() => voice.say('nonexistentSituation', {}));
 ok('missing lines fail loudly instead of rendering undefined');
 
+// Asking for no language gets Thai, even though the website now defaults to
+// English. Callers that do not pass one are talking to Discord, and switching
+// those DMs to English is not a thing anyone asked for.
+// Thai letters only — the baht sign lives inside the Thai block, so `[ก-๙]`
+// would match ฿ and call every English sentence about money untranslated.
+const THAI_LETTERS = /[ก-ฺเ-๎]/;
+assert.ok(THAI_LETTERS.test(voice.say('allSettled', { title: 'ตีแบด' }, { seed: 'x' })));
+assert.ok(!THAI_LETTERS.test(voice.say('allSettled', { title: 'Badminton' }, { seed: 'x', lang: 'en' })));
+ok('she speaks Thai unless asked for English, and English when asked');
+
 console.log('\nsettlement');
 const settled = activities.settlement({
 	participants: [
