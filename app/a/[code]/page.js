@@ -432,6 +432,10 @@ export default function ActivityPage({ params }) {
 							</div>
 						</section>
 					)}
+
+					{isOwner && corrected.length > 0 && (
+						<PaymentHistory payments={corrected} code={code} nameOf={nameOf} lang={lang} />
+					)}
 				</div>
 
 				<aside className="stack-lg" style={{ paddingBottom: 0 }}>
@@ -838,6 +842,46 @@ function AddPerson({ busy, call }) {
 	);
 }
 
+function PaymentHistory({ payments, code, nameOf, lang }) {
+	const { t, fmt } = useCopy();
+
+	return (
+		<section className="panel">
+			<div className="panel-head">
+				<span className="panel-title">{t.pending.historyTitle}</span>
+				<span className="panel-count">{payments.length}</span>
+			</div>
+			<div>
+				{payments.map(p => (
+					<div key={p.id} className="row">
+						<div className="row-main">
+							<div className="row-name">{nameOf(p.participantId)}</div>
+							<div className="row-sub">
+								{p.status === 'rejected'
+									? t.pending.rejectedNotice(p.reversalReason || '—')
+									: t.pending.reversedNotice(p.reversalReason || '—')}
+							</div>
+							{p.transferAmountSatang !== p.amountSatang && (
+								<div className="row-sub">
+									{t.pending.allocatedFromTransfer(fmt.money(p.amountSatang), fmt.money(p.transferAmountSatang))}
+								</div>
+							)}
+						</div>
+						<span className="row-figure fig-due">{fmt.money(p.amountSatang)}</span>
+						{p.hasSlip && (
+							<span className="row-tools">
+								<a className="link-btn" href={`/api/megu/a/${code}/payments/${p.id}/slip?lang=${lang}`} target="_blank" rel="noreferrer">
+									{t.pay.viewSlip}
+								</a>
+							</span>
+						)}
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
 function ExpenseRow({ e, editing, participants, nameOf, busy, call, requestAction }) {
 	const { t, fmt } = useCopy();
 	const [label, setLabel] = useState(e.label);
@@ -871,42 +915,6 @@ function ExpenseRow({ e, editing, participants, nameOf, busy, call, requestActio
 								))}
 							</div>
 						</details>
-					)}
-
-					{isOwner && corrected.length > 0 && (
-						<section className="panel">
-							<div className="panel-head">
-								<span className="panel-title">{t.pending.historyTitle}</span>
-								<span className="panel-count">{corrected.length}</span>
-							</div>
-							<div>
-								{corrected.map(p => (
-									<div key={p.id} className="row">
-										<div className="row-main">
-											<div className="row-name">{nameOf(p.participantId)}</div>
-											<div className="row-sub">
-												{p.status === 'rejected'
-													? t.pending.rejectedNotice(p.reversalReason || '—')
-													: t.pending.reversedNotice(p.reversalReason || '—')}
-											</div>
-											{p.transferAmountSatang !== p.amountSatang && (
-												<div className="row-sub">
-													{t.pending.allocatedFromTransfer(fmt.money(p.amountSatang), fmt.money(p.transferAmountSatang))}
-												</div>
-											)}
-										</div>
-										<span className="row-figure fig-due">{fmt.money(p.amountSatang)}</span>
-										{p.hasSlip && (
-											<span className="row-tools">
-												<a className="link-btn" href={`/api/megu/a/${code}/payments/${p.id}/slip?lang=${lang}`} target="_blank" rel="noreferrer">
-													{t.pay.viewSlip}
-												</a>
-											</span>
-										)}
-									</div>
-								))}
-							</div>
-						</section>
 					)}
 				</div>
 				<span className="row-figure">{fmt.money(e.amountSatang)}</span>
