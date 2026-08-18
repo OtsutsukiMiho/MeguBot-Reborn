@@ -1258,6 +1258,110 @@ app.get('/api/guilds/:guildId/audit-logs', requireAdminGuild, async (req, res) =
 	}
 });
 
+// --- Guild-Specific Audio Queue & Playback Controls ---
+app.get('/api/guilds/:guildId/audio-queue', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'get_audio_queues' }, 3000);
+		const queues = ipcRes?.queues || [];
+		const guildQueue = queues.find(q => String(q.guildId) === String(guildId)) || {
+			guildId,
+			guildName: 'Discord Server',
+			playerState: 'idle',
+			isBusy: false,
+			queueLength: 0,
+			currentItem: null,
+			items: [],
+		};
+		res.json({ success: true, queue: guildQueue });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch guild audio queue.', queue: null });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/skip', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+		const ipcRes = await sendIpcRequest({ type: 'skip_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `User ${uName} force skipped audio in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Track skipped successfully!' : 'No track active to skip.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to skip audio track.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/remove', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	const { itemId } = req.body || {};
+	if (!itemId) return res.status(400).json({ success: false, error: 'Missing itemId parameter.' });
+	try {
+		const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+		const ipcRes = await sendIpcRequest({ type: 'remove_audio_queue_item', guildId, itemId }, 4000);
+		BotLogs('TTS', `User ${uName} force removed queue item ${itemId} in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Item removed successfully!' : 'Item not found.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to remove queue item.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/clear', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+		const ipcRes = await sendIpcRequest({ type: 'clear_guild_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `User ${uName} cleared audio queue for server ${guildId}`);
+		res.json({ success: true, message: 'Server audio queue cleared successfully!' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to clear guild audio queue.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/inject', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	const { text, sound, userName, engine, voice, lang, volume } = req.body || {};
+	if (!text && !sound) return res.status(400).json({ success: false, error: 'Missing text or sound parameter.' });
+	try {
+		const uName = userName || (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Dashboard Admin';
+		const ipcRes = await sendIpcRequest({
+			type: 'force_add_audio_queue',
+			guildId,
+			text: text || sound,
+			sound: sound || undefined,
+			userName: uName,
+			engine: sound ? 'AUDIO_MP3' : (engine || 'EDGE_TTS'),
+			voice: voice || 'th-TH-NiwatNeural',
+			lang: lang || 'th',
+			volume: typeof volume === 'number' ? volume : 0.5,
+		}, 5000);
+
+		if (ipcRes && ipcRes.success) {
+			BotLogs('TTS', `User ${uName} enqueued audio (${sound || text}) to server ${guildId}`);
+			return res.json({ success: true, message: 'Audio clip enqueued successfully!', id: ipcRes.id });
+		}
+		return res.status(400).json({ success: false, error: ipcRes?.error || 'Failed to enqueue audio.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to inject audio clip.' });
+	}
+});
+
+app.get('/api/guilds/:guildId/audio-logs', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	const { limit, status, search } = req.query;
+	try {
+		const logs = await database.getAudioLogs({ limit, status, search, guildId });
+		res.json({ success: true, logs });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch guild audio logs.', logs: [] });
+	}
+});
+
 let dbDevIdsCache = [];
 let lastDbDevFetch = 0;
 

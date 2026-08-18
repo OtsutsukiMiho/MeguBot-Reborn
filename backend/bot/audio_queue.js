@@ -109,7 +109,8 @@ class AudioQueueManager extends EventEmitter {
 		const current = queue[0];
 		const guildName = current?.guildName || 'Discord Server';
 
-		QueueLog(guildName, `${COLOR.yellow}⏭️ Force Skipped current TTS clip: "${current ? current.text : 'Unknown'}"`);
+		current.status = 'SKIPPED';
+		QueueLog(guildName, `${COLOR.yellow}⏭️ Force Skipped current audio clip: "${current ? current.text : 'Unknown'}"`);
 
 		if (this.players.has(guildId)) {
 			const player = this.players.get(guildId);
@@ -145,6 +146,7 @@ class AudioQueueManager extends EventEmitter {
 			return this.skipCurrent(guildId);
 		}
 
+		targetItem.status = 'REMOVED';
 		try {
 			const database = require('../database/database.js');
 			if (database?.updateAudioStatus) database.updateAudioStatus(targetItem.id, 'REMOVED').catch(() => undefined);
@@ -168,8 +170,11 @@ class AudioQueueManager extends EventEmitter {
 			finalConnection = entry.connection;
 			finalText = entry.name || entry.text || '';
 			finalOptions = {
-				userName: entry.sender ? entry.sender.username : (entry.userName || 'System'),
-				engine: entry.type === 'TTS' ? 'EDGE_TTS' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+				userName: entry.sender ? (entry.sender.username || entry.sender.tag) : (entry.userName || 'System'),
+				engine: entry.type === 'AUDIO_MP3' ? 'AUDIO_MP3' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+				type: entry.type || 'TTS',
+				file: entry.file || null,
+				volume: typeof entry.volume === 'number' ? entry.volume : 0.5,
 				lang: entry.lang || 'th',
 				voice: entry.voice || 'th-TH-NiwatNeural',
 			};
@@ -207,7 +212,8 @@ class AudioQueueManager extends EventEmitter {
 			connection: finalConnection,
 		};
 		queue.push(item);
-		QueueLog(item.guildName, `📥 Added TTS to Queue [${finalOptions.userName || 'System'} (${finalOptions.engine || 'EDGE_TTS'}) - "${finalText}"] (Queue position: #${queue.length})`);
+		const queueLabel = finalOptions.type === 'AUDIO_MP3' ? 'Audio MP3' : 'TTS';
+		QueueLog(item.guildName, `📥 Added ${queueLabel} to Queue [${finalOptions.userName || 'System'} (${finalOptions.engine || 'EDGE_TTS'}) - "${finalText}"] (Queue position: #${queue.length})`);
 
 		try {
 			const database = require('../database/database.js');
@@ -245,6 +251,7 @@ class AudioQueueManager extends EventEmitter {
 		let finished = false;
 		let safetyTimer = null;
 		let audioPath = null;
+		let isTempFile = false;
 
 		const advance = (finalStatus = 'COMPLETED', errorMsg = null) => {
 			if (finished) return;
@@ -253,16 +260,19 @@ class AudioQueueManager extends EventEmitter {
 				clearTimeout(safetyTimer);
 				safetyTimer = null;
 			}
-			try {
-				if (audioPath && fs.existsSync(audioPath)) {
-					fs.unlinkSync(audioPath);
+			if (isTempFile) {
+				try {
+					if (audioPath && fs.existsSync(audioPath)) {
+						fs.unlinkSync(audioPath);
+					}
 				}
+				catch {}
 			}
-			catch {}
+			const resolvedStatus = currentItem.status || finalStatus || 'COMPLETED';
 			try {
 				const database = require('../database/database.js');
 				if (database?.updateAudioStatus) {
-					database.updateAudioStatus(currentItem.id, finalStatus, errorMsg).catch(() => undefined);
+					database.updateAudioStatus(currentItem.id, resolvedStatus, errorMsg).catch(() => undefined);
 				}
 			}
 			catch {}
@@ -274,34 +284,47 @@ class AudioQueueManager extends EventEmitter {
 		};
 
 		try {
-			const tempDir = path.join(__dirname, '../../temp');
-			if (!fs.existsSync(tempDir)) {
-				fs.mkdirSync(tempDir, { recursive: true });
-			}
+			const isMp3 = currentItem.options?.type === 'AUDIO_MP3' || currentItem.options?.engine === 'AUDIO_MP3' || !!currentItem.options?.file;
 
-			const filename = `tts_${Date.now()}_${currentItem.id}.mp3`;
-			audioPath = path.join(tempDir, filename);
-
-			const engine = currentItem.options.engine || 'EDGE_TTS';
-			const lang = currentItem.options.lang || 'th';
-			const voice = currentItem.options.voice || 'th-TH-NiwatNeural';
-
-			if (engine === 'EDGE_TTS') {
-				const tts = getTtsInstance(voice);
-				await tts.ttsPromise(currentItem.text, audioPath);
+			if (isMp3 && currentItem.options?.file && fs.existsSync(currentItem.options.file)) {
+				audioPath = currentItem.options.file;
+				isTempFile = false;
 			}
 			else {
-				const url = getGoogleTtsUrl(currentItem.text, lang);
-				const response = await fetch(url, {
-					headers: {
-						'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-					},
-				});
-				const buffer = Buffer.from(await response.arrayBuffer());
-				fs.writeFileSync(audioPath, buffer);
+				const tempDir = path.join(__dirname, '../../temp');
+				if (!fs.existsSync(tempDir)) {
+					fs.mkdirSync(tempDir, { recursive: true });
+				}
+
+				const filename = `tts_${Date.now()}_${currentItem.id}.mp3`;
+				audioPath = path.join(tempDir, filename);
+				isTempFile = true;
+
+				const engine = currentItem.options.engine || 'EDGE_TTS';
+				const lang = currentItem.options.lang || 'th';
+				const voice = currentItem.options.voice || 'th-TH-NiwatNeural';
+
+				if (engine === 'EDGE_TTS') {
+					const tts = getTtsInstance(voice);
+					await tts.ttsPromise(currentItem.text, audioPath);
+				}
+				else {
+					const url = getGoogleTtsUrl(currentItem.text, lang);
+					const response = await fetch(url, {
+						headers: {
+							'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+						},
+					});
+					const buffer = Buffer.from(await response.arrayBuffer());
+					fs.writeFileSync(audioPath, buffer);
+				}
 			}
 
-			const resource = createAudioResource(audioPath);
+			const resource = createAudioResource(audioPath, { inlineVolume: true });
+			if (currentItem.options?.volume && resource.volume) {
+				resource.volume.setVolume(currentItem.options.volume);
+			}
+
 			if (currentItem.connection) {
 				currentItem.connection.subscribe(player);
 			}
@@ -315,10 +338,11 @@ class AudioQueueManager extends EventEmitter {
 			catch {}
 
 			player.play(resource);
-			QueueLog(currentItem.guildName, `▶️ Playing TTS: "${currentItem.text}" [${currentItem.options.userName || 'System'}]`);
+			const playLabel = isMp3 ? `🎵 Playing Audio MP3: "${currentItem.text}"` : `▶️ Playing TTS: "${currentItem.text}"`;
+			QueueLog(currentItem.guildName, `${playLabel} [${currentItem.options.userName || 'System'}]`);
 
-			// Safety timeout: calculate expected audio length + padding, max 30s
-			const estimatedMs = Math.min(Math.max(8000, (currentItem.text ? currentItem.text.length : 10) * 350), 30000);
+			// Safety timeout: 60s for MP3 sound, max 30s for TTS
+			const estimatedMs = isMp3 ? 60000 : Math.min(Math.max(8000, (currentItem.text ? currentItem.text.length : 10) * 350), 30000);
 			safetyTimer = setTimeout(() => {
 				advance('COMPLETED');
 			}, estimatedMs);
@@ -329,7 +353,7 @@ class AudioQueueManager extends EventEmitter {
 			});
 		}
 		catch (error) {
-			BotLogs('TTS', `${COLOR.red}Failed to process TTS ${COLOR.gray}(${currentItem.guildName})${COLOR.red}: ${error.message}`);
+			BotLogs('TTS', `${COLOR.red}Failed to process audio ${COLOR.gray}(${currentItem.guildName})${COLOR.red}: ${error.message}`);
 			advance('ERROR', error.message);
 		}
 	}
@@ -344,6 +368,7 @@ class AudioQueueManager extends EventEmitter {
 				const database = require('../database/database.js');
 				if (database?.updateAudioStatus) {
 					for (const it of queue) {
+						it.status = 'CLEARED';
 						database.updateAudioStatus(it.id, 'CLEARED').catch(() => undefined);
 					}
 				}
@@ -374,8 +399,11 @@ function addToQueue(guildId, guildName, connection, text, options = {}) {
 		const entry = guildName;
 		const gName = entry.guild ? (typeof entry.guild === 'string' ? entry.guild : entry.guild.name) : 'Discord Server';
 		const opt = {
-			userName: entry.sender ? entry.sender.username : (entry.userName || 'System'),
-			engine: entry.type === 'TTS' ? 'EDGE_TTS' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+			userName: entry.sender ? (entry.sender.username || entry.sender.tag) : (entry.userName || 'System'),
+			engine: entry.type === 'AUDIO_MP3' ? 'AUDIO_MP3' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+			type: entry.type || 'TTS',
+			file: entry.file || null,
+			volume: typeof entry.volume === 'number' ? entry.volume : 0.5,
 			lang: entry.lang || 'th',
 			voice: entry.voice || 'th-TH-NiwatNeural',
 		};

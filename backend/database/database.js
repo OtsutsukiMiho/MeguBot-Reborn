@@ -836,7 +836,8 @@ async function updateAudioStatus(itemId, status, errorMessage = null) {
 	if (pool) {
 		try {
 			await pool.query(
-				`UPDATE audio_logs SET status = $1, error_message = COALESCE($2, error_message), updated_at = CURRENT_TIMESTAMP WHERE item_id = $3`,
+				`UPDATE audio_logs SET status = $1, error_message = COALESCE($2, error_message), updated_at = CURRENT_TIMESTAMP
+				 WHERE item_id = $3 AND (status NOT IN ('SKIPPED', 'REMOVED', 'CLEARED') OR $1 IN ('SKIPPED', 'REMOVED', 'CLEARED'))`,
 				[status, errorMessage, itemId]
 			);
 		}

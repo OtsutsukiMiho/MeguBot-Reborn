@@ -2388,14 +2388,30 @@ process.on('message', async (msg) => {
 				return;
 			}
 
+			let isSound = false;
+			let soundFile = null;
+			if (msg.sound) {
+				const fs = require('fs');
+				const path = require('path');
+				const sPath = path.join(__dirname, '../../sounds', `${msg.sound}.mp3`);
+				if (fs.existsSync(sPath)) {
+					isSound = true;
+					soundFile = sPath;
+				}
+			}
+
 			const options = {
-				userName: msg.userName || 'Developer Console',
-				engine: msg.engine || 'EDGE_TTS',
+				userName: msg.userName || 'Dashboard Admin',
+				engine: isSound ? 'AUDIO_MP3' : (msg.engine || 'EDGE_TTS'),
+				type: isSound ? 'AUDIO_MP3' : 'TTS',
+				file: soundFile,
+				volume: typeof msg.volume === 'number' ? msg.volume : 0.5,
 				voice: msg.voice || 'th-TH-NiwatNeural',
 				lang: msg.lang || 'th',
 			};
 
-			const result = addToQueue(guild.id, guild.name, connection, msg.text, options);
+			const textOrName = isSound ? msg.sound : (msg.text || 'Sound Clip');
+			const result = addToQueue(guild.id, guild.name, connection, textOrName, options);
 			if (process.send) {
 				process.send({
 					target: 'web',

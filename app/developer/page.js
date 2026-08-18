@@ -53,25 +53,6 @@ function getAuditBadgeStyle(eventType) {
 	}
 }
 
-function getAudioStatusBadgeStyle(status) {
-	switch (status) {
-	case 'PLAYING':
-		return { background: 'color-mix(in srgb, var(--gold) 15%, transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 40%, transparent)' };
-	case 'COMPLETED':
-		return { background: 'color-mix(in srgb, var(--settled) 15%, transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 40%, transparent)' };
-	case 'ENQUEUED':
-		return { background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)' };
-	case 'SKIPPED':
-		return { background: 'color-mix(in srgb, var(--cat-orange) 15%, transparent)', color: 'var(--cat-orange)', border: '1px solid color-mix(in srgb, var(--cat-orange) 40%, transparent)' };
-	case 'REMOVED':
-	case 'ERROR':
-		return { background: 'color-mix(in srgb, var(--due) 15%, transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 40%, transparent)' };
-	case 'CLEARED':
-	default:
-		return { background: 'color-mix(in srgb, var(--cat-neutral) 15%, transparent)', color: 'var(--muted)', border: '1px solid color-mix(in srgb, var(--cat-neutral) 40%, transparent)' };
-	}
-}
-
 const ALL_CATEGORIES = ['System', 'Bot', 'Web', 'TTS', 'AutoMod', 'Database'];
 
 const AUDIT_FILTER_OPTIONS = [
@@ -85,40 +66,10 @@ const AUDIT_FILTER_OPTIONS = [
 	{ value: 'COMMAND_EXEC', label: 'Slash Commands' },
 ];
 
-const AUDIO_STATUS_OPTIONS = [
-	{ value: 'ALL', label: 'All Audio Statuses' },
-	{ value: 'PLAYING', label: 'Currently Playing' },
-	{ value: 'COMPLETED', label: 'Completed Playback' },
-	{ value: 'ENQUEUED', label: 'Queued (Incoming)' },
-	{ value: 'SKIPPED', label: 'Force Skipped' },
-	{ value: 'REMOVED', label: 'Force Removed' },
-	{ value: 'ERROR', label: 'Playback Error' },
-	{ value: 'CLEARED', label: 'Queue Cleared' },
-];
-
-const TTS_VOICE_OPTIONS = [
-	{ value: 'th-TH-NiwatNeural', label: 'Niwat (Male, Thai)', subtitle: 'Edge Neural Engine' },
-	{ value: 'th-TH-PremwadeeNeural', label: 'Premwadee (Female, Thai)', subtitle: 'Edge Neural Engine' },
-	{ value: 'en-US-GuyNeural', label: 'Guy (Male, English)', subtitle: 'Edge Neural Engine' },
-	{ value: 'en-US-JennyNeural', label: 'Jenny (Female, English)', subtitle: 'Edge Neural Engine' },
-	{ value: 'ja-JP-NanamiNeural', label: 'Nanami (Female, Japanese)', subtitle: 'Edge Neural Engine' },
-];
-
-const TTS_ENGINE_OPTIONS = [
-	{ value: 'EDGE_TTS', label: 'Microsoft Edge Neural TTS', subtitle: 'Ultra High Quality (Recommended)' },
-	{ value: 'GOOGLE_TTS', label: 'Google Standard TTS', subtitle: 'Fast Fallback Engine' },
-];
-
 export default function DeveloperPage() {
 	const [isDev, setIsDev] = useState(null);
 	const [stats, setStats] = useState(null);
 	const [logs, setLogs] = useState([]);
-	const [audioQueues, setAudioQueues] = useState([]);
-	const [audioLogs, setAudioLogs] = useState([]);
-	const [audioStatusFilter, setAudioStatusFilter] = useState('ALL');
-	const [audioSearch, setAudioSearch] = useState('');
-	const [audioPage, setAudioPage] = useState(1);
-	const audioPageSize = 10;
 
 	const [auditLogs, setAuditLogs] = useState([]);
 	const [auditSearch, setAuditSearch] = useState('');
@@ -134,52 +85,7 @@ export default function DeveloperPage() {
 	const [toastMsg, setToastMsg] = useState('');
 	const [toastError, setToastError] = useState(false);
 
-	// TTS Injection Modal State
-	const [showInjectModal, setShowInjectModal] = useState(false);
-	const [injectGuildId, setInjectGuildId] = useState('');
-	const [injectText, setInjectText] = useState('');
-	const [injectVoice, setInjectVoice] = useState('th-TH-NiwatNeural');
-	const [injectEngine, setInjectEngine] = useState('EDGE_TTS');
-	const [injectSender, setInjectSender] = useState('');
-
 	const logTerminalRef = useRef(null);
-
-	const connectedGuildOptions = useMemo(() => {
-		const list = [];
-		const seen = new Set();
-
-		(audioQueues || []).forEach(q => {
-			if (q.guildId && !seen.has(q.guildId)) {
-				seen.add(q.guildId);
-				list.push({
-					value: q.guildId,
-					label: q.guildName || `Server (${q.guildId})`,
-					subtitle: `Active Voice Player • ID: ${q.guildId}`,
-				});
-			}
-		});
-
-		(stats?.bot?.guilds || []).forEach(g => {
-			if (g.id && !seen.has(g.id)) {
-				seen.add(g.id);
-				list.push({
-					value: g.id,
-					label: g.name || `Server (${g.id})`,
-					subtitle: `ID: ${g.id}${g.memberCount ? ` • ${g.memberCount} members` : ''}`,
-				});
-			}
-		});
-
-		return list;
-	}, [stats, audioQueues]);
-
-	// Paginated Audio Logs
-	const totalAudioPages = Math.max(1, Math.ceil(audioLogs.length / audioPageSize));
-	const currentAudioPage = Math.min(audioPage, totalAudioPages);
-	const paginatedAudioLogs = useMemo(() => {
-		const start = (currentAudioPage - 1) * audioPageSize;
-		return audioLogs.slice(start, start + audioPageSize);
-	}, [audioLogs, currentAudioPage, audioPageSize]);
 
 	// Paginated Audit Logs
 	const totalAuditPages = Math.max(1, Math.ceil(auditLogs.length / auditPageSize));
@@ -205,10 +111,9 @@ export default function DeveloperPage() {
 			}
 			setIsDev(true);
 
-			const [statsRes, logsRes, queuesRes] = await Promise.all([
+			const [statsRes, logsRes] = await Promise.all([
 				fetch('/api/developer/stats'),
 				fetch('/api/developer/logs'),
-				fetch('/api/developer/audio-queues'),
 			]);
 
 			if (statsRes.ok) {
@@ -220,13 +125,6 @@ export default function DeveloperPage() {
 				const logsData = await logsRes.json();
 				if (logsData.success && Array.isArray(logsData.logs)) {
 					setLogs(logsData.logs);
-				}
-			}
-
-			if (queuesRes.ok) {
-				const queuesData = await queuesRes.json();
-				if (queuesData.success && Array.isArray(queuesData.queues)) {
-					setAudioQueues(queuesData.queues);
 				}
 			}
 		}
@@ -248,30 +146,15 @@ export default function DeveloperPage() {
 		catch {}
 	};
 
-	const fetchAudioLogs = async () => {
-		try {
-			const res = await fetch(`/api/developer/audio-logs?limit=100&status=${audioStatusFilter}&search=${encodeURIComponent(audioSearch)}`);
-			if (res.ok) {
-				const data = await res.json();
-				if (data.success && Array.isArray(data.logs)) {
-					setAudioLogs(data.logs);
-				}
-			}
-		}
-		catch {}
-	};
-
 	useEffect(() => {
 		fetchDevData();
 		fetchAuditLogs();
-		fetchAudioLogs();
 		const interval = setInterval(() => {
 			fetchDevData();
 			fetchAuditLogs();
-			fetchAudioLogs();
 		}, 3000);
 		return () => clearInterval(interval);
-	}, [auditFilter, auditSearch, audioStatusFilter, audioSearch]);
+	}, [auditFilter, auditSearch]);
 
 	useEffect(() => {
 		if (autoScroll && logTerminalRef.current) {
@@ -310,7 +193,6 @@ export default function DeveloperPage() {
 			if (data.success) {
 				showToast(data.message || 'Action executed successfully!');
 				fetchDevData();
-				fetchAudioLogs();
 			}
 			else {
 				showToast(data.error || 'Action failed.', true);
@@ -321,109 +203,6 @@ export default function DeveloperPage() {
 		}
 		finally {
 			setActionLoading(false);
-		}
-	};
-
-	// Audio Queue Control Handlers
-	const handleSkipQueue = async (guildId) => {
-		try {
-			const res = await fetch('/api/developer/audio-queues/skip', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ guildId }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast(data.message || 'Track skipped successfully.');
-				fetchDevData();
-				fetchAudioLogs();
-			}
-			else {
-				showToast(data.error || 'Failed to skip track.', true);
-			}
-		}
-		catch {
-			showToast('Network error while skipping track.', true);
-		}
-	};
-
-	const handleRemoveQueueItem = async (guildId, itemId) => {
-		try {
-			const res = await fetch('/api/developer/audio-queues/remove', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ guildId, itemId }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast(data.message || 'Item removed from queue.');
-				fetchDevData();
-				fetchAudioLogs();
-			}
-			else {
-				showToast(data.error || 'Failed to remove queue item.', true);
-			}
-		}
-		catch {
-			showToast('Network error while removing queue item.', true);
-		}
-	};
-
-	const handleClearGuildQueue = async (guildId) => {
-		try {
-			const res = await fetch('/api/developer/audio-queues/clear', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ guildId }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast(data.message || 'Guild audio queue cleared.');
-				fetchDevData();
-				fetchAudioLogs();
-			}
-			else {
-				showToast(data.error || 'Failed to clear guild queue.', true);
-			}
-		}
-		catch {
-			showToast('Network error while clearing queue.', true);
-		}
-	};
-
-	const handleForceInjectTts = async (e) => {
-		e.preventDefault();
-		if (!injectGuildId || !injectText.trim()) {
-			showToast('Please provide both Server ID and Text message.', true);
-			return;
-		}
-
-		try {
-			const res = await fetch('/api/developer/audio-queues/add', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					guildId: injectGuildId,
-					text: injectText.trim(),
-					userName: injectSender || 'Developer Console',
-					engine: injectEngine,
-					voice: injectEngine === 'EDGE_TTS' ? injectVoice : undefined,
-				}),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast('TTS clip injected into queue successfully.');
-				setShowInjectModal(false);
-				setInjectText('');
-				fetchDevData();
-				fetchAudioLogs();
-			}
-			else {
-				showToast(data.error || 'Failed to inject TTS.', true);
-			}
-		}
-		catch {
-			showToast('Network error injecting TTS.', true);
 		}
 	};
 
@@ -447,32 +226,6 @@ export default function DeveloperPage() {
 		}
 		catch {
 			showToast('Network error purging audit logs.', true);
-		}
-		finally {
-			setActionLoading(false);
-		}
-	};
-
-	const purgeAudioLogs = async () => {
-		if (!confirm('Are you sure you want to purge audio playback logs older than 7 days?')) return;
-		setActionLoading(true);
-		try {
-			const res = await fetch('/api/developer/audio-logs/purge', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ days: 7 }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast(data.message || 'Audio logs purged.');
-				fetchAudioLogs();
-			}
-			else {
-				showToast(data.error || 'Purge failed.', true);
-			}
-		}
-		catch {
-			showToast('Network error purging audio logs.', true);
 		}
 		finally {
 			setActionLoading(false);
@@ -786,357 +539,6 @@ export default function DeveloperPage() {
 				</div>
 			</div>
 
-			{/* 2. Live Audio Queue Monitor & Control Studio */}
-			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem', marginBottom: '2rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
-					<div>
-						<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-							<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
-								Live Audio Queues
-							</h3>
-							<span style={{ background: 'color-mix(in srgb, var(--gold) 15%, transparent)', color: 'var(--gold)', border: '1px solid var(--gold)', padding: '0.15rem 0.5rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800 }}>
-								LIVE STREAM
-							</span>
-						</div>
-						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-							Real-time monitor and controls for TTS & Voice playback across all Discord servers.
-						</p>
-					</div>
-
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-						<button
-							onClick={() => setShowInjectModal(true)}
-							className="btn btn-secondary btn-sm"
-							style={{ color: 'var(--gold)', borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)' }}
-						>
-							Inject TTS
-						</button>
-						<button
-							onClick={() => {
-								fetchDevData();
-								fetchAudioLogs();
-							}}
-							className="btn btn-secondary btn-sm"
-						>
-							Refresh Queues
-						</button>
-					</div>
-				</div>
-
-				{/* Active Queue Cards */}
-				{audioQueues.length === 0 ? (
-					<div style={{ background: 'var(--sunk)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '2rem', textAlign: 'center', color: 'var(--muted)', marginBottom: '1.5rem' }}>
-						<div style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>No Active Audio Queues</div>
-						<div style={{ fontSize: '0.85rem' }}>The bot voice player is currently idle. When members use TTS or audio features, active queues will appear here in real-time.</div>
-					</div>
-				) : (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
-						{audioQueues.map((q) => {
-							const isPlaying = q.playerState === 'playing' || q.isBusy;
-							const current = q.currentItem;
-
-							return (
-								<div
-									key={q.guildId}
-									style={{
-										background: 'var(--sunk)',
-										border: '1px solid var(--border-color)',
-										borderRadius: '14px',
-										padding: '1.25rem',
-										display: 'flex',
-										flexDirection: 'column',
-										gap: '1rem',
-									}}
-								>
-									{/* Guild Queue Header */}
-									<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-										<div>
-											<div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--ink)' }}>
-												{q.guildName}
-											</div>
-											<div style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'monospace' }}>
-												ID: {q.guildId}
-											</div>
-										</div>
-
-										<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-											<span
-												style={{
-													padding: '0.2rem 0.6rem',
-													borderRadius: '6px',
-													fontSize: '0.75rem',
-													fontWeight: 700,
-													background: isPlaying ? 'color-mix(in srgb, var(--settled) 15%, transparent)' : 'color-mix(in srgb, var(--muted) 15%, transparent)',
-													color: isPlaying ? 'var(--settled)' : 'var(--muted)',
-													border: `1px solid ${isPlaying ? 'var(--settled)' : 'var(--border-color)'}`,
-												}}
-											>
-												{isPlaying ? 'Playing' : 'Idle'}
-											</span>
-											<button
-												onClick={() => {
-													setInjectGuildId(q.guildId);
-													setShowInjectModal(true);
-												}}
-												className="btn btn-ghost btn-sm"
-												style={{ color: 'var(--gold)', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-												title="Inject TTS into this server"
-											>
-												Inject TTS
-											</button>
-											<button
-												onClick={() => handleClearGuildQueue(q.guildId)}
-												className="btn btn-ghost btn-sm"
-												style={{ color: 'var(--due)', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-												title="Clear this server queue"
-											>
-												Clear
-											</button>
-										</div>
-									</div>
-
-									{/* Now Playing Banner */}
-									{current && (
-										<div
-											style={{
-												background: 'color-mix(in srgb, var(--gold) 8%, transparent)',
-												border: '1px solid color-mix(in srgb, var(--gold) 35%, transparent)',
-												borderRadius: '10px',
-												padding: '0.85rem 1rem',
-											}}
-										>
-											<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-												<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-													<span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase' }}>
-														Now Playing
-													</span>
-													<span style={{ background: 'var(--surface)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem', color: 'var(--muted)' }}>
-														{current.engine}
-													</span>
-												</div>
-												<button
-													onClick={() => handleSkipQueue(q.guildId)}
-													className="btn btn-secondary btn-sm"
-													style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', color: 'var(--gold)', borderColor: 'var(--gold)' }}
-												>
-													Force Skip
-												</button>
-											</div>
-
-											<div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.3rem', wordBreak: 'break-word' }}>
-												&ldquo;{current.text}&rdquo;
-											</div>
-
-											<div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-												Speaker: <strong style={{ color: 'var(--accent)' }}>{current.userName}</strong> • Voice: {current.voice}
-											</div>
-										</div>
-									)}
-
-									{/* Upcoming Queue List */}
-									<div>
-										<div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-											Up Next ({q.items?.length || 0} queued)
-										</div>
-
-										{(!q.items || q.items.length === 0) ? (
-											<div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-												No further clips in queue.
-											</div>
-										) : (
-											<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
-												{q.items.map((item, idx) => (
-													<div
-														key={item.id || idx}
-														style={{
-															background: 'var(--surface)',
-															border: '1px solid var(--border-color)',
-															borderRadius: '8px',
-															padding: '0.5rem 0.75rem',
-															display: 'flex',
-															alignItems: 'center',
-															justifyContent: 'space-between',
-															gap: '0.5rem',
-														}}
-													>
-														<div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', minWidth: 0 }}>
-															<span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent)', flexShrink: 0 }}>
-																#{idx + 1}
-															</span>
-															<div style={{ minWidth: 0 }}>
-																<div style={{ fontSize: '0.85rem', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-																	{item.text}
-																</div>
-																<div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
-																	by {item.userName} ({item.engine})
-																</div>
-															</div>
-														</div>
-
-														<button
-															onClick={() => handleRemoveQueueItem(q.guildId, item.id)}
-															className="btn btn-ghost btn-sm"
-															style={{ color: 'var(--due)', padding: '0.2rem 0.4rem', flexShrink: 0, fontSize: '0.75rem' }}
-															title="Remove from queue"
-														>
-															Remove
-														</button>
-													</div>
-												))}
-											</div>
-										)}
-									</div>
-								</div>
-							);
-						})}
-					</div>
-				)}
-
-				{/* 📜 Audio History & Playback Logs Stream */}
-				<div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
-					<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-						<div>
-							<h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
-								Audio Playback History &amp; Logs
-							</h4>
-							<p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-								Track past, ongoing, and queued voice playback clips across all servers (Auto-pruned after 7 days).
-							</p>
-						</div>
-
-						<div style={{ display: 'flex', gap: '0.5rem' }}>
-							<button
-								onClick={purgeAudioLogs}
-								disabled={actionLoading}
-								className="btn btn-secondary btn-sm"
-								style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
-							>
-								Purge Audio Logs
-							</button>
-							<button
-								onClick={fetchAudioLogs}
-								className="btn btn-secondary btn-sm"
-							>
-								Refresh Logs
-							</button>
-						</div>
-					</div>
-
-					{/* Audio Log Filters */}
-					<div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-						<div style={{ flex: 1, minWidth: '220px' }}>
-							<input
-								type="text"
-								placeholder="Search audio logs by server, speaker, or spoken text..."
-								value={audioSearch}
-								onChange={e => {
-									setAudioSearch(e.target.value);
-									setAudioPage(1);
-								}}
-								style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
-							/>
-						</div>
-
-						<div style={{ width: '220px' }}>
-							<CustomSelect
-								value={audioStatusFilter}
-								onChange={(val) => {
-									setAudioStatusFilter(val);
-									setAudioPage(1);
-								}}
-								options={AUDIO_STATUS_OPTIONS}
-								searchable={false}
-							/>
-						</div>
-					</div>
-
-					{/* Audio Logs Table */}
-					{audioLogs.length === 0 ? (
-						<div style={{ background: 'var(--sunk)', borderRadius: '10px', padding: '1.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
-							No audio playback events found for the selected filter.
-						</div>
-					) : (
-						<div style={{ background: 'var(--sunk)', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-							<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-								<thead>
-									<tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border-color)', color: 'var(--muted)' }}>
-										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Timestamp</th>
-										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Server</th>
-										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Speaker</th>
-										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Status</th>
-										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Engine / Voice</th>
-										<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Spoken Message</th>
-									</tr>
-								</thead>
-								<tbody>
-									{paginatedAudioLogs.map((log, idx) => {
-										const statusBadge = getAudioStatusBadgeStyle(log.status);
-										const timeStr = log.created_at ? new Date(log.created_at).toLocaleTimeString() : '';
-										return (
-											<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--line)' }}>
-												<td style={{ padding: '0.65rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-													{timeStr}
-												</td>
-												<td style={{ padding: '0.65rem 1rem', fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
-													{log.guild_name || log.guild_id}
-												</td>
-												<td style={{ padding: '0.65rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-													{log.user_name || 'System'}
-												</td>
-												<td style={{ padding: '0.65rem 1rem', whiteSpace: 'nowrap' }}>
-													<span style={{ ...statusBadge, padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
-														{log.status}
-													</span>
-												</td>
-												<td style={{ padding: '0.65rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
-													{log.engine === 'EDGE_TTS' ? `${log.voice?.split('-')?.[2]?.replace('Neural', '') || 'Neural'}` : 'Google Standard'}
-												</td>
-												<td style={{ padding: '0.65rem 1rem', color: 'var(--ink)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-													&ldquo;{log.text}&rdquo;
-													{log.error_message && (
-														<span style={{ color: 'var(--due)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
-															({log.error_message})
-														</span>
-													)}
-												</td>
-											</tr>
-										);
-									})}
-								</tbody>
-							</table>
-
-							{/* Audio Logs Pagination Bar */}
-							<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 1rem', background: 'var(--surface)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
-								<div>
-									Showing {(currentAudioPage - 1) * audioPageSize + 1} - {Math.min(currentAudioPage * audioPageSize, audioLogs.length)} of {audioLogs.length} entries
-								</div>
-								<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-									<button
-										onClick={() => setAudioPage(p => Math.max(1, p - 1))}
-										disabled={currentAudioPage <= 1}
-										className="btn btn-secondary btn-sm"
-										style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
-									>
-										Previous
-									</button>
-									<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
-										Page {currentAudioPage} of {totalAudioPages}
-									</span>
-									<button
-										onClick={() => setAudioPage(p => Math.min(totalAudioPages, p + 1))}
-										disabled={currentAudioPage >= totalAudioPages}
-										className="btn btn-secondary btn-sm"
-										style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
-									>
-										Next
-									</button>
-								</div>
-							</div>
-						</div>
-					)}
-				</div>
-			</div>
-
 			{/* 3. Global Audit Stream Section */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -1270,144 +672,6 @@ export default function DeveloperPage() {
 					</div>
 				)}
 			</div>
-
-			{/* Force TTS Inject Modal */}
-			{showInjectModal && (
-				<div
-					style={{
-						position: 'fixed',
-						inset: 0,
-						background: 'rgba(0, 0, 0, 0.75)',
-						display: 'flex',
-						alignItems: 'center',
-						justifyContent: 'center',
-						zIndex: 9999,
-						padding: '1rem',
-					}}
-				>
-					<div
-						style={{
-							background: 'var(--surface)',
-							border: '1px solid var(--border-color)',
-							borderRadius: '16px',
-							padding: '1.75rem',
-							width: '100%',
-							maxWidth: '480px',
-						}}
-					>
-						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-							<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
-								Inject TTS Clip
-							</h3>
-							<button
-								onClick={() => setShowInjectModal(false)}
-								className="btn btn-ghost btn-sm"
-								style={{ color: 'var(--muted)' }}
-							>
-								✕
-							</button>
-						</div>
-
-						<form onSubmit={handleForceInjectTts} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-							<div>
-								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-									Target Server (Guild ID)
-								</label>
-								<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-									<CustomSelect
-										value={injectGuildId}
-										onChange={(val) => setInjectGuildId(val)}
-										options={[
-											{ value: '', label: 'Select Connected Server (or type ID below)...', subtitle: 'Choose from bot connected servers' },
-											...connectedGuildOptions,
-										]}
-										placeholder="Select Connected Server..."
-										searchable={true}
-									/>
-									<input
-										type="text"
-										placeholder="Or enter / paste Guild ID manually (e.g. 123456789012345678)"
-										value={injectGuildId}
-										onChange={e => setInjectGuildId(e.target.value)}
-										required
-										style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none', fontFamily: 'monospace' }}
-									/>
-								</div>
-							</div>
-
-							<div>
-								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-									Spoken Text Message
-								</label>
-								<textarea
-									rows={3}
-									placeholder="Type text message to be spoken in voice channel..."
-									value={injectText}
-									onChange={e => setInjectText(e.target.value)}
-									required
-									style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none', resize: 'vertical' }}
-								/>
-							</div>
-
-							<div>
-								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-									TTS Engine
-								</label>
-								<CustomSelect
-									value={injectEngine}
-									onChange={(val) => setInjectEngine(val)}
-									options={TTS_ENGINE_OPTIONS}
-									searchable={false}
-								/>
-							</div>
-
-							{/* Only show Voice Model dropdown if Microsoft Edge Neural Engine is selected */}
-							{injectEngine === 'EDGE_TTS' && (
-								<div>
-									<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-										Voice Model
-									</label>
-									<CustomSelect
-										value={injectVoice}
-										onChange={(val) => setInjectVoice(val)}
-										options={TTS_VOICE_OPTIONS}
-										searchable={false}
-									/>
-								</div>
-							)}
-
-							<div>
-								<label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-									Sender Display Name (Optional)
-								</label>
-								<input
-									type="text"
-									placeholder="Developer Console"
-									value={injectSender}
-									onChange={e => setInjectSender(e.target.value)}
-									style={{ width: '100%', background: 'var(--sunk)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
-								/>
-							</div>
-
-							<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-								<button
-									type="button"
-									onClick={() => setShowInjectModal(false)}
-									className="btn btn-secondary btn-sm"
-								>
-									Cancel
-								</button>
-								<button
-									type="submit"
-									className="btn btn-primary btn-sm"
-								>
-									Enqueue TTS
-								</button>
-							</div>
-						</form>
-					</div>
-				</div>
-			)}
 		</div>
 	);
 }
