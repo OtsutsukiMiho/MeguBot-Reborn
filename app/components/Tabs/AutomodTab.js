@@ -1,5 +1,7 @@
 'use client';
 
+import CustomSelect from '../CustomSelect.js';
+
 export default function AutomodTab({ automod, onChange }) {
 	const badwordsText = Array.isArray(automod.badwords_list)
 		? automod.badwords_list.join(', ')
@@ -16,16 +18,17 @@ export default function AutomodTab({ automod, onChange }) {
 
 			<div className="form-group">
 				<label className="form-label">Violation Punishment Action</label>
-				<select
-					className="form-control"
+				<CustomSelect
 					value={automod.action || 'delete'}
-					onChange={e => onChange('action', e.target.value)}
-				>
-					<option value="delete">Delete Message Only</option>
-					<option value="warn">Delete & Warn User</option>
-					<option value="kick">Kick User</option>
-					<option value="ban">Ban User</option>
-				</select>
+					onChange={(val) => onChange('action', val)}
+					options={[
+						{ value: 'delete', label: 'Delete Message Only', icon: '🗑️', subtitle: 'Removes offensive messages immediately' },
+						{ value: 'warn', label: 'Delete & Warn User', icon: '⚠️', subtitle: 'Deletes and sends an ephemeral warning' },
+						{ value: 'kick', label: 'Kick User', icon: '👢', subtitle: 'Kicks violator from the server' },
+						{ value: 'ban', label: 'Ban User', icon: '🔨', subtitle: 'Permanently bans violator' },
+					]}
+					searchable={false}
+				/>
 			</div>
 
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>

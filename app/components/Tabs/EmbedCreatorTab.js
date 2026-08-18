@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import CustomSelect from '../CustomSelect.js';
 
 export default function EmbedCreatorTab({ currentGuildId, activeGuilds, channels, showToast }) {
 	const [targetGuildId, setTargetGuildId] = useState(currentGuildId);
@@ -54,6 +55,19 @@ export default function EmbedCreatorTab({ currentGuildId, activeGuilds, channels
 		}
 	};
 
+	const guildOptions = (activeGuilds || []).map(g => ({
+		value: g.id,
+		label: g.name,
+		icon: '🌐',
+	}));
+
+	const channelOptions = (channels || []).map(c => ({
+		value: c.id,
+		label: `# ${c.name}`,
+		icon: '💬',
+		subtitle: c.parentName || undefined,
+	}));
+
 	return (
 		<div>
 			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
@@ -68,29 +82,24 @@ export default function EmbedCreatorTab({ currentGuildId, activeGuilds, channels
 				<div>
 					<div className="form-group">
 						<label className="form-label">Target Server</label>
-						<select
-							className="form-control"
+						<CustomSelect
 							value={targetGuildId}
-							onChange={e => setTargetGuildId(e.target.value)}
-						>
-							{activeGuilds.map(g => (
-								<option key={g.id} value={g.id}>{g.name}</option>
-							))}
-						</select>
+							onChange={(val) => setTargetGuildId(val)}
+							options={guildOptions}
+							placeholder="Select Server..."
+							searchable={guildOptions.length > 5}
+						/>
 					</div>
 
 					<div className="form-group">
 						<label className="form-label">Target Text Channel</label>
-						<select
-							className="form-control"
+						<CustomSelect
 							value={targetChannelId}
-							onChange={e => setTargetChannelId(e.target.value)}
-						>
-							<option value="">Select Channel...</option>
-							{channels.map(c => (
-								<option key={c.id} value={c.id}># {c.name}</option>
-							))}
-						</select>
+							onChange={(val) => setTargetChannelId(val)}
+							options={channelOptions}
+							placeholder="Select Text Channel..."
+							searchable={true}
+						/>
 					</div>
 
 					<div className="form-group">

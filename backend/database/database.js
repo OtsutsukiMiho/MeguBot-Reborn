@@ -92,15 +92,36 @@ async function initDatabase() {
 				);
 			`);
 			await client.query(`
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS guild_name VARCHAR(100);
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_type VARCHAR(50);
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action_type VARCHAR(50);
-				ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS username VARCHAR(100);
-				ALTER TABLE audit_logs ALTER COLUMN action_type DROP NOT NULL;
-			`).catch(() => undefined);
+				CREATE TABLE IF NOT EXISTS developer_users (
+					user_id VARCHAR(30) PRIMARY KEY,
+					username VARCHAR(100),
+					added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+				);
+			`);
+			await client.query(`
+				CREATE TABLE IF NOT EXISTS audio_logs (
+					id SERIAL PRIMARY KEY,
+					item_id VARCHAR(50),
+					guild_id VARCHAR(30) NOT NULL,
+					guild_name VARCHAR(100),
+					user_name VARCHAR(100),
+					text TEXT NOT NULL,
+					engine VARCHAR(50),
+					voice VARCHAR(100),
+					lang VARCHAR(10),
+					status VARCHAR(30) NOT NULL,
+					error_message TEXT,
+					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+				);
+				CREATE INDEX IF NOT EXISTS idx_audio_logs_guild ON audio_logs(guild_id);
+				CREATE INDEX IF NOT EXISTS idx_audio_logs_status ON audio_logs(status);
+				CREATE INDEX IF NOT EXISTS idx_audio_logs_item ON audio_logs(item_id);
+			`);
 			client.release();
 			BotLogs('Database', `${COLOR.green}PostgreSQL tables verified/created successfully.`);
 			cleanOldAuditLogs(7).catch(() => undefined);
+			cleanOldAudioLogs(7).catch(() => undefined);
 		}
 		catch (error) {
 			BotLogs('Database', `${COLOR.red}Failed to connect to PostgreSQL: ${error.message}. Falling back to local JSON database.`);
@@ -644,7 +665,14 @@ async function cleanOldAuditLogs(retentionDays = 7) {
 	return 0;
 }
 
-setInterval(() => cleanOldAuditLogs(7).catch(() => undefined), 24 * 60 * 60 * 1000);
+const auditCleanupInterval = setInterval(
+	() => cleanOldAuditLogs(7).catch(() => undefined),
+	24 * 60 * 60 * 1000,
+);
+// A maintenance timer must not keep short-lived test and CLI processes alive.
+// The web and bot servers have their own handles, so unref does not stop this
+// from running in production.
+auditCleanupInterval.unref();
 
 async function logAuditEvent(guildId, actionType, userId = null, userName = null, details = null, guildName = null) {
 	if (!isValidSnowflake(guildId)) return;
@@ -748,6 +776,142 @@ async function getGlobalAuditLogs(limit = 100, filterType = null, guildSearch = 
 	return [];
 }
 
+async function getDeveloperUserIds() {
+	if (pool) {
+		try {
+			const res = await pool.query('SELECT user_id FROM developer_users');
+			return res.rows.map(r => String(r.user_id));
+		}
+		catch {
+			return [];
+		}
+	}
+	return [];
+}
+
+async function addDeveloperUser(userId, username = null) {
+	if (!isValidSnowflake(userId)) return false;
+	if (pool) {
+		try {
+			await pool.query(
+				'INSERT INTO developer_users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET username = COALESCE($2, developer_users.username)',
+				[String(userId), username]
+			);
+			return true;
+		}
+		catch (err) {
+			BotLogs('Database', `Error adding developer user: ${err.message}`);
+			return false;
+}
+	}
+	return false;
+}
+
+async function removeDeveloperUser(userId) {
+	if (!isValidSnowflake(userId)) return false;
+	if (pool) {
+		try {
+			await pool.query('DELETE FROM developer_users WHERE user_id = $1', [String(userId)]);
+			return true;
+		}
+		catch (err) {
+			BotLogs('Database', `Error removing developer user: ${err.message}`);
+			return false;
+		}
+	}
+	return false;
+}
+
+async function logAudioEvent({ itemId, guildId, guildName, userName, text, engine, voice, lang, status = 'ENQUEUED', errorMessage = null } = {}) {
+	if (!guildId || !text) return;
+	if (pool) {
+		try {
+			await pool.query(
+				`INSERT INTO audio_logs (item_id, guild_id, guild_name, user_name, text, engine, voice, lang, status, error_message, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+				[itemId || null, guildId, guildName || 'Discord Server', userName || 'System', text, engine || 'EDGE_TTS', voice || 'th-TH-NiwatNeural', lang || 'th', status, errorMessage]
+			);
+		}
+		catch (error) {
+			BotLogs('Database', `${COLOR.red}Database error in logAudioEvent: ${error.message}`);
+		}
+	}
+}
+
+async function updateAudioStatus(itemId, status, errorMessage = null) {
+	if (!itemId || !status) return;
+	if (pool) {
+		try {
+			await pool.query(
+				`UPDATE audio_logs SET status = $1, error_message = COALESCE($2, error_message), updated_at = CURRENT_TIMESTAMP
+				 WHERE item_id = $3 AND (status NOT IN ('SKIPPED', 'REMOVED', 'CLEARED') OR $1 IN ('SKIPPED', 'REMOVED', 'CLEARED'))`,
+				[status, errorMessage, itemId]
+			);
+		}
+		catch (error) {
+			BotLogs('Database', `${COLOR.red}Database error in updateAudioStatus: ${error.message}`);
+		}
+	}
+}
+
+async function getAudioLogs({ limit = 50, status = 'ALL', search = null, guildId = null } = {}) {
+	if (pool) {
+		try {
+			// Auto-resolve any audio logs stuck at PLAYING for more than 15 seconds
+			await pool.query(
+				"UPDATE audio_logs SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE status = 'PLAYING' AND updated_at < NOW() - INTERVAL '15 seconds'"
+			).catch(() => undefined);
+
+			let query = 'SELECT * FROM audio_logs WHERE 1=1';
+			const params = [];
+
+			if (guildId) {
+				params.push(guildId);
+				query += ` AND guild_id = $${params.length}`;
+			}
+
+			if (status && status !== 'ALL') {
+				params.push(status);
+				query += ` AND status = $${params.length}`;
+			}
+
+			if (search && typeof search === 'string' && search.trim()) {
+				params.push(`%${search.trim()}%`);
+				query += ` AND (guild_name ILIKE $${params.length} OR guild_id ILIKE $${params.length} OR user_name ILIKE $${params.length} OR text ILIKE $${params.length})`;
+			}
+
+			const parsedLimit = Math.min(parseInt(limit || '50', 10), 200);
+			params.push(parsedLimit);
+			query += ` ORDER BY created_at DESC LIMIT $${params.length}`;
+
+			const res = await pool.query(query, params);
+			return res.rows;
+		}
+		catch (error) {
+			BotLogs('Database', `${COLOR.red}Database error in getAudioLogs: ${error.message}`);
+			return [];
+		}
+	}
+	return [];
+}
+
+async function cleanOldAudioLogs(retentionDays = 7) {
+	if (pool) {
+		try {
+			const res = await pool.query(
+				"DELETE FROM audio_logs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL",
+				[retentionDays]
+			);
+			return res.rowCount || 0;
+		}
+		catch (error) {
+			BotLogs('Database', `${COLOR.red}Error cleaning old audio logs: ${error.message}`);
+			return 0;
+		}
+	}
+	return 0;
+}
+
 module.exports = {
 	initDatabase,
 	get isPostgres() {
@@ -772,4 +936,11 @@ module.exports = {
 	getGuildAuditLogs,
 	getGlobalAuditLogs,
 	cleanOldAuditLogs,
+	getDeveloperUserIds,
+	addDeveloperUser,
+	removeDeveloperUser,
+	logAudioEvent,
+	updateAudioStatus,
+	getAudioLogs,
+	cleanOldAudioLogs,
 };

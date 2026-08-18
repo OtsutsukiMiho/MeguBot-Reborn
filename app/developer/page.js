@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import Toast from '../components/Toast.js';
+import CustomSelect from '../components/CustomSelect.js';
 
 function formatUptime(seconds) {
 	if (!seconds) return '0s';
@@ -18,7 +19,8 @@ function getCategoryColor(category) {
 	case 'System': return 'var(--muted)';
 	case 'Bot': return 'var(--cat-pink)';
 	case 'Web': return 'var(--accent)';
-	case 'Tts': return 'var(--gold)';
+	case 'Tts':
+	case 'TTS': return 'var(--gold)';
 	case 'AutoMod': return 'var(--due)';
 	case 'Database': return 'var(--settled)';
 	default: return 'var(--accent)';
@@ -51,23 +53,47 @@ function getAuditBadgeStyle(eventType) {
 	}
 }
 
-const ALL_CATEGORIES = ['System', 'Bot', 'Web', 'Tts', 'AutoMod', 'Database'];
+const ALL_CATEGORIES = ['System', 'Bot', 'Web', 'TTS', 'AutoMod', 'Database'];
+
+const AUDIT_FILTER_OPTIONS = [
+	{ value: 'ALL', label: 'All Event Types' },
+	{ value: 'WELCOME_LEAVE', label: 'Welcome & Leave' },
+	{ value: 'AUTOROLE', label: 'AutoRoles' },
+	{ value: 'VOICE_TTS', label: 'Voice TTS Suite' },
+	{ value: 'HONEYPOT', label: 'Honeypot Trap' },
+	{ value: 'AUTOMOD', label: 'Auto-Moderation' },
+	{ value: 'REACTION_ROLE', label: 'Reaction Roles' },
+	{ value: 'COMMAND_EXEC', label: 'Slash Commands' },
+];
 
 export default function DeveloperPage() {
 	const [isDev, setIsDev] = useState(null);
 	const [stats, setStats] = useState(null);
 	const [logs, setLogs] = useState([]);
+
 	const [auditLogs, setAuditLogs] = useState([]);
 	const [auditSearch, setAuditSearch] = useState('');
 	const [auditFilter, setAuditFilter] = useState('ALL');
+	const [auditPage, setAuditPage] = useState(1);
+	const auditPageSize = 10;
+
 	const [activeCategories, setActiveCategories] = useState(ALL_CATEGORIES);
 	const [logFilter, setLogFilter] = useState('');
 	const [autoScroll, setAutoScroll] = useState(true);
+	const [terminalHeight, setTerminalHeight] = useState('560px');
 	const [actionLoading, setActionLoading] = useState(false);
 	const [toastMsg, setToastMsg] = useState('');
 	const [toastError, setToastError] = useState(false);
 
 	const logTerminalRef = useRef(null);
+
+	// Paginated Audit Logs
+	const totalAuditPages = Math.max(1, Math.ceil(auditLogs.length / auditPageSize));
+	const currentAuditPage = Math.min(auditPage, totalAuditPages);
+	const paginatedAuditLogs = useMemo(() => {
+		const start = (currentAuditPage - 1) * auditPageSize;
+		return auditLogs.slice(start, start + auditPageSize);
+	}, [auditLogs, currentAuditPage, auditPageSize]);
 
 	const showToast = (msg, isErr = false) => {
 		setToastMsg(msg);
@@ -155,25 +181,25 @@ export default function DeveloperPage() {
 		}
 	};
 
-	const triggerAction = async (actionName, label) => {
+	const handleAction = async (actionType) => {
 		setActionLoading(true);
 		try {
 			const res = await fetch('/api/developer/action', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: actionName }),
+				body: JSON.stringify({ action: actionType }),
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast(`${label}: ${data.message}`);
+				showToast(data.message || 'Action executed successfully!');
 				fetchDevData();
 			}
 			else {
-				showToast(`Error: ${data.error || 'Failed action.'}`, true);
+				showToast(data.error || 'Action failed.', true);
 			}
 		}
-		catch (err) {
-			showToast(`Connection Error: ${err.message}`, true);
+		catch {
+			showToast('Network error executing developer action.', true);
 		}
 		finally {
 			setActionLoading(false);
@@ -181,7 +207,7 @@ export default function DeveloperPage() {
 	};
 
 	const purgeAuditLogs = async () => {
-		if (!confirm('Are you sure you want to purge audit logs older than 7 days?')) return;
+		if (!confirm('Are you sure you want to permanently purge audit logs older than 7 days?')) return;
 		setActionLoading(true);
 		try {
 			const res = await fetch('/api/developer/audit-logs/purge', {
@@ -191,15 +217,15 @@ export default function DeveloperPage() {
 			});
 			const data = await res.json();
 			if (data.success) {
-				showToast(`${data.message}`);
+				showToast(data.message || 'Audit logs purged.');
 				fetchAuditLogs();
 			}
 			else {
-				showToast(`Error: ${data.error || 'Purge failed.'}`, true);
+				showToast(data.error || 'Purge failed.', true);
 			}
 		}
-		catch (err) {
-			showToast(`Connection Error: ${err.message}`, true);
+		catch {
+			showToast('Network error purging audit logs.', true);
 		}
 		finally {
 			setActionLoading(false);
@@ -208,9 +234,9 @@ export default function DeveloperPage() {
 
 	if (isDev === null) {
 		return (
-			<div style={{ textAlign: 'center', padding: '3rem 0' }}>
-				<div className="status-badge" style={{ display: 'inline-flex', padding: '0.75rem 1.5rem' }}>
-					⏳ Validating Developer Credentials...
+			<div className="container" style={{ padding: '4rem 1.5rem', textAlign: 'center' }}>
+				<div style={{ fontSize: '1.2rem', color: 'var(--muted)' }}>
+					Verifying Developer Access Credentials...
 				</div>
 			</div>
 		);
@@ -218,91 +244,103 @@ export default function DeveloperPage() {
 
 	if (isDev === false) {
 		return (
-			<div style={{ maxWidth: '600px', margin: '2rem auto' }}>
-				<div style={{ background: 'var(--due-soft)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)', borderRadius: '16px', padding: '2.5rem', textAlign: 'center' }}>
-					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
-					<h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--due)', marginBottom: '0.5rem' }}>
+			<div className="container" style={{ padding: '4rem 1.5rem', textAlign: 'center' }}>
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '3rem', maxWidth: '540px', margin: '0 auto' }}>
+					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--due)', marginBottom: '0.75rem' }}>
 						Access Restricted
 					</h2>
-					<p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-						The Developer Portal is reserved strictly for the authorized Megux Corp development team.
+					<p style={{ color: 'var(--muted)', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '1.5rem' }}>
+						This terminal requires registered <strong>Developer Credentials</strong> in the PostgreSQL database.
 					</p>
 					<Link href="/servers" className="btn btn-primary">
-						Return to Server Dashboard
+						Return to Servers
 					</Link>
 				</div>
 			</div>
 		);
 	}
 
-	const filteredLogs = logs.filter(l => {
-		const cat = l.category || 'System';
-		if (!activeCategories.includes(cat)) {
-			return false;
+	const filteredLogs = logs.filter(log => {
+		const cat = (log.category || 'System').toUpperCase();
+		const matchesCat = activeCategories.some(ac => ac.toUpperCase() === cat);
+		if (!matchesCat) return false;
+		if (logFilter.trim()) {
+			const q = logFilter.toLowerCase();
+			return (log.message || '').toLowerCase().includes(q) || (log.host || '').toLowerCase().includes(q);
 		}
-		if (!logFilter) return true;
-		const query = logFilter.toLowerCase();
-		return (l.message || '').toLowerCase().includes(query) || (l.host || '').toLowerCase().includes(query);
+		return true;
 	});
 
-	const pingColor = (stats?.bot?.pingMs || 0) < 100 ? 'var(--settled)' : (stats?.bot?.pingMs || 0) < 250 ? 'var(--gold)' : 'var(--due)';
+	const pingMs = stats?.bot?.pingMs || 0;
+	const pingColor = pingMs < 100 ? 'var(--settled)' : pingMs < 250 ? 'var(--gold)' : 'var(--due)';
 
 	return (
-		<div>
-			<Toast message={toastMsg} isError={toastError} />
+		<div className="container" style={{ padding: '2rem 1rem', maxWidth: '1280px' }}>
+			{toastMsg && <Toast message={toastMsg} isError={toastError} onClose={() => setToastMsg('')} />}
 
-			{/* Header Banner */}
+			{/* Page Header with Action Buttons */}
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
 				<div>
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-						<h1 style={{ fontSize: '2rem', fontWeight: 800 }}>Developer Command Center</h1>
-						<span className="status-badge" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)' }}>
-							Developer Portal
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+						<h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--ink)', margin: 0 }}>
+							Developer Command Center
+						</h1>
+						<span style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', border: '1px solid var(--accent)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+							SYSTEM ROOT
 						</span>
 					</div>
-					<p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-						Real-time system telemetry, bot performance stats, live terminal logging & global audit stream.
+					<p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
+						Real-time system telemetry, unified live logs, audio queue studio, and global audit inspection.
 					</p>
 				</div>
 
-				<div style={{ display: 'flex', gap: '0.75rem' }}>
+				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
 					<button
-						onClick={() => triggerAction('reload_cache', 'Reload Bot Cache')}
+						onClick={() => handleAction('reload_cache')}
 						disabled={actionLoading}
 						className="btn btn-secondary btn-sm"
+						title="Reload bot caches across all modules."
 					>
 						Reload Cache
 					</button>
 					<button
-						onClick={() => triggerAction('clear_queues', 'Clear Audio Queues')}
+						onClick={() => handleAction('clear_queues')}
 						disabled={actionLoading}
 						className="btn btn-secondary btn-sm"
+						title="Clear and flush all active audio queues."
 					>
 						Clear Queues
 					</button>
 					<button
-						onClick={() => triggerAction('restart_bot', 'Restart Bot Process')}
+						onClick={() => handleAction('restart_bot')}
 						disabled={actionLoading}
-						className="btn btn-primary btn-sm"
-						style={{ background: 'linear-gradient(135deg, var(--due), var(--due))', border: 'none' }}
+						className="btn btn-secondary btn-sm"
+						style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
+						title="Trigger clean restart of the Discord Bot process."
 					>
 						Restart Bot
+					</button>
+					<button
+						onClick={fetchDevData}
+						className="btn btn-primary btn-sm"
+					>
+						Refresh
 					</button>
 				</div>
 			</div>
 
-			{/* Performance Metrics Cards Grid */}
-			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-				{/* RAM & Heap */}
+			{/* Telemetry Metric Cards */}
+			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+				{/* RAM Usage */}
 				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
 					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-						Memory Usage
+						Memory (RSS / Heap)
 					</div>
 					<div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--ink)' }}>
 						{stats?.system?.ramUsedMB || 0} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>MB RSS</span>
 					</div>
 					<div style={{ fontSize: '0.8rem', color: 'var(--accent)', marginTop: '0.3rem' }}>
-						Heap Used: {stats?.system?.heapUsedMB || 0} / {stats?.system?.heapTotalMB || 0} MB
+						Heap: {stats?.system?.heapUsedMB || 0} / {stats?.system?.heapTotalMB || 0} MB
 					</div>
 				</div>
 
@@ -368,9 +406,9 @@ export default function DeveloperPage() {
 				</div>
 			</div>
 
-			{/* Real-Time Live Log Stream Terminal */}
+			{/* 1. Real-Time Live Log Stream Terminal */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: '2rem' }}>
-				{/* Terminal Header & Multi-Select Category Bar */}
+				{/* Terminal Header & Category Controls */}
 				<div style={{ background: 'var(--surface)', padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
 						<span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink)', marginRight: '0.5rem' }}>
@@ -389,7 +427,7 @@ export default function DeveloperPage() {
 								cursor: 'pointer',
 							}}
 						>
-							{activeCategories.length === ALL_CATEGORIES.length ? '✓ All' : 'Select All'}
+							{activeCategories.length === ALL_CATEGORIES.length ? 'All' : 'Select All'}
 						</button>
 						{ALL_CATEGORIES.map(cat => {
 							const isActive = activeCategories.includes(cat);
@@ -419,7 +457,30 @@ export default function DeveloperPage() {
 						})}
 					</div>
 
-					<div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+						{/* Height Selector Buttons */}
+						<div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--sunk)', padding: '0.15rem 0.3rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+							<span style={{ fontSize: '0.7rem', color: 'var(--muted)', padding: '0 0.25rem' }}>Height:</span>
+							{['360px', '560px', '800px'].map(h => (
+								<button
+									key={h}
+									onClick={() => setTerminalHeight(h)}
+									style={{
+										background: terminalHeight === h ? 'var(--accent)' : 'transparent',
+										color: terminalHeight === h ? '#fff' : 'var(--muted)',
+										border: 'none',
+										borderRadius: '4px',
+										padding: '0.15rem 0.45rem',
+										fontSize: '0.7rem',
+										fontWeight: 700,
+										cursor: 'pointer',
+									}}
+								>
+									{h.replace('px', '')}
+								</button>
+							))}
+						</div>
+
 						<input
 							type="text"
 							placeholder="Filter logs..."
@@ -439,21 +500,19 @@ export default function DeveloperPage() {
 					</div>
 				</div>
 
-				{/* Terminal Content */}
+				{/* Terminal Content Box */}
 				<div
 					ref={logTerminalRef}
 					style={{
-						height: '360px',
+						height: terminalHeight,
 						overflowY: 'auto',
 						padding: '1.25rem',
 						fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace',
 						fontSize: '0.85rem',
 						lineHeight: '1.6',
-						// Deliberately dark in both themes. This is a terminal, and a
-						// terminal that inverts with the page stops looking like one —
-						// the ANSI-ish level colours below are calibrated for this ground.
 						background: '#0d1117',
 						color: '#c9d1d9',
+						transition: 'height 0.2s ease',
 					}}
 				>
 					{filteredLogs.length === 0 ? (
@@ -470,7 +529,7 @@ export default function DeveloperPage() {
 									<span style={{ color: catColor, fontWeight: 600, flexShrink: 0, minWidth: '75px' }}>
 										[{catLabel}]
 									</span>
-									<span style={{ color: log.message.includes('Error') ? '#f85149' : log.message.includes('Warning') ? '#d29922' : '#c9d1d9' }}>
+									<span style={{ color: log.message.includes('Error') ? '#f85149' : log.message.includes('Warning') ? '#d29922' : log.message.includes('TTS') || log.message.includes('Playing') ? '#e3b341' : '#c9d1d9' }}>
 										{log.message}
 									</span>
 								</div>
@@ -480,12 +539,12 @@ export default function DeveloperPage() {
 				</div>
 			</div>
 
-			{/* Global Audit Stream Section */}
+			{/* 3. Global Audit Stream Section */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
 					<div>
-						<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)' }}>
-							📜 Global Mod/Admin Audit Stream
+						<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
+							Global Mod/Admin Audit Stream
 						</h3>
 						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
 							Monitor all moderator and administrator actions across every Discord server (Auto-pruned after 7 days).
@@ -499,41 +558,40 @@ export default function DeveloperPage() {
 							className="btn btn-secondary btn-sm"
 							style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
 						>
-							🧹 Purge Expired Logs (&gt;7 Days)
+							Purge Expired Logs (&gt;7 Days)
 						</button>
 						<button onClick={fetchAuditLogs} className="btn btn-secondary btn-sm">
-							🔄 Refresh Audit
+							Refresh Audit
 						</button>
 					</div>
 				</div>
 
-				{/* Audit Controls Bar */}
+				{/* Audit Controls Bar with CustomSelect */}
 				<div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
 					<div style={{ flex: 1, minWidth: '220px' }}>
 						<input
 							type="text"
 							placeholder="Search by Guild Name or Server ID..."
 							value={auditSearch}
-							onChange={e => setAuditSearch(e.target.value)}
+							onChange={e => {
+								setAuditSearch(e.target.value);
+								setAuditPage(1);
+							}}
 							style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
 						/>
 					</div>
 
-					<div style={{ width: '220px' }}>
-						<select
+					<div style={{ width: '250px' }}>
+						<CustomSelect
 							value={auditFilter}
-							onChange={e => setAuditFilter(e.target.value)}
-							style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border-color)', color: 'var(--ink)', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
-						>
-							<option value="ALL">All Event Types</option>
-							<option value="WELCOME_LEAVE">👋 Welcome & Leave</option>
-							<option value="AUTOROLE">🎖️ AutoRoles</option>
-							<option value="VOICE_TTS">🗣️ Voice TTS Suite</option>
-							<option value="HONEYPOT">🍯 Honeypot Trap</option>
-							<option value="AUTOMOD">🛡️ Auto-Moderation</option>
-							<option value="REACTION_ROLE">⚡ Reaction Roles</option>
-							<option value="COMMAND_EXEC">🤖 Slash Commands</option>
-						</select>
+							onChange={(val) => {
+								setAuditFilter(val);
+								setAuditPage(1);
+							}}
+							options={AUDIT_FILTER_OPTIONS}
+							placeholder="Filter event types..."
+							searchable={false}
+						/>
 					</div>
 				</div>
 
@@ -555,7 +613,7 @@ export default function DeveloperPage() {
 								</tr>
 							</thead>
 							<tbody>
-								{auditLogs.map((log, idx) => {
+								{paginatedAuditLogs.map((log, idx) => {
 									const evtType = log.event_type || log.action_type || 'GENERAL';
 									const badgeStyle = getAuditBadgeStyle(evtType);
 									const dateStr = log.created_at ? new Date(log.created_at).toLocaleString() : '';
@@ -583,6 +641,34 @@ export default function DeveloperPage() {
 								})}
 							</tbody>
 						</table>
+
+						{/* Audit Logs Pagination Bar */}
+						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--sunk)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
+							<div>
+								Showing {(currentAuditPage - 1) * auditPageSize + 1} - {Math.min(currentAuditPage * auditPageSize, auditLogs.length)} of {auditLogs.length} entries
+							</div>
+							<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+								<button
+									onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+									disabled={currentAuditPage <= 1}
+									className="btn btn-secondary btn-sm"
+									style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+								>
+									Previous
+								</button>
+								<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
+									Page {currentAuditPage} of {totalAuditPages}
+								</span>
+								<button
+									onClick={() => setAuditPage(p => Math.min(totalAuditPages, p + 1))}
+									disabled={currentAuditPage >= totalAuditPages}
+									className="btn btn-secondary btn-sm"
+									style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+								>
+									Next
+								</button>
+							</div>
+						</div>
 					</div>
 				)}
 			</div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import CustomSelect from '../CustomSelect.js';
 
 export default function ReactionRolesTab({ guildId, reactionRoles, roles, channels, onRefresh, showToast }) {
 	const [channelId, setChannelId] = useState('');
@@ -173,12 +174,20 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 				<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
 					<div className="form-group" style={{ marginBottom: 0 }}>
 						<label className="form-label">Channel (Optional)</label>
-						<select className="form-control" style={{ height: '42px' }} value={channelId} onChange={e => setChannelId(e.target.value)}>
-							<option value="">Auto-Detect Channel</option>
-							{channels.map(c => (
-								<option key={c.id} value={c.id}># {c.name}</option>
-							))}
-						</select>
+						<CustomSelect
+							value={channelId}
+							onChange={(val) => setChannelId(val)}
+							options={[
+								{ value: '', label: 'Auto-Detect Channel', icon: '🔍' },
+								...(channels || []).map(c => ({
+									value: c.id,
+									label: `# ${c.name}`,
+									icon: '💬',
+								})),
+							]}
+							placeholder="Auto-Detect Channel"
+							searchable={true}
+						/>
 					</div>
 
 					<div className="form-group" style={{ marginBottom: 0 }}>
@@ -207,20 +216,33 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 
 					<div className="form-group" style={{ marginBottom: 0 }}>
 						<label className="form-label">Assigned Role</label>
-						<select className="form-control" style={{ height: '42px' }} value={roleId} onChange={e => setRoleId(e.target.value)}>
-							<option value="">Select Role...</option>
-							{roles.map(r => (
-								<option key={r.id} value={r.id}>@ {r.name}</option>
-							))}
-						</select>
+						<CustomSelect
+							value={roleId}
+							onChange={(val) => setRoleId(val)}
+							options={(roles || []).map(r => ({
+								value: r.id,
+								label: r.name,
+								color: r.color ? (typeof r.color === 'string' ? r.color : `#${r.color.toString(16).padStart(6, '0')}`) : undefined,
+								icon: '🛡️',
+							}))}
+							type="role"
+							placeholder="Select Role..."
+							searchable={true}
+						/>
 					</div>
 
 					<div className="form-group" style={{ marginBottom: 0 }}>
 						<label className="form-label">Reaction Mode</label>
-						<select className="form-control" style={{ height: '42px' }} value={mode} onChange={e => setMode(e.target.value)}>
-							<option value="toggle">Toggle (Give & Remove)</option>
-							<option value="give_only">Give-Only (Add Role Only)</option>
-						</select>
+						<CustomSelect
+							value={mode}
+							onChange={(val) => setMode(val)}
+							options={[
+								{ value: 'toggle', label: 'Toggle (Give & Remove)', icon: '🔄', subtitle: 'Adds role on react, removes on unreact' },
+								{ value: 'give_only', label: 'Give-Only (Add Role Only)', icon: '➕', subtitle: 'Adds role once, never removes' },
+							]}
+							placeholder="Reaction Mode"
+							searchable={false}
+						/>
 					</div>
 
 					<div className="form-group" style={{ marginBottom: 0 }}>

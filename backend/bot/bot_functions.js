@@ -32,7 +32,7 @@ function resolveCategory(host) {
 	if (!host) return { label: 'System', color: COLOR.white };
 	const h = String(host).toUpperCase().trim();
 	if (h === 'SYSTEM' || h === 'MAIN') return { label: 'System', color: COLOR.white };
-	if (h === 'AUDIO' || h === 'TTS') return { label: 'TTS', color: COLOR.gold };
+	if (h === 'AUDIO' || h === 'TTS' || h === 'AUDIOQUEUE' || h === 'VOICE') return { label: 'TTS', color: COLOR.gold };
 	if (h === 'WEB' || h === 'EXPRESS' || h === 'NEXT') return { label: 'Web', color: COLOR.cyan };
 	if (h === 'AUTOMOD' || h === 'HONEYPOT' || h === 'SECURITY') return { label: 'AutoMod', color: COLOR.red };
 	if (h === 'DATABASE' || h === 'DB') return { label: 'Database', color: COLOR.green };
@@ -42,7 +42,7 @@ function resolveCategory(host) {
 function addLogEntry(logItem) {
 	if (!logItem || !logItem.message) return;
 	recentLogsBuffer.push(logItem);
-	if (recentLogsBuffer.length > 250) {
+	if (recentLogsBuffer.length > 500) {
 		recentLogsBuffer.shift();
 	}
 }

@@ -20,15 +20,8 @@ function getTtsInstance(voice) {
 }
 
 function QueueLog(guildName, msg) {
-	try {
-		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-		if (config.logs && config.logs.audio_queue_logs) {
-			BotLogs(guildName, msg);
-		}
-	}
-	catch {
-		BotLogs(guildName, msg);
-	}
+	const name = typeof guildName === 'string' ? guildName : 'Discord Server';
+	BotLogs('TTS', `${COLOR.gold}[${name}]${COLOR.reset} ${msg}`);
 }
 
 function generateUUID() {
@@ -47,9 +40,6 @@ class AudioQueueManager extends EventEmitter {
 		this.queues = new Map();
 		this.players = new Map();
 		this.lastAddedMap = new Map();
-		// Guilds with a clip in flight. processNext returns while the audio is
-		// still playing, so "am I busy" cannot be answered by whether it has
-		// returned; it is cleared by whichever path finishes the clip.
 		this.busy = new Set();
 	}
 
@@ -64,24 +54,108 @@ class AudioQueueManager extends EventEmitter {
 		if (!this.players.has(guildId)) {
 			const player = createAudioPlayer();
 
-			// This used to also listen for stateChange reaching idle and call
-			// processNext from there, which is why every clip was heard twice.
-			// AudioPlayer emits stateChange *before* it emits the named status
-			// event, so that handler ran while the clip that had just finished
-			// was still sitting at queue[0] — it started the same one again, and
-			// only afterwards did the idle handler in processNext shift it off.
-			//
-			// Advancing the queue is now the job of exactly one place: the
-			// once('idle') handler processNext attaches for each clip.
 			player.on('error', error => {
-				// The player transitions to idle after an error, so that handler
-				// drops the clip and moves on. Doing it here as well would skip
-				// the clip behind it.
-				BotLogs('SYSTEM', `${COLOR.red}Audio player error in guild ${guildId}: ${error.message}`);
+				BotLogs('TTS', `${COLOR.red}Audio player error in guild ${guildId}: ${error.message}`);
 			});
 			this.players.set(guildId, player);
 		}
 		return this.players.get(guildId);
+	}
+
+	getAllQueues() {
+		const list = [];
+		for (const [guildId, queue] of this.queues.entries()) {
+			const player = this.players.get(guildId);
+			const playerState = player ? (player.state ? player.state.status : 'idle') : 'idle';
+			const isBusy = this.busy.has(guildId);
+
+			if ((!queue || queue.length === 0) && playerState === 'idle') {
+				continue;
+			}
+
+			const current = (queue && queue.length > 0) ? queue[0] : null;
+			const upcoming = (queue && queue.length > 1) ? queue.slice(1) : [];
+
+			list.push({
+				guildId,
+				guildName: current ? current.guildName : 'Discord Server',
+				playerState,
+				isBusy,
+				queueLength: queue ? queue.length : 0,
+				currentItem: current ? {
+					id: current.id,
+					text: current.text,
+					userName: current.options?.userName || 'System',
+					engine: current.options?.engine || 'EDGE_TTS',
+					voice: current.options?.voice || 'th-TH-NiwatNeural',
+					lang: current.options?.lang || 'th',
+				} : null,
+				items: upcoming.map(item => ({
+					id: item.id,
+					text: item.text,
+					userName: item.options?.userName || 'System',
+					engine: item.options?.engine || 'EDGE_TTS',
+					voice: item.options?.voice || 'th-TH-NiwatNeural',
+					lang: item.options?.lang || 'th',
+				})),
+			});
+		}
+		return list;
+	}
+
+	skipCurrent(guildId) {
+		const queue = this.getQueue(guildId);
+		if (queue.length === 0) return false;
+		const current = queue[0];
+		const guildName = current?.guildName || 'Discord Server';
+
+		current.status = 'SKIPPED';
+		QueueLog(guildName, `${COLOR.yellow}⏭️ Force Skipped current audio clip: "${current ? current.text : 'Unknown'}"`);
+
+		if (this.players.has(guildId)) {
+			const player = this.players.get(guildId);
+			try {
+				player.stop();
+			}
+			catch {}
+		}
+
+		try {
+			const database = require('../database/database.js');
+			if (database?.updateAudioStatus) database.updateAudioStatus(current.id, 'SKIPPED').catch(() => undefined);
+		}
+		catch {}
+
+		this.busy.delete(guildId);
+		queue.shift();
+		if (queue.length > 0) {
+			this.processNext(guildId);
+		}
+		return true;
+	}
+
+	removeItem(guildId, itemId) {
+		const queue = this.getQueue(guildId);
+		const index = queue.findIndex(item => item.id === itemId);
+		if (index === -1) return false;
+
+		const targetItem = queue[index];
+		const guildName = targetItem?.guildName || 'Discord Server';
+
+		if (index === 0) {
+			return this.skipCurrent(guildId);
+		}
+
+		targetItem.status = 'REMOVED';
+		try {
+			const database = require('../database/database.js');
+			if (database?.updateAudioStatus) database.updateAudioStatus(targetItem.id, 'REMOVED').catch(() => undefined);
+		}
+		catch {}
+
+		queue.splice(index, 1);
+		QueueLog(guildName, `${COLOR.red}🗑️ Force Removed item #${index + 1} from queue: "${targetItem.text}"`);
+		return true;
 	}
 
 	async addToQueue(guildId, guildName, connection, text, options = {}) {
@@ -96,8 +170,11 @@ class AudioQueueManager extends EventEmitter {
 			finalConnection = entry.connection;
 			finalText = entry.name || entry.text || '';
 			finalOptions = {
-				userName: entry.sender ? entry.sender.username : (entry.userName || 'System'),
-				engine: entry.type === 'TTS' ? 'EDGE_TTS' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+				userName: entry.sender ? (entry.sender.username || entry.sender.tag) : (entry.userName || 'System'),
+				engine: entry.type === 'AUDIO_MP3' ? 'AUDIO_MP3' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+				type: entry.type || 'TTS',
+				file: entry.file || null,
+				volume: typeof entry.volume === 'number' ? entry.volume : 0.5,
 				lang: entry.lang || 'th',
 				voice: entry.voice || 'th-TH-NiwatNeural',
 			};
@@ -135,7 +212,26 @@ class AudioQueueManager extends EventEmitter {
 			connection: finalConnection,
 		};
 		queue.push(item);
-		QueueLog(item.guildName, `New TTS Added to Queue [${finalOptions.userName || 'System'}(${finalOptions.engine || 'EDGE_TTS'}) - ${finalText}]`);
+		const queueLabel = finalOptions.type === 'AUDIO_MP3' ? 'Audio MP3' : 'TTS';
+		QueueLog(item.guildName, `📥 Added ${queueLabel} to Queue [${finalOptions.userName || 'System'} (${finalOptions.engine || 'EDGE_TTS'}) - "${finalText}"] (Queue position: #${queue.length})`);
+
+		try {
+			const database = require('../database/database.js');
+			if (database?.logAudioEvent) {
+				database.logAudioEvent({
+					itemId: id,
+					guildId,
+					guildName: item.guildName,
+					userName: finalOptions.userName,
+					text: finalText,
+					engine: finalOptions.engine,
+					voice: finalOptions.voice,
+					lang: finalOptions.lang,
+					status: 'ENQUEUED',
+				}).catch(() => undefined);
+			}
+		}
+		catch {}
 
 		if (queue.length === 1) {
 			this.processNext(guildId);
@@ -146,21 +242,40 @@ class AudioQueueManager extends EventEmitter {
 	async processNext(guildId) {
 		const queue = this.getQueue(guildId);
 		if (queue.length === 0) return;
-		// A second caller arriving while a clip is in flight would read the same
-		// queue[0] and play it again. Nothing should call in that way any more,
-		// but this is the invariant the double-speech bug broke, so state it.
 		if (this.busy.has(guildId)) return;
 		this.busy.add(guildId);
 
 		const currentItem = queue[0];
 		const player = this.getPlayer(guildId);
 
-		// Finishing a clip happens down one of two paths — it played out, or it
-		// threw on the way. Both land here, and only the first one counts.
 		let finished = false;
-		const advance = () => {
+		let safetyTimer = null;
+		let audioPath = null;
+		let isTempFile = false;
+
+		const advance = (finalStatus = 'COMPLETED', errorMsg = null) => {
 			if (finished) return;
 			finished = true;
+			if (safetyTimer) {
+				clearTimeout(safetyTimer);
+				safetyTimer = null;
+			}
+			if (isTempFile) {
+				try {
+					if (audioPath && fs.existsSync(audioPath)) {
+						fs.unlinkSync(audioPath);
+					}
+				}
+				catch {}
+			}
+			const resolvedStatus = currentItem.status || finalStatus || 'COMPLETED';
+			try {
+				const database = require('../database/database.js');
+				if (database?.updateAudioStatus) {
+					database.updateAudioStatus(currentItem.id, resolvedStatus, errorMsg).catch(() => undefined);
+				}
+			}
+			catch {}
 			this.busy.delete(guildId);
 			queue.shift();
 			if (queue.length > 0) {
@@ -169,54 +284,98 @@ class AudioQueueManager extends EventEmitter {
 		};
 
 		try {
-			let audioPath = null;
-			const tempDir = path.join(__dirname, '../../temp');
-			if (!fs.existsSync(tempDir)) {
-				fs.mkdirSync(tempDir, { recursive: true });
-			}
+			const isMp3 = currentItem.options?.type === 'AUDIO_MP3' || currentItem.options?.engine === 'AUDIO_MP3' || !!currentItem.options?.file;
 
-			const filename = `tts_${Date.now()}_${currentItem.id}.mp3`;
-			audioPath = path.join(tempDir, filename);
-
-			const engine = currentItem.options.engine || 'EDGE_TTS';
-			const lang = currentItem.options.lang || 'th';
-			const voice = currentItem.options.voice || 'th-TH-NiwatNeural';
-
-			if (engine === 'EDGE_TTS') {
-				const tts = getTtsInstance(voice);
-				await tts.ttsPromise(currentItem.text, audioPath);
+			if (isMp3 && currentItem.options?.file && fs.existsSync(currentItem.options.file)) {
+				audioPath = currentItem.options.file;
+				isTempFile = false;
 			}
 			else {
-				const url = getGoogleTtsUrl(currentItem.text, lang);
-				const response = await fetch(url, {
-					headers: {
-						'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-					},
-				});
-				const buffer = Buffer.from(await response.arrayBuffer());
-				fs.writeFileSync(audioPath, buffer);
+				const tempDir = path.join(__dirname, '../../temp');
+				if (!fs.existsSync(tempDir)) {
+					fs.mkdirSync(tempDir, { recursive: true });
+				}
+
+				const filename = `tts_${Date.now()}_${currentItem.id}.mp3`;
+				audioPath = path.join(tempDir, filename);
+				isTempFile = true;
+
+				const engine = currentItem.options.engine || 'EDGE_TTS';
+				const lang = currentItem.options.lang || 'th';
+				const voice = currentItem.options.voice || 'th-TH-NiwatNeural';
+
+				if (engine === 'EDGE_TTS') {
+					const tts = getTtsInstance(voice);
+					await tts.ttsPromise(currentItem.text, audioPath);
+				}
+				else {
+					const url = getGoogleTtsUrl(currentItem.text, lang);
+					const response = await fetch(url, {
+						headers: {
+							'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+						},
+					});
+					const buffer = Buffer.from(await response.arrayBuffer());
+					fs.writeFileSync(audioPath, buffer);
+				}
 			}
 
-			const resource = createAudioResource(audioPath);
-			currentItem.connection.subscribe(player);
-			player.play(resource);
+			const resource = createAudioResource(audioPath, { inlineVolume: true });
+			if (currentItem.options?.volume && resource.volume) {
+				resource.volume.setVolume(currentItem.options.volume);
+			}
 
-			// Clean up file after playback
-			player.once('idle', () => {
-				try {
-					if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+			if (currentItem.connection) {
+				currentItem.connection.subscribe(player);
+			}
+
+			try {
+				const database = require('../database/database.js');
+				if (database?.updateAudioStatus) {
+					database.updateAudioStatus(currentItem.id, 'PLAYING').catch(() => undefined);
 				}
-				catch {}
-				advance();
+			}
+			catch {}
+
+			player.play(resource);
+			const playLabel = isMp3 ? `🎵 Playing Audio MP3: "${currentItem.text}"` : `▶️ Playing TTS: "${currentItem.text}"`;
+			QueueLog(currentItem.guildName, `${playLabel} [${currentItem.options.userName || 'System'}]`);
+
+			// Safety timeout: 60s for MP3 sound, max 30s for TTS
+			const estimatedMs = isMp3 ? 60000 : Math.min(Math.max(8000, (currentItem.text ? currentItem.text.length : 10) * 350), 30000);
+			safetyTimer = setTimeout(() => {
+				advance('COMPLETED');
+			}, estimatedMs);
+
+			// Clean up file after playback completes
+			player.once('idle', () => {
+				advance('COMPLETED');
 			});
 		}
 		catch (error) {
-			BotLogs('TTS', `${COLOR.red}Failed to process TTS ${COLOR.gray}(${currentItem.guildName})${COLOR.red}: ${error.message}`);
-			advance();
+			BotLogs('TTS', `${COLOR.red}Failed to process audio ${COLOR.gray}(${currentItem.guildName})${COLOR.red}: ${error.message}`);
+			advance('ERROR', error.message);
 		}
 	}
 
 	clearQueue(guildId) {
+		const queue = this.getQueue(guildId);
+		const guildName = queue[0]?.guildName || 'Discord Server';
+		const count = queue.length;
+
+		if (queue && queue.length > 0) {
+			try {
+				const database = require('../database/database.js');
+				if (database?.updateAudioStatus) {
+					for (const it of queue) {
+						it.status = 'CLEARED';
+						database.updateAudioStatus(it.id, 'CLEARED').catch(() => undefined);
+					}
+				}
+			}
+			catch {}
+		}
+
 		if (this.queues.has(guildId)) {
 			this.queues.set(guildId, []);
 		}
@@ -226,6 +385,9 @@ class AudioQueueManager extends EventEmitter {
 		if (this.players.has(guildId)) {
 			const player = this.players.get(guildId);
 			player.stop();
+		}
+		if (count > 0) {
+			QueueLog(guildName, `${COLOR.red}🧹 Cleared entire audio queue (${count} clips dropped).`);
 		}
 	}
 }
@@ -237,8 +399,11 @@ function addToQueue(guildId, guildName, connection, text, options = {}) {
 		const entry = guildName;
 		const gName = entry.guild ? (typeof entry.guild === 'string' ? entry.guild : entry.guild.name) : 'Discord Server';
 		const opt = {
-			userName: entry.sender ? entry.sender.username : (entry.userName || 'System'),
-			engine: entry.type === 'TTS' ? 'EDGE_TTS' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+			userName: entry.sender ? (entry.sender.username || entry.sender.tag) : (entry.userName || 'System'),
+			engine: entry.type === 'AUDIO_MP3' ? 'AUDIO_MP3' : (entry.type === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : (entry.engine || 'EDGE_TTS')),
+			type: entry.type || 'TTS',
+			file: entry.file || null,
+			volume: typeof entry.volume === 'number' ? entry.volume : 0.5,
 			lang: entry.lang || 'th',
 			voice: entry.voice || 'th-TH-NiwatNeural',
 		};
@@ -252,8 +417,6 @@ function clearQueue(guildId) {
 }
 
 module.exports = {
-	// Exported for tests/audio-queue.test.js, which needs a manager of its own
-	// rather than the process-wide singleton.
 	AudioQueueManager,
 	audioQueueManager,
 	addToQueue,

@@ -13,6 +13,7 @@ import AutomodTab from '../../components/Tabs/AutomodTab';
 import ReactionRolesTab from '../../components/Tabs/ReactionRolesTab';
 import AuditLogsTab from '../../components/Tabs/AuditLogsTab';
 import EmbedCreatorTab from '../../components/Tabs/EmbedCreatorTab';
+import AudioQueueTab from '../../components/Tabs/AudioQueueTab';
 import FloatingSaveBar from '../../components/FloatingSaveBar';
 import Toast from '../../components/Toast';
 
@@ -280,6 +281,9 @@ export default function ServerConfigPage({ params }) {
 					<button className={`tab-btn ${activeTab === 'reactionroles' ? 'active' : ''}`} onClick={() => setActiveTab('reactionroles')}>
 						Reaction Roles
 					</button>
+					<button className={`tab-btn ${activeTab === 'audioqueue' ? 'active' : ''}`} onClick={() => setActiveTab('audioqueue')}>
+						Audio Queue
+					</button>
 					<button className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
 						Audit Logs
 					</button>
@@ -310,6 +314,9 @@ export default function ServerConfigPage({ params }) {
 					)}
 					{activeTab === 'tts' && (
 						<VoiceTtsTab config={config} channels={channels} onChange={handleConfigChange} />
+					)}
+					{activeTab === 'audioqueue' && (
+						<AudioQueueTab guildId={guildId} showToast={showToast} />
 					)}
 					{activeTab === 'honeypot' && (
 						<HoneypotTab config={config} channels={channels} onChange={handleConfigChange} />

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import CustomSelect from '../CustomSelect.js';
 
 function getBadgeStyle(eventType) {
 	switch (eventType) {
@@ -125,23 +126,29 @@ export default function AuditLogsTab({ guildId }) {
 				</div>
 
 				<div style={{ width: '250px' }}>
-					<select className="form-control" value={filter} onChange={e => setFilter(e.target.value)}>
-						<option value="ALL">All Server Event Types</option>
-						<option value="MESSAGE_DELETE">Messages Deleted & Purged</option>
-						<option value="MEMBER_BAN">Bans & Unbans</option>
-						<option value="MEMBER_KICK">Member Kicks</option>
-						<option value="MEMBER_TIMEOUT">Timeouts (Mute)</option>
-						<option value="MEMBER_UPDATE">Member & Nickname Changes</option>
-						<option value="ROLE_ASSIGN">Role Assignments (Discord & Web)</option>
-						<option value="ROLE_UPDATE">Role Created / Edited / Deleted</option>
-						<option value="CHANNEL_UPDATE">Channel Created / Edited / Deleted</option>
-						<option value="INVITE_CREATE">Invites Created / Deleted</option>
-						<option value="AUTOMOD">Auto-Moderation Triggers</option>
-						<option value="WELCOME_LEAVE">Welcome & Member Leaves</option>
-						<option value="VOICE_TTS">Voice TTS Suite</option>
-						<option value="HONEYPOT">Honeypot Trap</option>
-						<option value="REACTION_ROLE">Reaction Roles</option>
-					</select>
+					<CustomSelect
+						value={filter}
+						onChange={(val) => setFilter(val)}
+						options={[
+							{ value: 'ALL', label: 'All Server Event Types', icon: '📜' },
+							{ value: 'MESSAGE_DELETE', label: 'Messages Deleted & Purged', icon: '🗑️' },
+							{ value: 'MEMBER_BAN', label: 'Bans & Unbans', icon: '🔨' },
+							{ value: 'MEMBER_KICK', label: 'Member Kicks', icon: '👢' },
+							{ value: 'MEMBER_TIMEOUT', label: 'Timeouts (Mute)', icon: '⏱️' },
+							{ value: 'MEMBER_UPDATE', label: 'Member & Nickname Changes', icon: '✏️' },
+							{ value: 'ROLE_ASSIGN', label: 'Role Assignments (Discord & Web)', icon: '🎖️' },
+							{ value: 'ROLE_UPDATE', label: 'Role Created / Edited / Deleted', icon: '🏷️' },
+							{ value: 'CHANNEL_UPDATE', label: 'Channel Created / Edited / Deleted', icon: '📁' },
+							{ value: 'INVITE_CREATE', label: 'Invites Created / Deleted', icon: '✉️' },
+							{ value: 'AUTOMOD', label: 'Auto-Moderation Triggers', icon: '🛡️' },
+							{ value: 'WELCOME_LEAVE', label: 'Welcome & Member Leaves', icon: '👋' },
+							{ value: 'VOICE_TTS', label: 'Voice TTS Suite', icon: '🗣️' },
+							{ value: 'HONEYPOT', label: 'Honeypot Trap', icon: '🍯' },
+							{ value: 'REACTION_ROLE', label: 'Reaction Roles', icon: '⚡' },
+						]}
+						placeholder="Filter event types..."
+						searchable={false}
+					/>
 				</div>
 			</div>
 

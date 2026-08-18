@@ -1261,34 +1261,156 @@ app.get('/api/guilds/:guildId/audit-logs', requireAdminGuild, async (req, res) =
 	}
 });
 
-function isUserDeveloper(userId) {
+// --- Guild-Specific Audio Queue & Playback Controls ---
+app.get('/api/guilds/:guildId/audio-queue', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'get_audio_queues' }, 3000);
+		const queues = ipcRes?.queues || [];
+		const guildQueue = queues.find(q => String(q.guildId) === String(guildId)) || {
+			guildId,
+			guildName: 'Discord Server',
+			playerState: 'idle',
+			isBusy: false,
+			queueLength: 0,
+			currentItem: null,
+			items: [],
+		};
+		res.json({ success: true, queue: guildQueue });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch guild audio queue.', queue: null });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/skip', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+		const ipcRes = await sendIpcRequest({ type: 'skip_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `User ${uName} force skipped audio in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Track skipped successfully!' : 'No track active to skip.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to skip audio track.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/remove', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	const { itemId } = req.body || {};
+	if (!itemId) return res.status(400).json({ success: false, error: 'Missing itemId parameter.' });
+	try {
+		const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+		const ipcRes = await sendIpcRequest({ type: 'remove_audio_queue_item', guildId, itemId }, 4000);
+		BotLogs('TTS', `User ${uName} force removed queue item ${itemId} in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Item removed successfully!' : 'Item not found.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to remove queue item.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/clear', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+		const ipcRes = await sendIpcRequest({ type: 'clear_guild_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `User ${uName} cleared audio queue for server ${guildId}`);
+		res.json({ success: true, message: 'Server audio queue cleared successfully!' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to clear guild audio queue.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/audio-queue/inject', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	const { text, sound, userName, engine, voice, lang, volume } = req.body || {};
+	if (!text && !sound) return res.status(400).json({ success: false, error: 'Missing text or sound parameter.' });
+	try {
+		const uName = userName || (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Dashboard Admin';
+		const ipcRes = await sendIpcRequest({
+			type: 'force_add_audio_queue',
+			guildId,
+			text: text || sound,
+			sound: sound || undefined,
+			userName: uName,
+			engine: sound ? 'AUDIO_MP3' : (engine || 'EDGE_TTS'),
+			voice: voice || 'th-TH-NiwatNeural',
+			lang: lang || 'th',
+			volume: typeof volume === 'number' ? volume : 0.5,
+		}, 5000);
+
+		if (ipcRes && ipcRes.success) {
+			BotLogs('TTS', `User ${uName} enqueued audio (${sound || text}) to server ${guildId}`);
+			return res.json({ success: true, message: 'Audio clip enqueued successfully!', id: ipcRes.id });
+		}
+		return res.status(400).json({ success: false, error: ipcRes?.error || 'Failed to enqueue audio.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to inject audio clip.' });
+	}
+});
+
+app.get('/api/guilds/:guildId/audio-logs', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	const { limit, status, search } = req.query;
+	try {
+		const logs = await database.getAudioLogs({ limit, status, search, guildId });
+		res.json({ success: true, logs });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch guild audio logs.', logs: [] });
+	}
+});
+
+let dbDevIdsCache = [];
+let lastDbDevFetch = 0;
+
+async function isUserDeveloperAsync(userId) {
 	if (!userId) return false;
 	try {
-		const freshConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-		const devIds = [freshConfig.ownerId, ...(freshConfig.developerUserIds || [])]
-			.filter(Boolean)
-			.map(id => String(id));
-		if (devIds.length > 0) {
-			return devIds.includes(String(userId));
+		if (Date.now() - lastDbDevFetch > 5000 || dbDevIdsCache.length === 0) {
+			dbDevIdsCache = await database.getDeveloperUserIds();
+			lastDbDevFetch = Date.now();
 		}
+		return dbDevIdsCache.includes(String(userId));
 	}
-	catch {}
-	return true;
+	catch {
+		return false;
+	}
 }
 
-function requireDeveloper(req, res, next) {
-	if (!req.session || !req.session.user) {
-		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
-	}
-	if (!isUserDeveloper(req.session.user.id)) {
-		return res.status(403).json({ error: 'Forbidden: Developer access required.' });
-	}
-	next();
+function isUserDeveloper(userId) {
+	if (!userId) return false;
+	return dbDevIdsCache.includes(String(userId));
 }
 
-app.get('/api/developer/check', (req, res) => {
-	const isDev = req.session && req.session.user ? isUserDeveloper(req.session.user.id) : false;
-	res.json({ success: true, isDeveloper: isDev });
+async function requireDeveloper(req, res, next) {
+	try {
+		if (!req.session || !req.session.user) {
+			return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+		}
+		const isDev = await isUserDeveloperAsync(req.session.user.id);
+		if (!isDev) {
+			return res.status(403).json({ error: 'Forbidden: Developer access required.' });
+		}
+		next();
+	}
+	catch (err) {
+		res.status(500).json({ error: 'Failed to verify developer status.' });
+	}
+}
+
+app.get('/api/developer/check', async (req, res) => {
+	try {
+		const isDev = req.session && req.session.user ? await isUserDeveloperAsync(req.session.user.id) : false;
+		res.json({ success: true, isDeveloper: isDev });
+	}
+	catch {
+		res.json({ success: true, isDeveloper: false });
+	}
 });
 
 app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
@@ -1313,6 +1435,7 @@ app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
 				userCount: botStats.usersCount || 0,
 				voiceConnections: botStats.voiceConnectionsCount || 0,
 				readyTimestamp: botStats.readyTimestamp || null,
+				guilds: botStats.guilds || [],
 			},
 			services: {
 				botStatus: botStats.exists ? 'online' : 'offline',
@@ -1327,7 +1450,109 @@ app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
 });
 
 app.get('/api/developer/logs', requireDeveloper, (req, res) => {
-	res.json({ success: true, logs: getRecentLogs() });
+	try {
+		res.json({ success: true, logs: getRecentLogs() || [] });
+	}
+	catch (err) {
+		res.status(500).json({ success: false, logs: [] });
+	}
+});
+
+app.get('/api/developer/audio-queues', requireDeveloper, async (req, res) => {
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'get_audio_queues' }, 3000);
+		res.json({ success: true, queues: ipcRes?.queues || [] });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch active audio queues.', queues: [] });
+	}
+});
+
+app.post('/api/developer/audio-queues/skip', requireDeveloper, async (req, res) => {
+	const { guildId } = req.body || {};
+	if (!guildId) return res.status(400).json({ success: false, error: 'Missing guildId parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'skip_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `Developer ${req.session.user.username} force skipped audio in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Track skipped successfully!' : 'No track active to skip.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to skip audio queue item.' });
+	}
+});
+
+app.post('/api/developer/audio-queues/remove', requireDeveloper, async (req, res) => {
+	const { guildId, itemId } = req.body || {};
+	if (!guildId || !itemId) return res.status(400).json({ success: false, error: 'Missing guildId or itemId parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'remove_audio_queue_item', guildId, itemId }, 4000);
+		BotLogs('TTS', `Developer ${req.session.user.username} force removed queue item ${itemId} in server ${guildId}`);
+		res.json({ success: !!ipcRes?.success, message: ipcRes?.success ? 'Queue item removed successfully!' : 'Item not found.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to remove audio queue item.' });
+	}
+});
+
+app.post('/api/developer/audio-queues/clear', requireDeveloper, async (req, res) => {
+	const { guildId } = req.body || {};
+	if (!guildId) return res.status(400).json({ success: false, error: 'Missing guildId parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({ type: 'clear_guild_audio_queue', guildId }, 4000);
+		BotLogs('TTS', `Developer ${req.session.user.username} cleared audio queue for server ${guildId}`);
+		res.json({ success: true, message: 'Server audio queue cleared successfully!' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to clear guild audio queue.' });
+	}
+});
+
+app.post('/api/developer/audio-queues/add', requireDeveloper, async (req, res) => {
+	const { guildId, text, userName, engine, voice, lang } = req.body || {};
+	if (!guildId || !text) return res.status(400).json({ success: false, error: 'Missing guildId or text parameter.' });
+	try {
+		const ipcRes = await sendIpcRequest({
+			type: 'force_add_audio_queue',
+			guildId,
+			text,
+			userName: userName || req.session.user.username,
+			engine: engine || 'EDGE_TTS',
+			voice: voice || 'th-TH-NiwatNeural',
+			lang: lang || 'th',
+		}, 5000);
+		if (ipcRes && ipcRes.success) {
+			BotLogs('TTS', `Developer ${req.session.user.username} force enqueued TTS to server ${guildId}: "${text}"`);
+			return res.json({ success: true, message: 'TTS enqueued successfully!', id: ipcRes.id });
+		}
+		return res.status(400).json({ success: false, error: ipcRes?.error || 'Failed to enqueue TTS.' });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to add item to audio queue.' });
+	}
+});
+
+app.get('/api/developer/audio-logs', requireDeveloper, async (req, res) => {
+	const { limit, status, search, guildId } = req.query;
+	try {
+		const logs = await database.getAudioLogs({ limit, status, search, guildId });
+		res.json({ success: true, logs });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to fetch audio logs.', logs: [] });
+	}
+});
+
+app.post('/api/developer/audio-logs/purge', requireDeveloper, async (req, res) => {
+	const { days } = req.body || {};
+	try {
+		const retentionDays = parseInt(days || 7, 10);
+		const count = await database.cleanOldAudioLogs(retentionDays);
+		BotLogs('Web', `Developer ${req.session.user.username} purged audio logs older than ${retentionDays} days (${count} deleted)`);
+		res.json({ success: true, message: `Purged ${count} audio log entries older than ${retentionDays} days!`, count });
+	}
+	catch (error) {
+		res.status(500).json({ success: false, error: 'Failed to purge expired audio logs.' });
+	}
 });
 
 app.get('/api/developer/audit-logs', requireDeveloper, async (req, res) => {
@@ -1419,7 +1644,11 @@ core.initCoreSchema()
 		BotLogs('Megu', `${COLOR.red}Core schema init failed: ${error.message}. Activity features will not work.`);
 	});
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
 	BotLogs('SYSTEM', `Express health check & dashboard server running on port ${PORT}`);
 });
+
+// Configure Keep-Alive timeouts to prevent ECONNRESET proxy race conditions with Next.js rewrites
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
