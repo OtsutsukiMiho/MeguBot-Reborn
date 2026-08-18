@@ -59,6 +59,7 @@ async function main() {
 		label: 'ค่าคอร์ท',
 		amountSatang: money.toSatang(4000),
 		paidBy: P['ฟิก'],
+		shareParticipantIds: Object.values(P),
 	});
 
 	await assert.rejects(
@@ -111,13 +112,15 @@ async function main() {
 	await activities.unconfirmPayment(pay.id);
 	full = await activities.getActivity(act.id);
 	assert.strictEqual(owed(full, 'โอม').outstanding, 10000);
-	assert.strictEqual(full.payments[0].status, 'pending');
-	ok('confirming the wrong person is undoable — back to pending, money owed again');
+	assert.strictEqual(full.payments[0].status, 'reversed');
+	ok('confirming the wrong person is undoable — reversal reopens the debt without erasing history');
 
 	assert.strictEqual(await activities.removePayment(pay.id), true);
 	full = await activities.getActivity(act.id);
-	assert.strictEqual(full.payments.length, 0);
-	ok('a payment logged by mistake can be deleted outright');
+	assert.strictEqual(full.payments.length, 1);
+	assert.strictEqual(full.payments[0].status, 'voided');
+	assert.ok(full.payments[0].events.some(event => event.type === 'voided'));
+	ok('a payment logged by mistake is voided with an audit event, never deleted outright');
 
 	console.log('\nclaims');
 

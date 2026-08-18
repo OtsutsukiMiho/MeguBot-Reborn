@@ -8,6 +8,7 @@
 require('dotenv').config();
 const assert = require('node:assert');
 const core = require('../core/index.js');
+const { isDisposableTestDatabase } = require('./test-database.js');
 
 const { db } = core;
 let n = 0;
@@ -64,8 +65,8 @@ async function tableExists(name) {
 }
 
 async function main() {
-	if (!db.isLocal(db.connectionString())) {
-		throw new Error('rename.test.js rebuilds the schema and must never run on a remote database');
+	if (!isDisposableTestDatabase(db.connectionString())) {
+		throw new Error('rename.test.js rebuilds the schema and requires a local database whose name ends with `_test`');
 	}
 
 	// Back to before the rename. CASCADE because the new tables point at each

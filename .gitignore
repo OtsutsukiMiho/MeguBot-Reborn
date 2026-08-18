@@ -7,6 +7,16 @@ dist/
 # Dependencies
 node_modules/
 
+# The OCR engine, copied out of node_modules and downloaded once by
+# `npm run ocr:setup`. Build output, not source — twenty-odd megabytes of
+# WebAssembly and language data that npm can produce again on demand.
+public/ocr/
+/eng.traineddata
+/tha.traineddata
+
+# Per-machine launch settings used by local coding assistants.
+.claude/
+
 # Environment variables
 .env
 .env*.local

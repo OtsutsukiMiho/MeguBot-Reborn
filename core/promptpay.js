@@ -12,13 +12,21 @@
 
 const AID_PROMPTPAY = 'A000000677010111';
 
+// The other PromptPay application: a shop's bill-payment code, addressed to a
+// biller id rather than to a person. It is recognised here only so that
+// uploading one can be refused with the reason, instead of being read as an
+// e-wallet — both are fifteen digits and only the tag tells them apart.
+const AID_BILL_PAYMENT = 'A000000677010112';
+
 const TAG = {
 	format: '00',
 	initiation: '01',
 	merchant: '29',
+	billPayment: '30',
 	currency: '53',
 	amount: '54',
 	country: '58',
+	merchantName: '59',
 	crc: '63',
 };
 
@@ -29,6 +37,16 @@ const MERCHANT = {
 	mobile: '01',
 	nationalId: '02',
 	eWallet: '03',
+	// Not something this file can build a QR for — a bank account proxy needs
+	// the bank as well as the number. Named so that reading one can say so.
+	bankAccount: '04',
+};
+
+const KIND_BY_SUBTAG = {
+	[MERCHANT.mobile]: 'mobile',
+	[MERCHANT.nationalId]: 'nationalId',
+	[MERCHANT.eWallet]: 'eWallet',
+	[MERCHANT.bankAccount]: 'bankAccount',
 };
 
 const CURRENCY_THB = '764';
@@ -182,34 +200,158 @@ function buildPayload(target, amountSatang = null) {
 /**
  * Read a payload back apart. Used by the tests, and by anything that wants to
  * check a QR says what it was meant to say rather than trusting the builder.
+ *
+ * Strict on purpose: a field claiming more characters than remain, or a few
+ * characters left over at the end, means this is not a TLV payload at all. It
+ * used to stop quietly at the last whole field and hand back whatever it had
+ * managed to read, which turns "this QR is a website link" into a half-parsed
+ * object that looks almost real.
  */
 function parsePayload(payload) {
+	const text = String(payload == null ? '' : payload);
 	const out = {};
 	let i = 0;
-	while (i + 4 <= payload.length) {
-		const id = payload.slice(i, i + 2);
-		const len = Number(payload.slice(i + 2, i + 4));
-		if (!Number.isInteger(len)) throw new Error('malformed payload length');
-		out[id] = payload.slice(i + 4, i + 4 + len);
+	while (i < text.length) {
+		if (i + 4 > text.length) throw new Error('malformed_payload');
+		const id = text.slice(i, i + 2);
+		const rawLength = text.slice(i + 2, i + 4);
+		if (!/^\d{2}$/.test(rawLength)) throw new Error('malformed_payload');
+		const len = Number(rawLength);
+		if (i + 4 + len > text.length) throw new Error('malformed_payload');
+		out[id] = text.slice(i + 4, i + 4 + len);
 		i += 4 + len;
 	}
 	return out;
 }
 
 function verifyPayload(payload) {
-	if (payload.length < 8) return false;
-	const body = payload.slice(0, -4);
-	const given = payload.slice(-4);
+	const text = String(payload == null ? '' : payload);
+	if (text.length < 8) return false;
+	const body = text.slice(0, -4);
+	const given = text.slice(-4);
 	return crc16(body) === given.toUpperCase();
+}
+
+/**
+ * The amount as the payload writes it — baht with a decimal point — back into
+ * the integer satang everything else in core counts in.
+ *
+ * Done with string arithmetic rather than `parseFloat` because `66.50 * 100` is
+ * 6649.999999999999 and this is the one number nobody may round by accident.
+ */
+function amountToSatang(raw) {
+	if (raw == null) return null;
+	const text = String(raw).trim();
+	if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+	const [baht, fraction = ''] = text.split('.');
+	const satang = Number(baht) * 100 + Number(fraction.padEnd(2, '0'));
+	return Number.isSafeInteger(satang) && satang > 0 ? satang : null;
+}
+
+// Bank apps put something in field 59 whether or not they have a name to put
+// there. These are the placeholders, and they must not become somebody's
+// account name on the pay screen.
+const NAME_PLACEHOLDERS = new Set(['NA', 'N/A', 'NULL', 'NONE', '-']);
+
+/**
+ * Read a QR that somebody scanned, and work out whose account it pays into.
+ *
+ * This is `buildPayload` run backwards, and it exists because the number is
+ * already in the picture. Asking a person to read thirteen digits off their own
+ * banking app and retype them is asking for the one typo that sends a group's
+ * money to a stranger — the QR they were told to save is a better source than
+ * their eyes.
+ *
+ * What comes back is an account, never a payment: the amount, if the QR carried
+ * one, is reported so the screen can say it is being ignored. A saved account
+ * has no amount, because Megu puts the amount in herself.
+ *
+ * Throws with a code rather than returning null, because every failure here has
+ * a different sentence attached to it — "that is a shop's code", "that is not a
+ * PromptPay code at all" and "that is a bank account, which needs the bank too"
+ * are three different things for the person holding the phone to do next.
+ */
+function readQr(payload) {
+	const text = String(payload == null ? '' : payload).trim();
+	if (!text) throw new Error('qr_unreadable');
+
+	// The checksum first. Anything that fails it — a website link, a Wi-Fi
+	// code, a slip's own QR — is not a payment code, and there is no point
+	// reading fields out of it.
+	if (!verifyPayload(text)) throw new Error('qr_not_promptpay');
+
+	let fields;
+	try {
+		fields = parsePayload(text);
+	}
+	catch {
+		throw new Error('qr_not_promptpay');
+	}
+
+	if (fields[TAG.format] !== '01') throw new Error('qr_not_promptpay');
+
+	// A shop's bill-payment code. Refused with its own reason: its biller id is
+	// fifteen digits, exactly like an e-wallet, so silence here would encode a
+	// shop's account as a person's and the QR would look perfectly fine.
+	if (fields[TAG.billPayment] != null) {
+		const biller = safeSubFields(fields[TAG.billPayment]);
+		if (biller[MERCHANT.aid] === AID_BILL_PAYMENT) throw new Error('qr_bill_payment');
+	}
+
+	const merchant = safeSubFields(fields[TAG.merchant]);
+	if (merchant[MERCHANT.aid] !== AID_PROMPTPAY) throw new Error('qr_not_promptpay');
+
+	const subTag = Object.keys(KIND_BY_SUBTAG).find(id => merchant[id] != null);
+	if (!subTag) throw new Error('qr_not_promptpay');
+	if (KIND_BY_SUBTAG[subTag] === 'bankAccount') throw new Error('qr_bank_account');
+
+	// A mobile travels in the payload as 0066 + nine digits. It goes back out
+	// as the ten-digit number its owner would recognise, so that what gets
+	// saved and shown is the number they know rather than the wire form.
+	const stored = merchant[subTag];
+	const target = KIND_BY_SUBTAG[subTag] === 'mobile' && /^0066\d{9}$/.test(stored)
+		? `0${stored.slice(-9)}`
+		: stored;
+
+	// Back through the same door a typed number comes in by. If the QR carries
+	// a shape this file cannot re-encode, better to find out here than at the
+	// moment somebody is trying to pay.
+	const { kind } = normaliseTarget(target);
+
+	const rawName = String(fields[TAG.merchantName] || '').trim();
+	const accountName = rawName && !NAME_PLACEHOLDERS.has(rawName.toUpperCase()) ? rawName : null;
+
+	return {
+		target,
+		kind,
+		accountName,
+		masked: maskTarget(target),
+		amountSatang: amountToSatang(fields[TAG.amount]),
+	};
+}
+
+// A field that should hold nested TLV but does not is not a crash — it is a
+// field that fails whichever AID check the caller was about to make anyway.
+function safeSubFields(value) {
+	if (value == null) return {};
+	try {
+		return parsePayload(value);
+	}
+	catch {
+		return {};
+	}
 }
 
 module.exports = {
 	buildPayload,
 	parsePayload,
 	verifyPayload,
+	readQr,
+	amountToSatang,
 	normaliseTarget,
 	maskTarget,
 	isValidTarget,
 	crc16,
 	AID_PROMPTPAY,
+	AID_BILL_PAYMENT,
 };

@@ -195,4 +195,53 @@ assert.strictEqual(format.formatPeriod('', 'en'), '');
 assert.strictEqual(format.formatDueDay(99, 'en'), '');
 ok('missing and malformed values render as nothing, not as "Invalid Date"');
 
+console.log('\nkeys the components actually ask for');
+
+// Matching keys between the two dictionaries is only half the guarantee. A
+// component can reference `t.receipt.partial` that neither dictionary has, and
+// nothing catches it: the key sits on an error path, so it renders as
+// `undefined is not a function` on the day somebody's upload fails — the worst
+// possible moment to add a second failure.
+//
+// This reads every `t.section.key` out of the components and checks both
+// dictionaries answer. It found exactly that missing key the first time it ran.
+{
+	const fs = require('node:fs');
+	const path = require('node:path');
+
+	const dirs = [
+		path.join(__dirname, '..', 'app', 'components'),
+		path.join(__dirname, '..', 'app', 'a', '[code]'),
+	];
+
+	const sources = dirs.flatMap((dir) => {
+		if (!fs.existsSync(dir)) return [];
+		return fs.readdirSync(dir, { withFileTypes: true })
+			.filter(entry => entry.isFile() && entry.name.endsWith('.js'))
+			.map(entry => path.join(dir, entry.name));
+	});
+
+	assert.ok(sources.length > 0, 'no component sources were found to scan');
+
+	const missing = [];
+	let checked = 0;
+
+	for (const file of sources) {
+		const src = fs.readFileSync(file, 'utf8');
+		for (const match of src.matchAll(/\bt\.([a-zA-Z]+)\.([a-zA-Z]+)/g)) {
+			const [, section, entry] = match;
+			checked++;
+			for (const [name, dictionary] of [['th', th], ['en', en]]) {
+				if (dictionary?.[section]?.[entry] === undefined) {
+					missing.push(`${name}.${section}.${entry} — ${path.basename(file)}`);
+				}
+			}
+		}
+	}
+
+	assert.deepStrictEqual(missing, [], `copy keys used by components but never written:\n  ${missing.join('\n  ')}`);
+	assert.ok(checked > 50, `only ${checked} key references were found — the scan is probably not matching`);
+	ok(`every copy key the components ask for exists in both languages (${checked} references)`);
+}
+
 console.log(`\n${n} checks passed\n`);

@@ -279,11 +279,81 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_verdict TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_uploaded_at TIMESTAMPTZ;',
 
+	// What the slip appeared to say, as against what it proves.
+	//
+	// `slip_bank` comes out of the slip's own QR and is as solid as `slip_ref`.
+	// The other two are OCR — a reading of a photograph, which can be wrong in
+	// ways that look perfectly confident — and they exist for exactly one
+	// purpose: so the owner confirming a payment sees "the slip says ฿1,250,
+	// you asked for ฿1,250" on one line instead of opening a banking app.
+	//
+	// Strict matches may settle optimistically, but remain labelled
+	// `slip_matched` rather than `bank_verified` and can be reversed by the owner.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_bank TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_amount_satang BIGINT;',
+	// The wall clock printed on the slip, stored as the text it was written in.
+	// A slip carries an hour in Bangkok and no timezone at all, and this
+	// codebase has already been bitten once by a month that turned over at the
+	// wrong hour — a TIMESTAMPTZ here would be inventing an offset nobody
+	// wrote down.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_when TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_sender_name TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_receiver_name TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_sender_account_tail TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_receiver_account_tail TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_transferred_at TIMESTAMPTZ;',
+
+	// A derived evidence card contains only the fields needed for a dispute.
+	// The original upload is temporary and is discarded as soon as a decision
+	// can be made; the evidence card carries no EXIF and no unused slip areas.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_image BYTEA;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_mime TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_hash TEXT;',
+
+	// Confirmation is intentionally two-dimensional. `status` says what the
+	// ledger currently counts, while these columns say why it was allowed to
+	// count. A bank API can later add `bank_verified` without rewriting history.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS confirmation_source TEXT;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS verification_level TEXT NOT NULL DEFAULT \'none\';',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_by TEXT REFERENCES users(id) ON DELETE SET NULL;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;',
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversal_reason TEXT;',
+
 	// Unique across every activity, not just within one: a slip reused from
 	// another group is exactly the case worth catching, and it is the only one
 	// a per-activity constraint would miss. Partial, because almost every
 	// payment has no slip at all and NULLs must not collide.
 	'CREATE UNIQUE INDEX IF NOT EXISTS payments_slip_ref_key ON payments (slip_ref) WHERE slip_ref IS NOT NULL;',
+
+	// One bank transfer may settle several recurring periods, and one period
+	// may receive several partial transfers. Existing rows keep `period_id` as
+	// a compatibility fallback; all new writes also create allocations here.
+	`CREATE TABLE IF NOT EXISTS payment_allocations (
+		id             TEXT PRIMARY KEY,
+		payment_id     TEXT NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+		period_id      TEXT REFERENCES periods(id) ON DELETE CASCADE,
+		amount_satang  BIGINT NOT NULL CHECK (amount_satang > 0),
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS payment_allocations_payment_idx ON payment_allocations (payment_id);',
+	'CREATE UNIQUE INDEX IF NOT EXISTS payment_allocations_period_key ON payment_allocations (payment_id, period_id) WHERE period_id IS NOT NULL;',
+	'CREATE UNIQUE INDEX IF NOT EXISTS payment_allocations_event_key ON payment_allocations (payment_id) WHERE period_id IS NULL;',
+
+	// Payment history is append-only. Rejection, reversal and voiding are state
+	// transitions with actors and reasons, never an unexplained DELETE.
+	`CREATE TABLE IF NOT EXISTS payment_events (
+		id                   TEXT PRIMARY KEY,
+		payment_id           TEXT NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+		activity_id          TEXT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+		event_type           TEXT NOT NULL,
+		actor_user_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
+		actor_participant_id TEXT REFERENCES participants(id) ON DELETE SET NULL,
+		reason               TEXT,
+		metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS payment_events_payment_idx ON payment_events (payment_id, created_at);',
+	'CREATE INDEX IF NOT EXISTS payment_events_activity_idx ON payment_events (activity_id, created_at);',
 
 	// Nagging without spamming: one row per reminder actually delivered, so
 	// the scheduler can hold off if Megu already spoke to this person today.

@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "node .",
     "start": "node index.js",
-    "build": "next build",
+    "build": "node scripts/vendor-ocr.js && next build",
+    "ocr:setup": "node scripts/vendor-ocr.js",
     "deploy": "node deploy-commands.js",
     "boot": "node deploy-commands.js && node .",
     "test": "node tests/run.js",
@@ -19,6 +20,9 @@
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
     "db:seed": "node scripts/seed-demo.js",
+    "db:seed:payment": "node scripts/seed-payment-demo.js",
+    "db:seed:discord-payment": "node scripts/seed-discord-payment-test.js",
+    "db:restore:discord-payment": "node scripts/restore-discord-payment-test.js",
     "db:audit": "node scripts/db-audit.js",
     "contrast": "node scripts/contrast-audit.js",
     "bot:instances": "node scripts/instance-audit.js"
@@ -31,7 +35,6 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "ffmpeg-static": "^5.3.0",
-    "google-tts-api": "^2.0.2",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.29.0",
     "next": "^16.3.0",
@@ -41,6 +44,8 @@
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sharp": "^0.35.3",
+    "tesseract.js": "^7.0.0",
     "three": "^0.185.1"
   },
   "devDependencies": {

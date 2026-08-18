@@ -21,7 +21,10 @@ function makeApp(sessionFor) {
 		req.session = sessionFor(req);
 		next();
 	});
-	app.use('/api/megu', meguApi.router({ botPresence: async () => ['111'] }));
+	app.use('/api/megu', meguApi.router({
+		botPresence: async () => ['111'],
+		frontendUrl: 'https://megu.test',
+	}));
 	return app;
 }
 
@@ -50,6 +53,14 @@ let server = null;
 async function main() {
 	await core.initCoreSchema();
 
+	const localShare = meguApi.shareDetails({
+		headers: {},
+		protocol: 'http',
+		get: () => 'localhost:3100',
+	}, 'http://localhost:3100', '192.168.1.38', true);
+	assert.deepStrictEqual(localShare, { origin: 'http://192.168.1.38:3100', reachability: 'network' });
+	pass('a local development link becomes reachable from another device on the same network');
+
 	const fig = await core.users.loginWithIdentity({
 		provider: 'discord', providerUid: '__api_fig__', username: 'fig', displayName: 'ฟิก',
 	});
@@ -57,6 +68,16 @@ async function main() {
 
 	const sessions = {
 		fig: { meguUserId: fig.user.id, user: { id: '__api_fig__' }, allGuilds: [{ id: '111', name: 'Megu HQ', permissions: '8' }] },
+		stale: {
+			meguUserId: 'usr_deleted_with_old_database',
+			user: { id: '__api_recovered__', username: 'recovered', global_name: 'Recovered user' },
+			allGuilds: [],
+		},
+		racy: {
+			meguUserId: 'usr_also_deleted',
+			user: { id: '__api_concurrent_recovery__', username: 'concurrent', global_name: 'Concurrent user' },
+			allGuilds: [],
+		},
 		anon: {},
 	};
 	let whoAmI = 'anon';
@@ -70,9 +91,44 @@ async function main() {
 	const figClient = client(base);
 	const ohmClient = client(base);
 	const strangerClient = client(base);
+	const staleClient = client(base);
+	const recoveryA = client(base);
+	const recoveryB = client(base);
+
+	whoAmI = 'racy';
+	const [recoveredA, recoveredB] = await Promise.all([
+		recoveryA('GET', '/api/megu/me'),
+		recoveryB('GET', '/api/megu/me'),
+	]);
+	assert.strictEqual(recoveredA.status, 200);
+	assert.strictEqual(recoveredB.status, 200);
+	assert.strictEqual(recoveredA.body.user.id, recoveredB.body.user.id);
+	created.users.push(recoveredA.body.user.id);
+	pass('two simultaneous stale-session requests converge on one recovered account');
+
+	// A browser session can survive a local database reset. The old behavior
+	// accepted this missing id as authenticated and then leaked a raw activities
+	// foreign-key error from PostgreSQL.
+	whoAmI = 'stale';
+	let r = await staleClient('POST', '/api/megu/activities', {
+		title: 'Recovered dinner',
+		startsAt: '2026-08-23T18:00:00+07:00',
+		participants: [{ displayName: 'Friend' }],
+	});
+	assert.strictEqual(r.status, 201);
+	created.activities.push(r.body.activity.code);
+	assert.notStrictEqual(sessions.stale.meguUserId, 'usr_deleted_with_old_database');
+	created.users.push(sessions.stale.meguUserId);
+	assert.strictEqual(r.body.activity.role, 'owner');
+	pass('a stale Discord session recreates its missing Megu account before activity insert');
+
+	r = await staleClient('GET', '/api/megu/me');
+	assert.strictEqual(r.body.loggedIn, true);
+	assert.strictEqual(r.body.user.displayName, 'Recovered user');
+	pass('the repaired session stays logged in with a real user row');
 
 	whoAmI = 'fig';
-	let r = await figClient('GET', '/api/megu/me');
+	r = await figClient('GET', '/api/megu/me');
 	assert.strictEqual(r.body.loggedIn, true);
 	assert.strictEqual(r.body.servers.length, 1);
 	assert.strictEqual(r.body.servers[0].canManage, true);
@@ -97,19 +153,36 @@ async function main() {
 	assert.strictEqual(r.body.activity.role, 'owner');
 	assert.strictEqual(r.body.activity.participants.length, 4);
 	pass(`POST /activities created /a/${code} with plan open, money none`);
+	const createdActivity = r.body.activity;
 
-	const ohmId = r.body.activity.participants.find(p => p.displayName === 'โอม').id;
-	const nutId = r.body.activity.participants.find(p => p.displayName === 'นัท').id;
-	const figId = r.body.activity.participants.find(p => p.displayName === 'ฟิก').id;
+	r = await figClient('GET', '/api/megu/activities');
+	let listed = r.body.activities.find(a => a.code === code);
+	assert.deepStrictEqual(
+		{
+			people: listed.summary.people,
+			answered: listed.summary.answered,
+			awaitingAnswer: listed.summary.awaitingAnswer,
+			moneyState: listed.summary.moneyState,
+			outstandingSatang: listed.summary.outstandingSatang,
+		},
+		{ people: 4, answered: 0, awaitingAnswer: 4, moneyState: 'none', outstandingSatang: 0 },
+	);
+	pass('GET /activities says how many people still owe the organizer an answer');
+
+	const ohmId = createdActivity.participants.find(p => p.displayName === 'โอม').id;
+	const nutId = createdActivity.participants.find(p => p.displayName === 'นัท').id;
+	const figId = createdActivity.participants.find(p => p.displayName === 'ฟิก').id;
 
 	whoAmI = 'anon';
 	r = await strangerClient('GET', `/api/megu/a/${code}`);
 	assert.strictEqual(r.status, 200);
 	assert.strictEqual(r.body.activity.role, 'none');
+	assert.strictEqual(r.body.activity.shareUrl, `https://megu.test/a/${code}`);
+	assert.strictEqual(r.body.activity.shareReachability, 'public');
 	assert.strictEqual(r.body.activity.totals, null);
 	assert.strictEqual(r.body.activity.moneyState, null);
 	assert.strictEqual(r.body.activity.expenses.length, 0);
-	pass('a stranger can open the link but sees no amounts');
+	pass('a stranger receives the public share link and can open it without seeing amounts');
 
 	const leaked = JSON.stringify(r.body);
 	assert.ok(!leaked.includes('deviceToken'), 'device tokens must never reach the client');
@@ -142,11 +215,30 @@ async function main() {
 	const aId = (await figClient('GET', `/api/megu/a/${code}`)).body.activity.participants
 		.find(p => p.displayName === 'A').id;
 	for (const id of [figId, nutId]) await core.activities.setRsvp(id, 'yes');
+	r = await figClient('GET', '/api/megu/activities');
+	listed = r.body.activities.find(a => a.code === code);
+	assert.strictEqual(listed.summary.answered, 3);
+	assert.strictEqual(listed.summary.awaitingAnswer, 1);
+	pass('the activity list follows answers without opening each activity');
 
 	await figClient('POST', `/api/megu/a/${code}/plan`, { planState: 'confirmed' });
 	r = await figClient('POST', `/api/megu/a/${code}/plan`, { planState: 'done' });
 	assert.strictEqual(r.body.activity.planState, 'done');
 	pass('owner walked the plan to done');
+	r = await figClient('POST', `/api/megu/a/${code}/attendance`, { attendance: { [figId]: true, [ohmId]: false } });
+	assert.strictEqual(r.status, 200);
+	assert.strictEqual(r.body.activity.participants.find(p => p.id === figId).attended, true);
+	assert.strictEqual(r.body.activity.participants.find(p => p.id === ohmId).attended, false);
+	pass('owner recorded what actually happened after the activity finished');
+	r = await figClient('POST', `/api/megu/a/${code}/attendance`, { attendance: { par_someone_else: true } });
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'participant_not_in_activity');
+	pass('attendance cannot update a participant outside this activity');
+	r = await figClient('POST', `/api/megu/a/${code}/attendance`, { attendance: { [figId]: 'false' } });
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'attendance_invalid');
+	assert.strictEqual(r.body.activity, undefined);
+	pass('attendance rejects string booleans instead of turning "false" into true');
 
 	whoAmI = 'anon';
 	r = await ohmClient('POST', `/api/megu/a/${code}/expenses`, { label: 'ค่าคอร์ท', amountBaht: 400, paidBy: figId });
@@ -156,17 +248,35 @@ async function main() {
 	// A never answered, so the ฿400 splits three ways, not four.
 	whoAmI = 'fig';
 	r = await figClient('POST', `/api/megu/a/${code}/expenses`, { label: 'ค่าคอร์ท', amountBaht: 400, paidBy: figId });
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'split_people_required');
+	pass('a one-off bill cannot silently infer its split from incomplete RSVP answers');
+
+	r = await figClient('POST', `/api/megu/a/${code}/expenses`, {
+		label: 'ค่าคอร์ท', amountBaht: 400, paidBy: figId,
+		shareParticipantIds: [figId, ohmId, nutId],
+	});
 	assert.strictEqual(r.status, 200);
 	assert.strictEqual(r.body.activity.moneyState, 'open');
 	assert.strictEqual(r.body.activity.totals.total, 40000);
 	assert.strictEqual(r.body.activity.participants.find(p => p.id === aId).owes, 0);
+	const courtExpense = r.body.activity.expenses.find(e => e.label === 'ค่าคอร์ท');
+	assert.deepStrictEqual(
+		new Set(courtExpense.shares.map(share => share.participantId)),
+		new Set([figId, ohmId, nutId]),
+	);
+	assert.strictEqual(courtExpense.shares.reduce((sum, share) => sum + share.amountSatang, 0), courtExpense.amountSatang);
+	pass('each expense exposes exactly who shares it and each person’s amount');
 	const owed = r.body.activity.participants.filter(p => p.owes > 0);
 	assert.strictEqual(owed.length, 3);
 	assert.strictEqual(owed.reduce((s, p) => s + p.owes, 0), 40000);
 	pass('฿400 split only among the three who said yes, summing back to ฿400 exactly');
 
 	await core.activities.setRsvp(aId, 'yes');
-	r = await figClient('POST', `/api/megu/a/${code}/expenses`, { label: 'ลูกแบด', amountBaht: 200, paidBy: figId });
+	r = await figClient('POST', `/api/megu/a/${code}/expenses`, {
+		label: 'ลูกแบด', amountBaht: 200, paidBy: figId,
+		shareParticipantIds: [figId, ohmId, nutId, aId],
+	});
 	assert.strictEqual(r.body.activity.participants.find(p => p.id === aId).owes, 5000);
 	pass('A said yes later → the next expense includes them');
 
@@ -192,6 +302,18 @@ async function main() {
 	pass('โอม cannot confirm their own payment');
 
 	whoAmI = 'fig';
+	r = await figClient('GET', '/api/megu/activities');
+	listed = r.body.activities.find(a => a.code === code);
+	const beforeConfirmation = core.activities.settlement(await core.activities.getActivityByCode(code));
+	assert.strictEqual(listed.summary.moneyState, 'open');
+	assert.strictEqual(listed.summary.awaitingConfirmation, 1);
+	assert.strictEqual(listed.summary.unpaidCount, beforeConfirmation.unpaid.length);
+	assert.strictEqual(
+		listed.summary.outstandingSatang,
+		beforeConfirmation.rows.reduce((sum, row) => sum + Math.max(0, row.outstanding), 0),
+	);
+	pass('the activity list exposes both the balance and the payment waiting on its owner');
+
 	r = await figClient('POST', `/api/megu/a/${code}/payments/${payment.id}/confirm`);
 	assert.strictEqual(r.status, 200);
 	assert.strictEqual(r.body.activity.participants.find(p => p.id === ohmId).outstanding, 0);
@@ -210,6 +332,14 @@ async function main() {
 	assert.strictEqual(r.body.activity.moneyState, 'settled');
 	assert.ok(r.body.activity.megu.includes('ตีแบด'));
 	pass(`money settled — Megu says "${r.body.activity.megu}"`);
+
+	r = await figClient('GET', '/api/megu/activities');
+	listed = r.body.activities.find(a => a.code === code);
+	assert.strictEqual(listed.summary.moneyState, 'settled');
+	assert.strictEqual(listed.summary.unpaidCount, 0);
+	assert.strictEqual(listed.summary.outstandingSatang, 0);
+	assert.strictEqual(listed.summary.awaitingConfirmation, 0);
+	pass('the list turns clear as soon as the last payment is confirmed');
 
 	// ── corrections over HTTP ────────────────────────────────────────────
 	whoAmI = 'anon';

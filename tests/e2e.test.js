@@ -1,5 +1,7 @@
-process.chdir('E:/MeguBot-Reborn-main');
-require('dotenv').config({ path: 'E:/MeguBot-Reborn-main/.env' });
+const path = require('node:path');
+const projectRoot = path.join(__dirname, '..');
+process.chdir(projectRoot);
+require('dotenv').config({ path: path.join(projectRoot, '.env') });
 
 const core = require('../core/index.js');
 const { users, activities, money, voice, db } = core;
@@ -76,6 +78,7 @@ async function main() {
 		label: 'ค่าคอร์ท',
 		amountSatang: money.toSatang(400),
 		paidBy: P['ฟิก'].id,
+		shareParticipantIds: Object.values(P).map(p => p.id),
 	});
 	console.log(voice.say('expenseAdded', {
 		label: 'ค่าคอร์ท', amount: exp.amountSatang, perHead: exp.split[P['โอม'].id],

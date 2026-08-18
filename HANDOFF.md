@@ -15,7 +15,8 @@ mean both and now permanently redirects to whichever one the URL meant.
 
 ```bash
 docker compose up -d     # local Postgres on 55432
-npm test                 # 4 suites, ~1.2s
+npm test                 # isolated sibling database (`*_test`), ~6s
+npm run ocr:setup        # the slip/receipt reader into public/ocr (once)
 npm run db:seed          # demo activity, prints /a/<CODE>
 ```
 
@@ -41,7 +42,10 @@ Next on any other port breaks the OAuth callback.
 Core reads `MEGU_DATABASE_URL` first and falls back to `DATABASE_URL`. In
 production leave it unset and core rejoins the main database.
 
-`npm test` refuses to run unless core points at a local database.
+`npm test` derives `megu_dev_test` (or reads `MEGU_TEST_DATABASE_URL`) and
+refuses any host that is not local or any database name without the `_test`
+suffix. Destructive migration coverage therefore cannot touch `megu_dev`, even
+when a test file is invoked directly.
 
 **Supabase was rolled back.** The seven `megu_*` tables created during the first
 round of testing were dropped; `guild_variables` (3), `user_nicks` (33),
@@ -205,19 +209,25 @@ merchant account, no fee, because none of that is involved in *encoding* a
 request for ฿60. What costs money is the bank telling you it arrived, and that
 is the part we do not have.
 
-So the flow stops one step short of automatic on purpose:
+The V0 flow is optimistic and reversible:
 
-    QR with the exact amount → they transfer → they say so → optional slip
-                                                          → the owner confirms
+    exact QR → transfer → mandatory slip → strict match → auto-confirm
+                                                ↘ exception → owner review
+    cash/offline payment → owner records receipt → owner-confirmed
 
-The owner confirming is not a placeholder. It is the product's existing rule —
-a claim is not a payment — and a slip does not change it, because a slip is an
-image and we cannot verify one. What a slip buys is that confirming takes a
-glance instead of a trip to a banking app, and that the same slip cannot be
-used twice: the browser reads the transaction reference off the slip's own QR
-with `jsqr`, and a unique index on `payments.slip_ref` refuses a repeat across
-every activity, not just this one. A caller can invent a reference; inventing
-one gets you a row that still says "waiting for confirmation".
+`slip_matched` deliberately does not mean `bank_verified`. Megu has no bank API.
+The server decodes the uploaded slip pixels itself, re-parses the checksummed
+QR, refuses a duplicate reference, and compares its own OCR reading to the
+exact expected amount, configured receiver name, and a plausible Bangkok
+timestamp. Browser-supplied OCR fields are ignored. A five-month-old transfer is allowed
+and flagged; an impossible future clock or any mismatch stays pending. The
+sender's bank-account name is evidence only — somebody else may transfer for
+the debtor. If the owner checks their bank and the optimistic result is wrong,
+they reverse it with a required reason and the debtor is notified.
+
+One payment has child rows in `payment_allocations`: one transfer can cover
+several recurring periods, and several partial transfers can cover one period.
+The payment and every state change also write append-only `payment_events`.
 
 **The thing that is easy to get wrong.** The person paying is holding the phone
 the QR is displayed on, and a phone cannot scan its own screen. Saving the
@@ -238,10 +248,84 @@ Two rules the code enforces rather than assumes:
   banking apps quietly fail to read, and the person holding the phone has no
   way to know the theme is why.
 
-Slips live in Postgres as `bytea` and are served by one route that checks who
-is asking. That is deliberate: every alternative starts by making them
-reachable over HTTP, and they carry account names. `forgetOldSlips()` drops the
-images 90 days after settlement and leaves the payment rows intact.
+The original slip is normalized to a bounded JPEG first, stripping EXIF/GPS,
+then kept as temporary `bytea` readable only by payer/payee while an exception
+is pending. Forged image MIME headers and oversized pixel surfaces are refused.
+The server renders its own standardized evidence PNG
+from an allow-list (bank, reference, names, last four account digits, amount,
+date/time); it never trusts a client-provided derivative. A final decision
+deletes the raw image immediately, and boot-time retention deletes unresolved
+raw images after seven days. Structured evidence, allocations and audit events
+remain.
+
+## Reading pictures
+
+Three things arrive as photographs now, and they are worth very different
+amounts. Confusing them is the mistake this part of the codebase is arranged to
+prevent.
+
+| | Source | Worth |
+|---|---|---|
+| The account on a saved PromptPay QR | EMVCo payload, checksummed | Exact. `promptpay.readQr` |
+| The bank and reference on a slip | The slip's own QR, checksummed | Exact. `core/slip.js` |
+| The amount, date and dish names | OCR on a photograph | **A reading.** `core/receipt.js` |
+
+**Importing an account.** `promptpay.readQr` is `buildPayload` run backwards.
+The number is already in the picture the bank saved for its customer, and
+asking somebody to copy thirteen digits by hand is asking for the one
+transposed pair that quietly pays a stranger — a wrong account does not fail,
+it succeeds at the wrong destination. It refuses with a reason per case, and the
+reasons matter: a shop's bill-payment id (field 30) is fifteen digits and so is
+an e-wallet id, so only the tag they arrive under tells them apart. Read by
+length alone, a shop's code would be saved as a person's and look perfectly
+fine. An amount baked into the imported QR is reported and then dropped, out
+loud, because keeping it would fix every future request at whatever they were
+paid once.
+
+**The slip's QR carries no amount.** It is a nested TLV under tag `00` — API
+type `000001`, sending bank, transaction reference — with its checksum under
+`91` rather than the `63` a PromptPay QR uses, and resolving it into an actual
+amount needs a bank's API, which costs money and an account and which Megu
+deliberately does not have. What it gives is an *identifier*, and that is
+enough for the one automatic check with teeth. Two things the code insists on:
+the reference is namespaced (`th-bank:004:…`) because two banks may issue the
+same number and a bare collision would tell an innocent person their slip was a
+duplicate; and some banks print the checksum with its leading zeros stripped,
+which is padded back before comparison — otherwise the bug reads as "the app
+hates SCB".
+
+**OCR proposes; the policy may accept optimistically.** A complete strict match
+can mark a transfer paid, but the stored verification level remains
+`slip_matched`, never `bank_verified`, and every result is reversible. Receipt
+scanning remains form-fill only: it never adds expenses without a person
+committing the edited proposal.
+
+The one signal worth leaning on is `reconciles`: when the lines read off a bill
+add up to the total read off the same bill, two independent readings agree.
+That is the same argument as a checksum, and it is the only thing on the panel
+that gets colour.
+
+**Two non-obvious things, both verified rather than assumed.**
+
+- Tesseract defaults to `SINGLE_BLOCK`, which *silently deletes the amount* on
+  a bank slip: the figure is set two or three times larger than everything
+  around it and layout analysis discards it as an outlier. The text comes back
+  containing "Amount:" with nothing after it — no error, no warning. A slip is
+  one column at many sizes, so `app/lib/receipt.js` sets `SINGLE_COLUMN`.
+- The engine is served from this origin, not a CDN. `npm run ocr:setup` copies
+  the worker and the LSTM cores out of `node_modules` and downloads the `_fast`
+  language data into `public/ocr/` (gitignored, ~22MB on disk, of which a
+  browser fetches one core and the languages it needs). It runs as part of
+  `npm run build`. Without it the reader reports itself unavailable and every
+  other part of the page carries on — an unread slip is still a slip a human
+  can look at.
+
+PromptPay account import and receipt preview decode in the browser. A payment
+slip is different: the phone still shrinks it to a few hundred kilobytes, but
+the server normalizes and decodes those pixels again because editable client
+JSON cannot authorize an automatic payment. Server decoding is bounded to
+40 megapixels and the normalized JPEG strips source metadata before temporary
+storage.
 
 ## Two languages, and how not to freeze one in
 
@@ -276,10 +360,11 @@ silently counted as reminded.
 
 Frozen out of V0, per the scope we agreed:
 
-- Bank-verified payments — the QR and the slip are in (see below), but nothing
-  contacts a bank, so the owner still confirms every payment by hand
+- Bank-verified payments — strict slip matches are optimistic and reversible;
+  `bank_verified` is reserved for a future provider/API
 - A `Group` entity — activities are the root; groups emerge later from repeats
-- Discord slash commands for activities (the bot only sends reminders so far)
+- Passive Discord channel scanning — payment intake is explicit `/จ่าย` with a
+  required attachment; ordinary messages are never treated as financial input
 - Automatic month rollover — a new period opens when the owner asks for it,
   not on a schedule
 
@@ -318,8 +403,10 @@ scripts/                 seed-demo, db-audit
 configures the bot in a guild. Nothing else. A guild administrator who is not in
 an activity sees no amounts — there is a test for exactly this.
 
-**A claim is not a payment.** Pressing "จ่ายแล้ว" writes a `pending` row. Only
-the owner, or later a verified transaction, moves it to `confirmed`.
+**A claim is not a payment.** Pressing "จ่ายแล้ว" writes a `pending` row. A
+bank transfer needs a slip and either a strict optimistic match or owner review;
+cash needs an explicit owner action. `confirmation_source` and
+`verification_level` must always explain why a confirmed row counts.
 
 ## Bugs found and fixed during the build
 
@@ -342,8 +429,8 @@ the owner, or later a verified transaction, moves it to `confirmed`.
 ## Verifying
 
 ```bash
-npm test      # 50 checks across 4 suites, ~1.2s against the local container
-npx next build
+npm test      # all suites against an isolated local `*_test` database
+npm run build # vendors the OCR engine, then next build
 ```
 
 `tests/recurring.test.js` is the one to read first: it demonstrates money

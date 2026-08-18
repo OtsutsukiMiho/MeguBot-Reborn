@@ -421,6 +421,17 @@ input, textarea, select, button {
 	text-decoration: none;
 }
 
+.btn-danger {
+	color: var(--due);
+	background: var(--due-soft);
+	border-color: color-mix(in srgb, var(--due) 35%, transparent);
+}
+
+.btn-danger:hover:not(:disabled) {
+	border-color: var(--due);
+	text-decoration: none;
+}
+
 /* The one emphatic control, and only where money is actually owed. Its gold
    hairline is the same mark that sits beside Megu's name. */
 .btn-pay {
@@ -516,6 +527,241 @@ textarea.form-control {
 	font-weight: var(--w-strong);
 	color: var(--ink-2);
 	margin-bottom: .35rem;
+}
+
+/* A form is a column of questions, so it gets a column's measure rather than
+   the panel's. Left at panel width the fields ran to 900px on a laptop and the
+   reader's eye had to travel the whole way back for each one. */
+.form-panel {
+	max-width: 40rem;
+}
+
+.form-stack {
+	display: grid;
+	gap: 1.05rem;
+}
+
+/* `fieldset` is the right element for a group of radios and carries a border,
+   a margin and a padding nobody asked for. */
+.field {
+	min-width: 0;
+	border: none;
+	margin: 0;
+	padding: 0;
+}
+
+.field > legend.field-label {
+	padding: 0;
+}
+
+/* Below a control, never above: it explains the answer you are about to give,
+   and read first it is just noise. */
+.field-hint {
+	font-size: .82rem;
+	line-height: 1.55;
+	color: var(--faint);
+	margin-top: .38rem;
+}
+
+.field-hint.error-text {
+	color: var(--due);
+}
+
+/* Said once, quietly, on the label. A required field is the norm here, so
+   marking the exceptions is cheaper than marking everything else. */
+.field-optional {
+	font-weight: var(--w-body);
+	color: var(--faint);
+	margin-left: .4rem;
+}
+
+.field-pair {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: .8rem;
+}
+
+@media (max-width: 560px) {
+	.field-pair {
+		grid-template-columns: 1fr;
+	}
+}
+
+.form-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .6rem;
+	align-items: center;
+	margin-top: .3rem;
+}
+
+/* Native prompt/confirm dialogs are not reliable inside embedded browsers.
+   Money corrections use an in-document dialog so the reason remains visible,
+   keyboard-accessible and under the same pending-state control as the API. */
+.action-dialog-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+	display: grid;
+	place-items: center;
+	padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+	background: color-mix(in srgb, var(--ink) 56%, transparent);
+	backdrop-filter: blur(5px);
+}
+
+.action-dialog {
+	width: min(100%, 31rem);
+	max-height: min(86vh, 38rem);
+	overflow-y: auto;
+	background: var(--surface);
+	border: 1px solid var(--line-2);
+	border-radius: var(--r);
+	padding: 1.25rem;
+	box-shadow: 0 24px 70px color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
+.action-dialog-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+
+.action-dialog-head h2 {
+	font-size: 1.18rem;
+	line-height: 1.35;
+}
+
+.action-dialog-copy {
+	color: var(--muted);
+	line-height: 1.65;
+}
+
+.action-dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: .6rem;
+}
+
+/* ------------------------------------------------------- segmented choice */
+
+/* Two answers where the reader has to see both to pick one, and where the
+   consequence is worth a line underneath. It borrows the language switch's
+   shape deliberately: the same gesture should look the same everywhere in the
+   product. Real radios, so arrow keys work without being reimplemented. */
+.segmented {
+	display: inline-flex;
+	align-items: center;
+	gap: .1rem;
+	padding: .2rem;
+	border-radius: 99px;
+	background: var(--sunk);
+	border: 1px solid var(--line);
+	max-width: 100%;
+}
+
+.segmented input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.segmented label {
+	font-size: .88rem;
+	font-weight: var(--w-medium);
+	line-height: 1;
+	color: var(--muted);
+	border-radius: 99px;
+	padding: .46rem .9rem;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: background .15s var(--ease), color .15s var(--ease);
+}
+
+.segmented label:hover {
+	color: var(--ink);
+}
+
+.segmented input:checked + label {
+	background: var(--surface);
+	color: var(--ink);
+	font-weight: var(--w-strong);
+	box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+/* The input itself is off-screen, so the ring has to be drawn on the label. */
+.segmented input:focus-visible + label {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- examples */
+
+/* They fill the field, and on the way they answer a question the placeholder
+   could not: what else is allowed in here. One placeholder can only ever name
+   one case, and readers took the one it named as the whole product. */
+.examples {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .35rem;
+	margin-top: .5rem;
+}
+
+.examples-label {
+	font-size: .82rem;
+	color: var(--faint);
+	margin-right: .1rem;
+}
+
+.example-btn {
+	font-family: var(--font-body);
+	font-size: .82rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	background: none;
+	border: 1px dashed var(--line-2);
+	border-radius: 99px;
+	padding: .26rem .68rem;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+}
+
+.example-btn:hover {
+	color: var(--accent);
+	border-color: var(--accent);
+	border-style: solid;
+	background: var(--accent-soft);
+}
+
+/* The same job on the empty state, where there is no field to fill yet — so
+   these are read, not pressed. */
+.example-list {
+	display: grid;
+	gap: .42rem;
+	list-style: none;
+	font-size: .93rem;
+	color: var(--ink-2);
+}
+
+.example-list li {
+	display: flex;
+	align-items: baseline;
+	gap: .6rem;
+}
+
+.example-list li::before {
+	content: '';
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: var(--line-2);
+	flex: none;
+	transform: translateY(-.25em);
 }
 
 /* ------------------------------------------------------------------ page */
@@ -765,6 +1011,55 @@ textarea.form-control {
 	color: var(--muted);
 }
 
+/* The total stays scannable on the right; ownership lives under the label and
+   opens only when somebody needs to audit the per-person split. */
+.expense-detail {
+	margin-top: .3rem;
+	font-size: .84rem;
+	color: var(--muted);
+}
+
+.expense-detail summary {
+	width: fit-content;
+	max-width: 100%;
+	cursor: pointer;
+	color: var(--accent);
+	line-height: 1.5;
+}
+
+.expense-detail summary:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.expense-detail-hint {
+	color: var(--faint);
+	margin-left: .4rem;
+}
+
+.expense-share-list {
+	display: grid;
+	gap: .3rem;
+	max-width: 23rem;
+	margin-top: .45rem;
+	padding: .55rem .65rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--paper);
+}
+
+.expense-share-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.expense-share-row .mono {
+	color: var(--ink-2);
+	white-space: nowrap;
+}
+
 .row-figure {
 	font-family: var(--font-mono);
 	font-variant-numeric: tabular-nums;
@@ -793,6 +1088,70 @@ textarea.form-control {
 	gap: .55rem;
 	flex-wrap: wrap;
 	flex: none;
+}
+
+/* A row that is entirely a link. The hit area is the whole row rather than the
+   title, which is what a thumb assumes; the negative inset lets the hover tint
+   reach past the panel's text column without moving the text. */
+.row-link {
+	text-decoration: none;
+	color: inherit;
+	border-radius: var(--r-sm);
+	padding-inline: .55rem;
+	margin-inline: -.55rem;
+	transition: background .15s var(--ease);
+}
+
+.row-link:hover {
+	background: var(--sunk);
+	text-decoration: none;
+}
+
+.row-link .row-name,
+.row-link .row-sub {
+	display: block;
+}
+
+.row-sub + .row-sub,
+.row-name + .row-sub {
+	margin-top: .12rem;
+}
+
+/* A chevron sat here to say the row goes somewhere. Drawn light enough not to
+   compete it measured 1.8:1, under the 3:1 a non-text affordance owes; drawn
+   dark enough to pass, five of them stacked down the edge argued with the one
+   thing on that edge that carries meaning — the status chip. The hover tint and
+   the cursor already say "link", so the chevron was the part to lose. */
+
+/* Finished activities. Opacity was the old answer and it took the text with it
+   — `--muted` at 55% lands near 2.5:1, which is unreadable rather than quiet.
+   Recede by colour, and only the parts that can afford it. */
+.row-link.is-quiet .row-name {
+	font-weight: var(--w-medium);
+	color: var(--ink-2);
+}
+
+.row-link.is-quiet .chip {
+	color: var(--faint);
+}
+
+/* The list's useful answer: what still needs the organizer's attention. Keep
+   it on one line beside the plan chip on a wide screen, then stack the two at
+   the edge on a phone so the activity title keeps enough room to be legible. */
+.activity-row-tools {
+	flex-wrap: nowrap;
+}
+
+.activity-row-tools .row-figure {
+	font-size: .88rem;
+}
+
+@media (max-width: 560px) {
+	.activity-row-tools {
+		flex-direction: column;
+		align-items: flex-end;
+		gap: .28rem;
+	}
 }
 
 .total-row {
@@ -1024,6 +1383,29 @@ textarea.form-control {
 .quiet-note {
 	font-size: .93rem;
 	color: var(--muted);
+}
+
+/* Panels stacked in one section. Without this they share an edge and read as
+   one panel with a stray heading in the middle of it. */
+.stack-panels {
+	display: grid;
+	gap: 1.4rem;
+}
+
+/* Loading, in the shape of the thing that is loading. The page used to be
+   replaced wholesale by a centred sleeping cat, so every element arrived at a
+   different position than the one the reader had already started reaching for.
+   The global reduced-motion rule stops the pulse. */
+@keyframes skeleton-pulse {
+	50% { opacity: .45; }
+}
+
+.skeleton-line {
+	display: block;
+	height: .95rem;
+	border-radius: 4px;
+	background: var(--sunk);
+	animation: skeleton-pulse 1.4s var(--ease) infinite;
 }
 
 .error-note {
@@ -2483,6 +2865,65 @@ textarea.form-control {
 	color: var(--muted);
 }
 
+.allocation-picker {
+	display: flex;
+	flex-direction: column;
+	gap: .45rem;
+	padding: .75rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--sunk);
+}
+
+.allocation-head,
+.allocation-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: .6rem;
+}
+
+.allocation-head .link-btn {
+	font-size: .8rem;
+}
+
+.allocation-row {
+	min-height: 44px;
+	padding: .35rem .45rem;
+	border-radius: calc(var(--r-sm) - 3px);
+	background: var(--paper);
+	cursor: pointer;
+}
+
+.allocation-row > span:nth-child(2) {
+	flex: 1;
+	font-weight: 600;
+}
+
+.allocation-amount {
+	display: flex;
+	align-items: center;
+	gap: .35rem;
+	font-size: .78rem;
+	color: var(--muted);
+}
+
+.allocation-amount input {
+	width: 7.5rem;
+	min-height: 38px;
+	padding: .35rem .5rem;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--paper);
+	color: var(--ink);
+	font: 600 .95rem var(--font-mono);
+	text-align: right;
+}
+
+.allocation-picker .quiet-note {
+	margin: .15rem 0 0;
+}
+
 /* The QR keeps its own ground in both themes.
    A code inverted for dark mode is a code a good many Thai banking apps
    quietly fail to read, and the person holding the phone has no way to tell
@@ -2624,6 +3065,176 @@ textarea.form-control {
 	gap: .8rem;
 }
 
+/* Importing the account out of a saved QR. Sits directly under the field it
+   fills, because it is an alternative way of answering that field rather than
+   a separate feature — and if it reads as a separate feature, people type the
+   thirteen digits by hand and one of them gets a digit wrong. */
+.pp-import {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .25rem;
+	margin-top: .5rem;
+}
+
+.pp-scanned {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .4rem;
+	margin-top: .5rem;
+}
+
+/* ------------------------------------------------------ reading a slip */
+
+/* What the picture said. Deliberately quiet: it sits beside a figure the payer
+   typed and a figure the group asked for, and it must never be the loudest of
+   the three — it is the one that came from a photograph. */
+.slip-reading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .4rem;
+	margin-top: .45rem;
+}
+
+.slip-reading .quiet-note {
+	flex-basis: 100%;
+	margin: 0;
+}
+
+.slip-when {
+	font-size: .82rem;
+	color: var(--faint);
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------- reading a receipt */
+
+.receipt-scan {
+	display: flex;
+	flex-direction: column;
+	gap: .35rem;
+}
+
+.receipt-result {
+	display: flex;
+	flex-direction: column;
+	gap: .6rem;
+	margin-top: .5rem;
+	padding: .75rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--surface-2);
+}
+
+.receipt-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: .6rem;
+}
+
+.receipt-lines {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: .35rem;
+}
+
+/* Name, then price, then the tick that keeps it. The price column is fixed so
+   the figures line up down the page — a column of amounts that do not align is
+   a column nobody can add up by eye, which is the only check available here. */
+.receipt-lines li {
+	display: grid;
+	grid-template-columns: auto 1fr 6.5rem;
+	align-items: center;
+	gap: .4rem;
+}
+
+.receipt-line-off {
+	opacity: .45;
+}
+
+.receipt-amount {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.receipt-tick {
+	display: flex;
+	align-items: center;
+	min-width: 24px;
+	min-height: 24px;
+}
+
+.receipt-sums {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: .6rem;
+	padding-top: .5rem;
+	border-top: 1px solid var(--line);
+	font-size: .9rem;
+	color: var(--muted);
+}
+
+.receipt-sums strong {
+	color: var(--ink);
+	font-variant-numeric: tabular-nums;
+}
+
+/* The one line on this panel that is evidence rather than a reading: whether
+   the lines add up to the figure the restaurant printed. Coloured because it
+   is the only thing here worth colouring. */
+.receipt-check {
+	font-size: .85rem;
+	line-height: 1.5;
+	padding: .4rem .6rem;
+	border-radius: var(--r-sm);
+}
+
+.receipt-check.ok {
+	color: var(--settled);
+	background: var(--settled-soft);
+}
+
+.receipt-check.off {
+	color: var(--due);
+	background: var(--due-soft);
+}
+
+.receipt-extras {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .8rem;
+}
+
+.receipt-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .5rem;
+}
+
+.receipt-actions .btn {
+	min-height: 44px;
+}
+
+/* A phone in a restaurant, one-handed. Below this the three-column line wraps
+   its price under its name rather than squeezing both into nothing. */
+@media (max-width: 420px) {
+	.receipt-lines li {
+		grid-template-columns: auto 1fr;
+	}
+
+	.receipt-amount {
+		grid-column: 2;
+	}
+}
+
 /* Fingers, on the one screen that moves money.
    The shared button sizes are tuned for a desktop console; here every control
    is pressed one-handed, on a phone, by someone who is mid-transfer. 44px is
@@ -2636,4 +3247,78 @@ textarea.form-control {
 .pay-panel .btn-sm {
 	min-height: 40px;
 	padding-inline: .9rem;
+}
+
+.cash-payment-form {
+	display: grid;
+	gap: .65rem;
+	margin-top: 1rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+}
+
+.cash-payment-form .quiet-note {
+	margin: -.25rem 0 .1rem;
+}
+
+/* Choosing who shares a bill is a money decision, so it is visible in the
+   form instead of being inferred from whichever RSVP answers happen to exist. */
+.expense-split {
+	margin: .35rem 0 0;
+	padding: .75rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+}
+
+.expense-split .quiet-note {
+	margin: .2rem 0 .65rem;
+}
+
+.expense-split-list {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: .45rem .7rem;
+}
+
+.expense-split-person {
+	display: flex;
+	align-items: center;
+	gap: .45rem;
+	min-height: 34px;
+	font-size: .9rem;
+	cursor: pointer;
+}
+
+.expense-split-person input {
+	accent-color: var(--accent);
+}
+
+.schedule-needed > div:last-child {
+	display: grid;
+	gap: .8rem;
+}
+
+.attendance-hint {
+	padding: .75rem 1.25rem .25rem;
+}
+
+.attendance-actions {
+	display: flex;
+	gap: .4rem;
+	flex-wrap: wrap;
+}
+
+.attendance-actions .vote-btn {
+	min-height: 38px;
+}
+
+@media (max-width: 520px) {
+	.expense-split-list {
+		grid-template-columns: 1fr;
+	}
+
+	.attendance-row {
+		align-items: flex-start;
+		flex-direction: column;
+	}
 }

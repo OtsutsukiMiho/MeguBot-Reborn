@@ -7,6 +7,9 @@ const ids = require('./ids.js');
 const money = require('./money.js');
 const format = require('./format.js');
 const promptpay = require('./promptpay.js');
+const slip = require('./slip.js');
+const receipt = require('./receipt.js');
+const paymentEvidence = require('./payment-evidence.js');
 const { initCoreSchema } = require('./schema.js');
 const users = require('./users.js');
 const activities = require('./activities.js');
@@ -23,6 +26,9 @@ module.exports = {
 	money,
 	format,
 	promptpay,
+	slip,
+	receipt,
+	paymentEvidence,
 	users,
 	activities,
 	reminders,

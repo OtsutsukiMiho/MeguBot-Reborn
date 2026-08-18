@@ -8,6 +8,13 @@
 const en = {
 	code: 'en',
 	label: 'EN',
+	nav: {
+		home: 'Home',
+		activities: 'Activities',
+		servers: 'Servers',
+		signOut: 'Sign out',
+		signIn: 'Sign in with Discord',
+	},
 
 	common: {
 		loading: 'Loading…',
@@ -44,6 +51,13 @@ const en = {
 		not_your_payment: 'That payment belongs to someone else',
 		not_your_slip: 'Only the sender and the person being paid can open this',
 		no_slip: 'No slip attached to this payment',
+		poll_not_ready: 'Wait until everyone has answered before locking a time',
+		time_not_set: 'Choose a date and time before confirming this activity',
+		split_people_required: 'Choose who shares this expense',
+		attendance_not_ready: 'Finish the activity before recording attendance',
+		attendance_invalid: 'Attendance must be came, did not come, or not marked',
+		session_expired: 'Your sign-in expired. Sign in again to continue.',
+		data_conflict: 'The data changed while saving. Reload and try again.',
 	},
 
 	plan: {
@@ -70,6 +84,89 @@ const en = {
 		eachPerMonth: amount => `${amount} each`,
 	},
 
+	// The organizer's own list, at /activities. Everything an organizer reads
+	// before they have created anything lives here, which makes this section
+	// the product's first description of itself — the examples are load-bearing
+	// and not filler. A single example ("badminton") taught readers that Megu
+	// was a court-booking tool, so the range is stated deliberately and in more
+	// than one place.
+	activities: {
+		title: 'Your activities',
+		liveCount: n => `${n} still running`,
+		pastCount: n => `${n} finished`,
+		newActivity: 'New activity',
+		liveTitle: 'Running now',
+		pastTitle: 'Earlier',
+		monthly: 'Monthly',
+		openMenu: 'Open',
+		standing: {
+			awaitingConfirmation: (n, amount) => amount
+				? `${n} to confirm · ${amount} due`
+				: `${n} to confirm`,
+			outstanding: (n, amount) => `${amount} due · ${n} ${n === 1 ? 'person' : 'people'}`,
+			answered: (answered, total) => `${answered}/${total} answered`,
+			allAnswered: total => `${total}/${total} answered`,
+			settled: 'Paid in full',
+		},
+
+		empty: {
+			says: 'Nothing here yet. Shall we start one?',
+			lede: 'Anything with more than one person and some money in it. Megu can hold all of these:',
+			examples: [
+				'Dinner, split when the bill lands',
+				'A trip somebody books and pays for up front',
+				'A grocery run for the house',
+				'Rent and wifi, collected every month',
+				'A group gift everyone chips in on',
+			],
+		},
+
+		kind: {
+			legend: 'What kind',
+			event: 'One time',
+			eventHint: 'Dinner, a trip, a shopping run, badminton — happens once, gets split, done.',
+			recurring: 'Every month',
+			recurringHint: 'Wifi, Netflix, rent — the same amount each month, and Megu opens the round herself.',
+		},
+
+		saysEvent: 'What are we doing, and who with? I will go and ask them.',
+		saysRecurring: 'Something to collect every month. Tell me how much, and from whom.',
+
+		titleField: 'What should we call it',
+		titlePlaceholderEvent: 'Hotpot on Saturday',
+		titlePlaceholderRecurring: 'Home wifi',
+		examplesLabel: 'For example',
+		exampleTitlesEvent: ['Dinner', 'Weekend trip', 'Badminton', 'House groceries', 'Birthday gift'],
+		exampleTitlesRecurring: ['Wifi', 'Netflix', 'Rent', 'Electricity'],
+
+		whenField: 'When',
+		whenAsk: 'Let Megu ask',
+		whenKnown: 'I know the time',
+		whenAskHint: 'Megu collects everyone’s free days first, then calls it.',
+
+		whereField: 'Where',
+		wherePlaceholder: 'Place or address',
+
+		peopleField: 'Who is in',
+		peoplePlaceholder: 'Alex, Sam, Mint',
+		peopleHint: 'Commas or new lines. Nobody has to sign up for anything — you just send them the link.',
+
+		amountField: 'How much a month (baht)',
+		dueDayField: 'Collect on day',
+		dueDayHint: 'of every month (1–28)',
+
+		serverField: 'Discord server',
+		serverNone: 'Not linked to a server',
+
+		optional: 'optional',
+		create: 'Create it and give me the link',
+		creating: 'Creating…',
+
+		signedOutTitle: 'Hello, I’m Megu',
+		signedOutLede: 'I run your group’s plans, from asking who is coming to making sure everyone has paid.',
+		signIn: 'Sign in with Discord',
+	},
+
 	headline: {
 		youOwe: 'You owe',
 		youGetBack: 'You get back',
@@ -91,14 +188,21 @@ const en = {
 		notGoing: 'Not going',
 	},
 
+	schedule: {
+		title: 'Choose a time first',
+		ownerHint: 'Add a few options. Megu will ask everyone when they are free before anyone commits to coming.',
+		waitingHint: 'The organizer is still choosing times. You can answer as soon as the options arrive.',
+	},
+
 	roster: {
 		titleEvent: 'Who is coming',
 		titleRecurring: 'Members',
 		going: 'Going',
 		notGoing: 'Not going',
 		noAnswer: 'Has not answered',
-		notLinked: 'Has not opened the link',
+		notLinked: 'Has not claimed their name',
 		paidUp: 'Paid up',
+		clear: 'Clear',
 		getsBack: amount => `Gets back ${amount}`,
 		paidFor: period => `Paid for ${period}`,
 		owesFor: (amount, period) => `Owes ${amount} for ${period}`,
@@ -109,6 +213,14 @@ const en = {
 		confirmRemove: name => `Take ${name} off this activity?`,
 	},
 
+	attendance: {
+		title: 'Who actually came',
+		hint: 'Mark attendance after the activity so the record reflects what happened, not only what people planned.',
+		came: 'Came',
+		absent: 'Did not come',
+		marked: (done, total) => `${done}/${total} marked`,
+	},
+
 	expenses: {
 		title: 'Costs',
 		total: 'Total',
@@ -117,6 +229,11 @@ const en = {
 		amountField: 'How much',
 		payerField: 'Who paid up front',
 		payerOption: name => `${name} paid up front`,
+		splitField: 'Split between',
+		splitHint: 'These names will owe a share. Check them before adding the cost.',
+		forPerson: name => `For ${name}`,
+		splitBetween: names => `Split between ${names}`,
+		viewSplit: 'view each share',
 		confirmDelete: (label, amount) => `Delete "${label}" ${amount}?`,
 	},
 
@@ -126,8 +243,26 @@ const en = {
 		received: 'Got it',
 		notYet: 'Not arrived',
 		confirmedTitle: 'Already confirmed',
+		historyTitle: 'Reversed and rejected payment history',
 		undo: 'Undo confirmation',
-		confirmDeletePayment: 'Delete this payment record?',
+		reversalReason: 'Why are you reversing this payment? The payer will see this note.',
+		rejectionReason: 'Why are you rejecting this payment? The payer will see this note.',
+		rejectedNotice: reason => `Payment rejected: ${reason}`,
+		reversedNotice: reason => `Payment confirmation reversed: ${reason}`,
+		allocatedFromTransfer: (allocated, total) => `${allocated} allocated to this period from a ${total} transfer`,
+		autoMatched: 'Slip matched automatically',
+		ownerConfirmed: 'Checked and confirmed by owner',
+		cashConfirmed: 'Owner confirmed an offline payment',
+		confirmDeletePayment: 'Void this record while keeping its history?',
+	},
+
+	cash: {
+		title: 'Received outside Megu',
+		hint: 'Use this for cash or a transfer you checked yourself. It has no slip and is confirmed under your name.',
+		person: 'Received from',
+		amount: 'Amount (baht)',
+		received: 'Record as received',
+		reason: 'Owner confirmed receiving payment outside Megu',
 	},
 
 	poll: {
@@ -166,6 +301,9 @@ const en = {
 		title: 'Bring the others in',
 		hint: 'Drop this link in the group chat. Nobody needs an account.',
 		linkLabel: 'Activity link',
+		networkOnly: 'Test mode: this link works for devices on the same Wi-Fi or local network.',
+		deviceOnly: 'This link still works only on this device. Set FRONTEND_URL to an address other people can reach before sharing.',
+		copyFailed: 'Automatic copy was blocked. The link is selected—long-press it or press Ctrl+C to copy.',
 	},
 
 	// ── paying ──────────────────────────────────────────────────────────────
@@ -188,16 +326,21 @@ const en = {
 		copyAmount: 'Copy amount',
 		numberCopied: 'Number copied',
 		amountCopied: 'Amount copied',
+		choosePeriods: 'Choose periods and amounts',
+		selectAllOutstanding: 'Select everything outstanding',
+		amountFor: period => `Amount for ${period}`,
+		allocationHint: 'Partial payments and several months on one transfer are supported.',
+		baht: 'baht',
 		iHavePaid: 'I have transferred it',
 		attachSlip: 'Attach the slip',
-		attachSlipHint: 'Optional — it just saves them asking whether it arrived',
+		attachSlipHint: 'A slip is required before this counts as paid. Only the minimum dispute evidence is retained.',
 		slipAttached: 'Slip attached',
 		replaceSlip: 'Use a different slip',
 		viewSlip: 'View slip',
 		reading: 'Reading the slip…',
 		noPromptPay: name => `${name} has not added a PromptPay number yet`,
 		noPromptPayOwner: 'Add your PromptPay number and everyone gets a QR with the exact amount already in it.',
-		waitingConfirm: 'They have been told. Waiting for them to confirm it arrived.',
+		waitingConfirm: 'Attach the slip so Megu can check and record this payment.',
 	},
 
 	promptpay: {
@@ -211,15 +354,50 @@ const en = {
 		payeeField: 'Who collects the money',
 		notSet: 'Not set yet',
 		remove: 'Remove this number',
+		fromQr: 'Read it from my QR',
+		fromQrHint: 'Pick the PromptPay QR your banking app saved. It is read on this device and never uploaded.',
+		reading: 'Reading the code…',
+		qrRead: masked => `Read from the code: ${masked}`,
+		qrAmountIgnored: amount => `That code also carried ${amount}. Only the account is kept — Megu puts the right amount in each time.`,
 	},
 
 	slip: {
 		verdictUnread: 'Slip attached — could not read its reference',
+		verdictReview: 'Slip attached — waiting for owner review',
 		verdictMatched: 'Slip attached',
 		verdictDuplicate: 'This slip was already used',
 		expected: amount => `Asked for ${amount}`,
 		uploaded: when => `Attached ${when}`,
 		privacyNote: 'Only you and the person who sent it can open this.',
+		readingImage: 'Reading the slip…',
+		sentFrom: bank => `Sent from ${bank}`,
+		readAmount: amount => `The slip reads ${amount}`,
+		readDiffers: (read, expected) => `The slip reads ${read}, but ${expected} was asked for`,
+		readNote: 'Read from the picture, not from a bank. Worth a look before you confirm.',
+	},
+
+	receipt: {
+		scan: 'Scan a receipt',
+		hint: 'Photograph the bill and Megu will read the lines off it. You check them before anything is added.',
+		reading: 'Reading the bill…',
+		found: count => (count === 1 ? 'Read 1 line' : `Read ${count} lines`),
+		checkNote: 'This is read off a photograph, so check it. Edit anything, untick what should not be here.',
+		selected: count => (count === 1 ? '1 line selected' : `${count} lines selected`),
+		matchesPrinted: total => `Adds up to the ${total} printed on the bill`,
+		differsFromPrinted: (total, gap) => `The bill says ${total} — that is ${gap} apart`,
+		addAll: (count, total) => (count === 1 ? `Add 1 expense · ${total}` : `Add ${count} expenses · ${total}`),
+		asOneLine: total => `Add the whole bill as one expense instead (${total})`,
+		wholeBill: 'Whole bill',
+		untitled: 'Item',
+		serviceLine: 'Service charge',
+		taxLine: 'VAT',
+		addService: amount => `Add service charge ${amount}`,
+		addTax: amount => `Add VAT ${amount}`,
+		includeLine: label => `Include ${label}`,
+		nothingFound: 'Nothing readable in that photo. Try again with the bill flat and the whole of it in frame.',
+		failed: 'Could not read that picture',
+		partial: (added, total) => `Added ${added} of ${total} and then stopped — the rest are not in`,
+		unavailable: 'The reader is not installed on this server yet',
 	},
 };
 
