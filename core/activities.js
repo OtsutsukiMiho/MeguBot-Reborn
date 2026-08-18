@@ -1,6 +1,7 @@
 const { query, transaction } = require('./db.js');
 const { newId, newActivityCode } = require('./ids.js');
 const { splitEvenlyBy } = require('./money.js');
+const { assessSlip, validateAllocations } = require('./payment-evidence.js');
 
 // ── Two axes ────────────────────────────────────────────────────────────────
 //
@@ -31,6 +32,12 @@ const SLOT_ANSWERS = ['yes', 'maybe', 'no'];
 // A single "no" sinks a slot faster than a "yes" lifts it: the point of the
 // poll is to find a time nobody is blocked on, not the most popular one.
 const SLOT_WEIGHT = { yes: 2, maybe: 1, no: -3 };
+
+function codedError(code, message = code) {
+	const error = new Error(message);
+	error.code = code;
+	return error;
+}
 
 function canTransition(from, to) {
 	return (PLAN_TRANSITIONS[from] || []).includes(to);
@@ -169,7 +176,7 @@ async function loadActivity(where, value) {
 	const activity = rowToActivity(res.rows[0]);
 	if (!activity) return null;
 
-	const [participants, periods, slots, slotVotes, expenses, shares, payments] = await Promise.all([
+	const [participants, periods, slots, slotVotes, expenses, shares, payments, paymentAllocations, paymentEvents] = await Promise.all([
 		query('SELECT * FROM participants WHERE activity_id = $1 ORDER BY position, created_at', [activity.id]),
 		query('SELECT * FROM periods WHERE activity_id = $1 ORDER BY period_key DESC', [activity.id]),
 		query('SELECT * FROM slots WHERE activity_id = $1 ORDER BY position, starts_at', [activity.id]),
@@ -187,7 +194,35 @@ async function loadActivity(where, value) {
 			[activity.id],
 		),
 		query('SELECT * FROM payments WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
+		query(
+			`SELECT a.* FROM payment_allocations a
+			 JOIN payments p ON p.id = a.payment_id
+			 WHERE p.activity_id = $1 ORDER BY a.created_at`,
+			[activity.id],
+		),
+		query('SELECT * FROM payment_events WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
 	]);
+
+	const allocationsByPayment = new Map();
+	for (const row of paymentAllocations.rows) {
+		const list = allocationsByPayment.get(row.payment_id) || [];
+		list.push({ id: row.id, periodId: row.period_id, amountSatang: Number(row.amount_satang) });
+		allocationsByPayment.set(row.payment_id, list);
+	}
+	const eventsByPayment = new Map();
+	for (const row of paymentEvents.rows) {
+		const list = eventsByPayment.get(row.payment_id) || [];
+		list.push({
+			id: row.id,
+			type: row.event_type,
+			actorUserId: row.actor_user_id,
+			actorParticipantId: row.actor_participant_id,
+			reason: row.reason,
+			metadata: row.metadata || {},
+			createdAt: row.created_at,
+		});
+		eventsByPayment.set(row.payment_id, list);
+	}
 
 	activity.participants = participants.rows.map(rowToParticipant);
 	activity.periods = periods.rows.map(rowToPeriod);
@@ -221,13 +256,33 @@ async function loadActivity(where, value) {
 		promptpayTarget: r.promptpay_target || null,
 		method: r.method,
 		status: r.status,
+		allocations: allocationsByPayment.get(r.id) || [],
+		events: eventsByPayment.get(r.id) || [],
 		reference: r.reference,
 		// The image itself is never loaded here — it is fetched by the one route
 		// that serves it, so a page render does not drag a megabyte of other
 		// people's bank slips through memory to display a list of names.
-		hasSlip: Boolean(r.slip_uploaded_at),
+		hasSlip: Boolean(r.slip_uploaded_at || r.evidence_image),
+		hasEvidence: Boolean(r.evidence_image),
 		slipVerdict: r.slip_verdict || null,
 		slipUploadedAt: r.slip_uploaded_at,
+		slipBank: r.slip_bank || null,
+		// What was read off the picture, kept apart from `amountSatang` — which
+		// is what the payer said — and from `expectedSatang`, which is what was
+		// asked. Three numbers that should agree, from three sources, and the
+		// screen is better for showing where each one came from.
+		slipAmountSatang: r.slip_amount_satang == null ? null : Number(r.slip_amount_satang),
+		slipWhen: r.slip_when || null,
+		slipTransferredAt: r.slip_transferred_at || null,
+		slipSenderName: r.slip_sender_name || null,
+		slipReceiverName: r.slip_receiver_name || null,
+		slipSenderAccountTail: r.slip_sender_account_tail || null,
+		slipReceiverAccountTail: r.slip_receiver_account_tail || null,
+		confirmationSource: r.confirmation_source || null,
+		verificationLevel: r.verification_level || 'none',
+		reversedBy: r.reversed_by || null,
+		reversedAt: r.reversed_at || null,
+		reversalReason: r.reversal_reason || null,
 		confirmedBy: r.confirmed_by,
 		createdAt: r.created_at,
 		confirmedAt: r.confirmed_at,
@@ -308,12 +363,138 @@ function getActivityByCode(code) {
 	return loadActivity('code', String(code || '').toUpperCase());
 }
 
-async function listActivitiesForOwner(ownerUserId) {
-	const res = await query(
-		'SELECT * FROM activities WHERE owner_user_id = $1 ORDER BY created_at DESC',
+async function listActivitiesForOwner(ownerUserId, { includeClosed = true, at = new Date() } = {}) {
+	const activityScope = includeClosed
+		? 'owner_user_id = $1'
+		: `owner_user_id = $1
+		   AND (kind = 'recurring' OR plan_state NOT IN ('done', 'cancelled'))`;
+	const activityRows = query(
+		`SELECT * FROM activities WHERE ${activityScope} ORDER BY created_at DESC`,
 		[ownerUserId],
 	);
-	return res.rows.map(rowToActivity);
+
+	// Start the list and all of its standing queries together. Passing the list
+	// promise down also keeps the summary from fetching the same activities a
+	// second time.
+	const summaries = summariseActivitiesForOwner(ownerUserId, {
+		at,
+		activityRowsPromise: activityRows,
+		activityScope,
+	});
+	const [res, byActivity] = await Promise.all([activityRows, summaries]);
+
+	return res.rows.map(row => ({
+		...rowToActivity(row),
+		summary: byActivity[row.id],
+	}));
+}
+
+/**
+ * One line of standing for every activity an owner has, so their list can say
+ * which ones are waiting on them instead of making them open each one to find
+ * out.
+ *
+ * Two things had to be true for this to be worth adding.
+ *
+ * The first is that it costs a fixed number of queries, not one per activity.
+ * Everything below is scoped by a single `owner_user_id = $1` subquery and
+ * grouped in memory afterwards, so an owner with forty activities costs the
+ * same round trips as one with two.
+ *
+ * The second is that the numbers cannot disagree with the activity page. They
+ * are not recomputed here: each activity is assembled into the shape
+ * `settlement()` already reads and handed to that same function. If the money
+ * rules change, they change in one place and both surfaces follow. A summary
+ * that quietly drifts from the page it summarises is worse than no summary,
+ * because the reader stops trusting both.
+ */
+async function summariseActivitiesForOwner(ownerUserId, {
+	at = new Date(),
+	activityRowsPromise = null,
+	activityScope = 'owner_user_id = $1',
+} = {}) {
+	const owned = `(SELECT id FROM activities WHERE ${activityScope})`;
+	const args = [ownerUserId];
+
+	const [activityRows, participants, periods, expenses, shares, payments, slots, votes] = await Promise.all([
+		activityRowsPromise || query(`SELECT id, kind FROM activities WHERE ${activityScope}`, args),
+		query(`SELECT id, activity_id, rsvp FROM participants WHERE activity_id IN ${owned}`, args),
+		query(`SELECT id, activity_id, period_key FROM periods WHERE activity_id IN ${owned}`, args),
+		query(`SELECT id, activity_id, period_id, amount_satang, paid_by FROM expenses WHERE activity_id IN ${owned}`, args),
+		query(
+			`SELECT s.participant_id, s.amount_satang, e.activity_id, e.period_id
+			 FROM shares s JOIN expenses e ON e.id = s.expense_id
+			 WHERE e.activity_id IN ${owned}`,
+			args,
+		),
+		query(`SELECT activity_id, period_id, participant_id, amount_satang, status FROM payments WHERE activity_id IN ${owned}`, args),
+		query(`SELECT id, activity_id FROM slots WHERE activity_id IN ${owned}`, args),
+		query(
+			`SELECT v.slot_id, v.participant_id, sl.activity_id
+			 FROM slot_votes v JOIN slots sl ON sl.id = v.slot_id
+			 WHERE sl.activity_id IN ${owned}`,
+			args,
+		),
+	]);
+
+	const bucket = new Map(activityRows.rows.map(r => [r.id, {
+		kind: r.kind,
+		participants: [], periods: [], slots: [], slotVotes: [],
+		expenses: [], shares: [], payments: [],
+	}]));
+
+	const push = (id, key, value) => bucket.get(id)?.[key].push(value);
+
+	for (const r of participants.rows) push(r.activity_id, 'participants', { id: r.id, rsvp: r.rsvp });
+	for (const r of periods.rows) push(r.activity_id, 'periods', { id: r.id, key: r.period_key });
+	for (const r of slots.rows) push(r.activity_id, 'slots', { id: r.id });
+	for (const r of votes.rows) push(r.activity_id, 'slotVotes', { slotId: r.slot_id, participantId: r.participant_id });
+	for (const r of expenses.rows) {
+		push(r.activity_id, 'expenses', { id: r.id, periodId: r.period_id, amountSatang: Number(r.amount_satang), paidBy: r.paid_by });
+	}
+	for (const r of shares.rows) {
+		push(r.activity_id, 'shares', { participantId: r.participant_id, periodId: r.period_id, amountSatang: Number(r.amount_satang) });
+	}
+	for (const r of payments.rows) {
+		push(r.activity_id, 'payments', { participantId: r.participant_id, periodId: r.period_id, amountSatang: Number(r.amount_satang), status: r.status });
+	}
+
+	const nowKey = periodKeyFor(at);
+	const summaries = {};
+
+	for (const [id, a] of bucket) {
+		// A monthly agreement is only ever asked about the month it is in. Last
+		// month is closed business and showing its total on the list would read
+		// as an unpaid bill that nobody actually owes.
+		const period = a.kind === 'recurring'
+			? (a.periods.find(p => p.key === nowKey) || a.periods.sort((x, y) => y.key.localeCompare(x.key))[0] || null)
+			: null;
+		const sum = settlement(a, period ? period.id : null);
+
+		const total = a.participants.length;
+		const answered = a.slots.length > 0
+			? a.participants.filter(p => a.slots.every(slot => a.slotVotes.some(v => v.participantId === p.id && v.slotId === slot.id))).length
+			: a.participants.filter(p => p.rsvp !== 'pending').length;
+
+		summaries[id] = {
+			moneyState: sum.state,
+			// What the group still owes whoever fronted the money — the one
+			// number that decides whether this activity is finished.
+			outstandingSatang: sum.rows.reduce((n, r) => n + Math.max(0, r.outstanding), 0),
+			unpaidCount: sum.unpaid.length,
+			// Claims the owner has not confirmed yet. This is the only figure
+			// here that is a task rather than a status, so the list leads with
+			// it when it is non-zero.
+			awaitingConfirmation: a.payments.filter(p => p.status === 'pending' && (period ? p.periodId === period.id : true)).length,
+			people: total,
+			answered,
+			awaitingAnswer: Math.max(0, total - answered),
+			polling: a.slots.length > 0,
+			periodKey: period ? period.key : null,
+		};
+	}
+
+	return summaries;
 }
 
 // ── participants ────────────────────────────────────────────────────────────
@@ -415,13 +596,16 @@ async function setPlanState(activityId, nextState) {
 
 	return transaction(async (client) => {
 		const current = await client.query(
-			'SELECT plan_state FROM activities WHERE id = $1 FOR UPDATE',
+			'SELECT plan_state, kind, starts_at FROM activities WHERE id = $1 FOR UPDATE',
 			[activityId],
 		);
 		if (current.rows.length === 0) throw new Error('activity not found');
 
 		const from = current.rows[0].plan_state;
 		if (from === nextState) return { changed: false, planState: from };
+		if (['confirmed', 'done'].includes(nextState) && current.rows[0].kind === 'event' && !current.rows[0].starts_at) {
+			throw codedError('time_not_set', 'Choose a date and time before confirming this activity');
+		}
 		if (!canTransition(from, nextState)) {
 			throw new Error(`cannot move plan from ${from} to ${nextState}`);
 		}
@@ -522,13 +706,18 @@ function slotStanding(activity) {
 
 /**
  * Whether Megu has heard enough to call it. She waits for everyone who is
- * still pending, but never forever — once every participant has touched the
- * poll the answer is in.
+ * still pending, but never guesses from a half-filled ballot — every
+ * participant must answer every option before the answer is in.
  */
+function pollAnsweredCount(activity) {
+	if (activity.slots.length === 0) return 0;
+	return activity.participants.filter(p => activity.slots.every(slot => (
+		(activity.slotVotes || []).some(v => v.participantId === p.id && v.slotId === slot.id)
+	))).length;
+}
+
 function pollReady(activity) {
-	if (activity.slots.length === 0) return false;
-	const voted = new Set((activity.slotVotes || []).map(v => v.participantId));
-	return activity.participants.every(p => voted.has(p.id));
+	return activity.slots.length > 0 && pollAnsweredCount(activity) === activity.participants.length;
 }
 
 function bestSlot(activity) {
@@ -543,6 +732,9 @@ function bestSlot(activity) {
 async function lockBestSlot(activityId) {
 	const activity = await getActivity(activityId);
 	if (!activity) throw new Error('activity not found');
+	if (!pollReady(activity)) {
+		throw codedError('poll_not_ready', 'Wait until everyone has answered before locking a time');
+	}
 
 	const winner = bestSlot(activity);
 	if (!winner) throw new Error('ยังไม่มีช่วงเวลาให้เลือก');
@@ -610,16 +802,26 @@ async function addExpense(activityId, input) {
 
 	return transaction(async (client) => {
 		const roster = await client.query(
-			'SELECT id, rsvp FROM participants WHERE activity_id = $1 ORDER BY position, created_at',
+			`SELECT id, rsvp,
+			        (SELECT kind FROM activities WHERE id = $1) AS activity_kind
+			 FROM participants WHERE activity_id = $1 ORDER BY position, created_at`,
 			[activityId],
 		);
 		if (roster.rows.length === 0) throw new Error('activity has no participants');
 
 		let ids = shareParticipantIds;
-		if (!ids || ids.length === 0) {
-			ids = roster.rows.filter(r => r.rsvp === 'yes').map(r => r.id);
-			if (ids.length === 0) ids = roster.rows.map(r => r.id);
+		if (!Array.isArray(ids) || ids.length === 0) {
+			// A one-off bill must name its split explicitly. RSVP is a planning
+			// answer, not permission to charge somebody, and using the current
+			// yes-list made an early bill look settled when only the organizer had
+			// answered. Monthly agreements have a fixed roster, so all members are
+			// still the safe and unsurprising default there.
+			if (roster.rows[0].activity_kind === 'event') {
+				throw codedError('split_people_required', 'Choose who shares this expense');
+			}
+			ids = roster.rows.map(r => r.id);
 		}
+		ids = [...new Set(ids)];
 
 		const known = new Set(roster.rows.map(r => r.id));
 		for (const id of ids) {
@@ -738,63 +940,219 @@ async function recordPayment(activityId, participantId, input) {
 		method = 'manual',
 		reference = null,
 		periodId = null,
+		allocations = null,
 		expectedSatang = null,
 		promptpayTarget = null,
+		confirmation = null,
 	} = input;
-	if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
-		throw new Error('amountSatang must be a positive integer');
-	}
+	const normalized = validateAllocations(
+		amountSatang,
+		allocations || [{ periodId, amountSatang }],
+	);
 
-	const res = await query(
-		`INSERT INTO payments
-		   (id, activity_id, period_id, participant_id, amount_satang, method, reference, expected_satang, promptpay_target)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+	return transaction(async (client) => {
+		const roster = await client.query(
+			'SELECT id FROM participants WHERE id = $1 AND activity_id = $2',
+			[participantId, activityId],
+		);
+		if (roster.rows.length === 0) throw codedError('participant_not_in_activity');
+
+		const periodIds = normalized.map(item => item.periodId).filter(Boolean);
+		if (periodIds.length) {
+			const periods = await client.query(
+				'SELECT id FROM periods WHERE activity_id = $1 AND id = ANY($2::text[])',
+				[activityId, periodIds],
+			);
+			if (periods.rows.length !== periodIds.length) throw codedError('period_not_in_activity');
+		}
+
+		const paymentId = newId('pay');
+		const primaryPeriodId = normalized.length === 1 ? normalized[0].periodId : null;
+		const res = await client.query(
+			`INSERT INTO payments
+			   (id, activity_id, period_id, participant_id, amount_satang, method, reference,
+			    expected_satang, promptpay_target, status, confirmed_by, confirmed_at,
+			    confirmation_source, verification_level)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+			         $10, $11, CASE WHEN $10 = 'confirmed' THEN now() ELSE NULL END, $12, $13)
+			 RETURNING *`,
+			[
+				paymentId, activityId, primaryPeriodId, participantId, amountSatang, method, reference,
+				expectedSatang == null ? Number(amountSatang) : Number(expectedSatang),
+				promptpayTarget,
+				confirmation ? 'confirmed' : 'pending',
+				confirmation?.actorUserId || null,
+				confirmation?.source || null,
+				confirmation?.verificationLevel || 'none',
+			],
+		);
+		for (const allocation of normalized) {
+			await client.query(
+				`INSERT INTO payment_allocations (id, payment_id, period_id, amount_satang)
+				 VALUES ($1, $2, $3, $4)`,
+				[newId('pal'), paymentId, allocation.periodId, allocation.amountSatang],
+			);
+		}
+		await addPaymentEvent(client, {
+			paymentId,
+			activityId,
+			type: 'created',
+			actorParticipantId: participantId,
+			metadata: { method, allocations: normalized },
+		});
+		if (confirmation) {
+			await addPaymentEvent(client, {
+				paymentId,
+				activityId,
+				type: 'confirmed',
+				actorUserId: confirmation.actorUserId || null,
+				reason: confirmation.reason || null,
+				metadata: {
+					source: confirmation.source || 'owner',
+					verificationLevel: confirmation.verificationLevel || 'owner_confirmed',
+				},
+			});
+		}
+		const row = res.rows[0];
+		return {
+			id: row.id,
+			participantId: row.participant_id,
+			amountSatang: Number(row.amount_satang),
+			status: row.status,
+			allocations: normalized,
+		};
+	});
+}
+
+async function addPaymentEvent(client, {
+	paymentId,
+	activityId,
+	type,
+	actorUserId = null,
+	actorParticipantId = null,
+	reason = null,
+	metadata = {},
+}) {
+	await client.query(
+		`INSERT INTO payment_events
+		   (id, payment_id, activity_id, event_type, actor_user_id, actor_participant_id, reason, metadata)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
 		[
-			newId('pay'), activityId, periodId, participantId, amountSatang, method, reference,
-			expectedSatang == null ? null : Number(expectedSatang),
-			promptpayTarget,
+			newId('pev'), paymentId, activityId, type, actorUserId, actorParticipantId,
+			reason, JSON.stringify(metadata),
 		],
 	);
-	const row = res.rows[0];
-	return { id: row.id, participantId: row.participant_id, amountSatang: Number(row.amount_satang), status: row.status };
 }
 
 // ── slips ───────────────────────────────────────────────────────────────────
 //
-// A slip is evidence, not proof. Nothing here contacts a bank, so nothing here
-// can say the money arrived — the owner still confirms, exactly as they did
-// before. What a slip buys is that confirming takes one glance instead of a
-// trip to a banking app, and that the same slip cannot be sent twice.
-//
-// That last part is the only check with teeth, and it is enforced by a unique
-// index rather than by reading anything out of the image.
+// A slip is evidence, not bank proof. The optimistic policy may count a strict
+// amount/receiver/time/reference match immediately, but labels that decision as
+// `slip_matched`, never `bank_verified`, and the owner can reverse it.
 
-const SLIP_VERDICTS = ['unread', 'matched', 'duplicate'];
+const SLIP_VERDICTS = ['unread', 'review', 'matched', 'duplicate'];
 
 /**
  * Attach an image to a payment claim.
  *
- * `ref` is the transaction reference read off the slip's own QR by the browser
- * that uploaded it. A caller could invent one, which is why it is not trusted
- * to *confirm* anything — it only has to be unique. Inventing a reference gets
- * you a row that still says "waiting for confirmation"; reusing a real one is
- * refused by the database.
+ * `ref` is the transaction reference the HTTP/Discord adapter re-parsed from a
+ * checksummed slip QR. It is unique across Megu. OCR readings can still be
+ * wrong, so the decision level remains explicit and reversible.
  */
-async function attachSlip(paymentId, { image, mime, ref = null }) {
+async function attachSlip(paymentId, {
+	image,
+	mime,
+	evidenceImage = null,
+	evidenceMime = 'image/png',
+	evidenceHash = null,
+	ref = null,
+	bank = null,
+	amountSatang = null,
+	when = null,
+	senderName = null,
+	receiverName = null,
+	senderAccountTail = null,
+	receiverAccountTail = null,
+	expectedReceiverName = null,
+}) {
 	if (!Buffer.isBuffer(image) || image.length === 0) throw new Error('slip_unreadable');
+	const read = Number.isInteger(amountSatang) && amountSatang > 0 ? amountSatang : null;
 
-	const verdict = ref ? 'matched' : 'unread';
 	try {
-		const res = await query(
-			`UPDATE payments
-			 SET slip_image = $2, slip_mime = $3, slip_ref = $4,
-			     slip_verdict = $5, slip_uploaded_at = now(), method = 'promptpay'
-			 WHERE id = $1
-			 RETURNING id, slip_verdict, slip_uploaded_at`,
-			[paymentId, image, mime || 'image/jpeg', ref, verdict],
-		);
-		if (res.rows.length === 0) throw new Error('payment_not_found');
-		return { id: res.rows[0].id, verdict: res.rows[0].slip_verdict };
+		return await transaction(async (client) => {
+			const locked = await client.query('SELECT * FROM payments WHERE id = $1 FOR UPDATE', [paymentId]);
+			if (locked.rows.length === 0) throw new Error('payment_not_found');
+			const payment = locked.rows[0];
+			if (!['pending', 'rejected'].includes(payment.status)) throw codedError('payment_not_pending');
+
+			const assessment = assessSlip({
+				ref,
+				expectedSatang: Number(payment.expected_satang || payment.amount_satang),
+				amountSatang: read,
+				expectedReceiverName,
+				receiverName,
+				transferredAt: when,
+			});
+			const autoConfirmed = assessment.decision === 'confirm' && Buffer.isBuffer(evidenceImage) && evidenceImage.length > 0;
+			const verdict = autoConfirmed ? 'matched' : (ref ? 'review' : 'unread');
+			const original = autoConfirmed ? null : image;
+			const transferredAt = assessment.transferredAt;
+
+			const res = await client.query(
+				`UPDATE payments
+				 SET slip_image = $2, slip_mime = $3, slip_ref = $4,
+				     slip_verdict = $5, slip_uploaded_at = now(), method = 'bank_transfer',
+				     slip_bank = $6, slip_amount_satang = $7, slip_when = $8,
+				     slip_sender_name = $9, slip_receiver_name = $10,
+				     slip_sender_account_tail = $11, slip_receiver_account_tail = $12,
+				     slip_transferred_at = $13,
+				     evidence_image = $14, evidence_mime = $15, evidence_hash = $16,
+				     status = CASE WHEN $17 THEN 'confirmed' ELSE 'pending' END,
+				     confirmation_source = CASE WHEN $17 THEN 'system_slip_match' ELSE NULL END,
+				     verification_level = CASE WHEN $17 THEN 'slip_matched' ELSE 'none' END,
+				     confirmed_by = NULL,
+				     confirmed_at = CASE WHEN $17 THEN now() ELSE NULL END,
+				     reversed_by = NULL, reversed_at = NULL, reversal_reason = NULL
+				 WHERE id = $1
+				 RETURNING id, activity_id, slip_verdict, slip_uploaded_at, status`,
+				[
+					paymentId, original, mime || 'image/jpeg', ref, verdict, bank || null, read, when || null,
+					senderName || null, receiverName || null,
+					onlyAccountTail(senderAccountTail), onlyAccountTail(receiverAccountTail),
+					transferredAt, Buffer.isBuffer(evidenceImage) ? evidenceImage : null,
+					evidenceMime || 'image/png', evidenceHash || null, autoConfirmed,
+				],
+			);
+			await addPaymentEvent(client, {
+				paymentId,
+				activityId: payment.activity_id,
+				type: 'slip_attached',
+				actorParticipantId: payment.participant_id,
+				metadata: {
+					bank: bank || null,
+					ref: ref || null,
+					decision: assessment.decision,
+					reasons: assessment.reasons,
+					flags: assessment.flags,
+				},
+			});
+			if (autoConfirmed) {
+				await addPaymentEvent(client, {
+					paymentId,
+					activityId: payment.activity_id,
+					type: 'auto_confirmed',
+					metadata: { source: 'system_slip_match', verificationLevel: 'slip_matched' },
+				});
+			}
+			return {
+				id: res.rows[0].id,
+				verdict: res.rows[0].slip_verdict,
+				status: res.rows[0].status,
+				autoConfirmed,
+				reasons: assessment.reasons,
+				flags: assessment.flags,
+			};
+		});
 	}
 	catch (error) {
 		// 23505 is a unique violation, and the only unique thing about a slip
@@ -815,45 +1173,73 @@ async function attachSlip(paymentId, { image, mime, ref = null }) {
 	}
 }
 
+function onlyAccountTail(value) {
+	const digits = String(value || '').replace(/\D/g, '');
+	return digits ? digits.slice(-4) : null;
+}
+
 async function getSlip(paymentId) {
 	const res = await query(
-		'SELECT slip_image, slip_mime FROM payments WHERE id = $1 AND slip_image IS NOT NULL',
+		`SELECT CASE WHEN status = 'pending' AND slip_image IS NOT NULL THEN slip_image
+		             ELSE COALESCE(evidence_image, slip_image) END AS image,
+		        CASE WHEN status = 'pending' AND slip_image IS NOT NULL THEN slip_mime
+		             WHEN evidence_image IS NOT NULL THEN evidence_mime ELSE slip_mime END AS mime
+		 FROM payments
+		 WHERE id = $1 AND (evidence_image IS NOT NULL OR slip_image IS NOT NULL)`,
 		[paymentId],
 	);
 	if (res.rows.length === 0) return null;
-	return { image: res.rows[0].slip_image, mime: res.rows[0].slip_mime || 'image/jpeg' };
+	return { image: res.rows[0].image, mime: res.rows[0].mime || 'image/jpeg' };
 }
 
 /**
- * Forget the slips for activities that finished long enough ago.
+ * Expire temporary source images while retaining standardized evidence.
  *
  * These are other people's bank documents, carrying account names and partial
- * account numbers. Keeping them past the point where anyone might dispute the
- * payment is storing a liability for no benefit, so the images are dropped
- * while the payment rows they belonged to stay exactly as they were.
+ * account numbers. A final decision drops the source immediately; an owner has
+ * seven days to inspect a pending exception before only the allow-listed
+ * evidence card and structured fields remain.
  */
-async function forgetOldSlips(olderThanDays = 90) {
+async function forgetOldSlips(olderThanDays = 7) {
 	const res = await query(
 		`UPDATE payments
 		 SET slip_image = NULL
 		 WHERE slip_image IS NOT NULL
-		   AND status = 'confirmed'
-		   AND confirmed_at < now() - ($1 * INTERVAL '1 day')
+		   AND (status <> 'pending'
+		        OR slip_uploaded_at < now() - ($1 * INTERVAL '1 day'))
 		 RETURNING id`,
 		[olderThanDays],
 	);
 	return res.rowCount || 0;
 }
 
-async function confirmPayment(paymentId, confirmedByUserId) {
-	const res = await query(
-		`UPDATE payments SET status = 'confirmed', confirmed_by = $2, confirmed_at = now()
-		 WHERE id = $1 AND status = 'pending' RETURNING *`,
-		[paymentId, confirmedByUserId],
-	);
-	if (res.rows.length === 0) return null;
-	const row = res.rows[0];
-	return { id: row.id, participantId: row.participant_id, amountSatang: Number(row.amount_satang), status: row.status };
+async function confirmPayment(paymentId, confirmedByUserId, {
+	source = 'owner',
+	verificationLevel = 'owner_confirmed',
+	reason = null,
+} = {}) {
+	return transaction(async (client) => {
+		const res = await client.query(
+			`UPDATE payments
+			 SET status = 'confirmed', confirmed_by = $2, confirmed_at = now(),
+			     confirmation_source = $3, verification_level = $4,
+			     reversed_by = NULL, reversed_at = NULL, reversal_reason = NULL,
+			     slip_image = NULL
+			 WHERE id = $1 AND status IN ('pending', 'rejected', 'reversed') RETURNING *`,
+			[paymentId, confirmedByUserId, source, verificationLevel],
+		);
+		if (res.rows.length === 0) return null;
+		const row = res.rows[0];
+		await addPaymentEvent(client, {
+			paymentId,
+			activityId: row.activity_id,
+			type: 'confirmed',
+			actorUserId: confirmedByUserId,
+			reason,
+			metadata: { source, verificationLevel },
+		});
+		return { id: row.id, participantId: row.participant_id, amountSatang: Number(row.amount_satang), status: row.status };
+	});
 }
 
 /**
@@ -861,30 +1247,77 @@ async function confirmPayment(paymentId, confirmedByUserId) {
  * easiest mistake to make on this screen and, until now, the only one that
  * could not be undone.
  */
-async function unconfirmPayment(paymentId) {
-	const res = await query(
-		`UPDATE payments
-		 SET status = 'pending', confirmed_by = NULL, confirmed_at = NULL
-		 WHERE id = $1 AND status <> 'pending'
-		 RETURNING *`,
-		[paymentId],
-	);
-	if (res.rows.length === 0) return null;
-	return { id: res.rows[0].id, status: res.rows[0].status };
+async function reversePayment(paymentId, actorUserId, reason) {
+	const note = String(reason || '').trim();
+	if (!note) throw codedError('reversal_reason_required');
+	return transaction(async (client) => {
+		const res = await client.query(
+			`UPDATE payments
+			 SET status = 'reversed', reversed_by = $2, reversed_at = now(), reversal_reason = $3,
+			     slip_image = NULL
+			 WHERE id = $1 AND status = 'confirmed' RETURNING *`,
+			[paymentId, actorUserId, note],
+		);
+		if (res.rows.length === 0) return null;
+		const row = res.rows[0];
+		await addPaymentEvent(client, {
+			paymentId,
+			activityId: row.activity_id,
+			type: 'reversed',
+			actorUserId,
+			reason: note,
+			metadata: { previousSource: row.confirmation_source },
+		});
+		return { id: row.id, status: row.status, reason: note };
+	});
 }
 
-async function removePayment(paymentId) {
-	const res = await query('DELETE FROM payments WHERE id = $1 RETURNING id', [paymentId]);
-	return res.rows.length > 0;
+async function unconfirmPayment(paymentId, actorUserId = null, reason = 'owner_undid_confirmation') {
+	return reversePayment(paymentId, actorUserId, reason);
 }
 
-async function rejectPayment(paymentId, confirmedByUserId) {
-	const res = await query(
-		`UPDATE payments SET status = 'rejected', confirmed_by = $2, confirmed_at = now()
-		 WHERE id = $1 AND status = 'pending' RETURNING id`,
-		[paymentId, confirmedByUserId],
-	);
-	return res.rows.length > 0;
+async function removePayment(paymentId, actorUserId = null, reason = 'owner_removed_claim') {
+	return transaction(async (client) => {
+		const res = await client.query(
+			`UPDATE payments
+			 SET status = 'voided', reversed_by = $2, reversed_at = now(), reversal_reason = $3,
+			     slip_image = NULL
+			 WHERE id = $1 AND status <> 'confirmed' RETURNING *`,
+			[paymentId, actorUserId, reason],
+		);
+		if (res.rows.length === 0) return false;
+		await addPaymentEvent(client, {
+			paymentId,
+			activityId: res.rows[0].activity_id,
+			type: 'voided',
+			actorUserId,
+			reason,
+		});
+		return true;
+	});
+}
+
+async function rejectPayment(paymentId, confirmedByUserId, reason) {
+	const note = String(reason || '').trim();
+	if (!note) throw codedError('rejection_reason_required');
+	return transaction(async (client) => {
+		const res = await client.query(
+			`UPDATE payments
+			 SET status = 'rejected', reversed_by = $2, reversed_at = now(), reversal_reason = $3,
+			     slip_image = NULL
+			 WHERE id = $1 AND status = 'pending' RETURNING *`,
+			[paymentId, confirmedByUserId, note],
+		);
+		if (res.rows.length === 0) return false;
+		await addPaymentEvent(client, {
+			paymentId,
+			activityId: res.rows[0].activity_id,
+			type: 'rejected',
+			actorUserId: confirmedByUserId,
+			reason: note,
+		});
+		return true;
+	});
 }
 
 /**
@@ -896,6 +1329,15 @@ async function rejectPayment(paymentId, confirmedByUserId) {
  */
 function settlement(activity, periodId = null) {
 	const inScope = row => (periodId === null ? true : row.periodId === periodId);
+	const paymentAmountInScope = (payment) => {
+		if (periodId === null) return payment.amountSatang;
+		if (Array.isArray(payment.allocations) && payment.allocations.length > 0) {
+			return payment.allocations
+				.filter(allocation => allocation.periodId === periodId)
+				.reduce((sum, allocation) => sum + allocation.amountSatang, 0);
+		}
+		return payment.periodId === periodId ? payment.amountSatang : 0;
+	};
 
 	const byParticipant = new Map(activity.participants.map(p => [p.id, {
 		participantId: p.id,
@@ -914,11 +1356,12 @@ function settlement(activity, periodId = null) {
 		const entry = byParticipant.get(expense.paidBy);
 		if (entry) entry.paidOut += expense.amountSatang;
 	}
-	for (const payment of activity.payments.filter(inScope)) {
+	for (const payment of activity.payments) {
 		const entry = byParticipant.get(payment.participantId);
 		if (!entry) continue;
-		if (payment.status === 'confirmed') entry.settled += payment.amountSatang;
-		else if (payment.status === 'pending') entry.pending += payment.amountSatang;
+		const amount = paymentAmountInScope(payment);
+		if (payment.status === 'confirmed') entry.settled += amount;
+		else if (payment.status === 'pending') entry.pending += amount;
 	}
 
 	const rows = [...byParticipant.values()].map((entry) => {
@@ -945,6 +1388,72 @@ function currentPeriod(activity, date = new Date()) {
 	return activity.periods.find(p => p.key === key) || activity.periods[0] || null;
 }
 
+/** Explicit Discord payment intake. This is only called by `/จ่าย`; ordinary
+ * channel messages are never scanned for financial evidence. */
+async function listPaymentCandidatesForDiscord(discordUid, guildId = null, search = '') {
+	const identity = await query(
+		'SELECT user_id FROM identities WHERE provider = \'discord\' AND provider_uid = $1 LIMIT 1',
+		[String(discordUid)],
+	);
+	const linkedUserId = identity.rows[0]?.user_id || null;
+	const found = await query(
+		`SELECT DISTINCT p.activity_id
+		 FROM participants p
+		 JOIN activities a ON a.id = p.activity_id
+		 LEFT JOIN identities i
+		   ON i.user_id = p.user_id AND i.provider = 'discord'
+		 WHERE (p.discord_uid = $1 OR i.provider_uid = $1)
+		   AND ($2::text IS NULL OR a.guild_id = $2 OR a.guild_id IS NULL)`,
+		[String(discordUid), guildId ? String(guildId) : null],
+	);
+	const needle = String(search || '').trim().toLocaleLowerCase('th-TH');
+	const candidates = [];
+	for (const row of found.rows) {
+		const activity = await getActivity(row.activity_id);
+		if (!activity) continue;
+		if (needle && activity.code.toLocaleLowerCase('th-TH') !== needle
+			&& !activity.title.toLocaleLowerCase('th-TH').includes(needle)) continue;
+		const participant = activity.participants.find(item => item.discordUid === String(discordUid))
+			|| activity.participants.find(item => linkedUserId && item.userId === linkedUserId);
+		if (!participant) continue;
+
+		const periods = [];
+		if (activity.kind === 'recurring') {
+			for (const period of activity.periods) {
+				const standing = settlement(activity, period.id).rows.find(item => item.participantId === participant.id);
+				const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
+				if (available > 0) periods.push({ id: period.id, key: period.key, outstandingSatang: available });
+			}
+		}
+		else {
+			const standing = settlement(activity).rows.find(item => item.participantId === participant.id);
+			const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
+			if (available > 0) periods.push({ id: null, key: null, outstandingSatang: available });
+		}
+		if (periods.length === 0) continue;
+
+		const ownerIdentity = await query(
+			`SELECT provider_uid FROM identities
+			 WHERE user_id = $1 AND provider = 'discord' LIMIT 1`,
+			[activity.ownerUserId],
+		);
+		candidates.push({
+			activityId: activity.id,
+			code: activity.code,
+			title: activity.title,
+			kind: activity.kind,
+			participantId: participant.id,
+			participantName: participant.displayName,
+			payee: activity.payee,
+			ownerUserId: activity.ownerUserId,
+			ownerDiscordUid: ownerIdentity.rows[0]?.provider_uid || null,
+			periods,
+			outstandingSatang: periods.reduce((total, period) => total + period.outstandingSatang, 0),
+		});
+	}
+	return candidates.sort((a, b) => a.title.localeCompare(b.title, 'th'));
+}
+
 module.exports = {
 	PLAN_STATES,
 	PLAN_TRANSITIONS,
@@ -958,6 +1467,7 @@ module.exports = {
 	voteSlot,
 	slotStanding,
 	pollReady,
+	pollAnsweredCount,
 	bestSlot,
 	lockBestSlot,
 	createActivity,
@@ -978,11 +1488,13 @@ module.exports = {
 	periodLabelFor,
 	periodDueAt,
 	currentPeriod,
+	listPaymentCandidatesForDiscord,
 	addExpense,
 	updateExpense,
 	removeExpense,
 	recordPayment,
 	confirmPayment,
+	reversePayment,
 	unconfirmPayment,
 	removePayment,
 	rejectPayment,

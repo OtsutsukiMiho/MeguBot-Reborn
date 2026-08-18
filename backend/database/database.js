@@ -665,7 +665,14 @@ async function cleanOldAuditLogs(retentionDays = 7) {
 	return 0;
 }
 
-setInterval(() => cleanOldAuditLogs(7).catch(() => undefined), 24 * 60 * 60 * 1000);
+const auditCleanupInterval = setInterval(
+	() => cleanOldAuditLogs(7).catch(() => undefined),
+	24 * 60 * 60 * 1000,
+);
+// A maintenance timer must not keep short-lived test and CLI processes alive.
+// The web and bot servers have their own handles, so unref does not stop this
+// from running in production.
+auditCleanupInterval.unref();
 
 async function logAuditEvent(guildId, actionType, userId = null, userName = null, details = null, guildName = null) {
 	if (!isValidSnowflake(guildId)) return;

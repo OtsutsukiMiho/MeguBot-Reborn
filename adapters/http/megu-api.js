@@ -1,7 +1,10 @@
 const express = require('express');
+const os = require('node:os');
+const crypto = require('node:crypto');
 const QRCode = require('qrcode');
 const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
+const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
 const { activities, users, access, tokens, money, voice, promptpay } = core;
 
@@ -10,6 +13,16 @@ const { activities, users, access, tokens, money, voice, promptpay } = core;
 // accident and low enough that nobody can post a video file to the database.
 const SLIP_MAX_BYTES = 2 * 1024 * 1024;
 const SLIP_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+function decodeDataImage(dataUrl, { maxBytes = SLIP_MAX_BYTES } = {}) {
+	const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(String(dataUrl || ''));
+	if (!match) return null;
+	const mime = match[1].toLowerCase();
+	if (!SLIP_TYPES.has(mime)) return null;
+	const image = Buffer.from(match[2], 'base64');
+	if (image.length === 0 || image.length > maxBytes) return null;
+	return { mime, image };
+}
 
 /**
  * Answer with a machine-readable code as well as a sentence.
@@ -25,6 +38,87 @@ function fail(res, status, code, message) {
 
 const DEVICE_COOKIE = 'megu_pt';
 const DEVICE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
+
+function isLoopbackHost(hostname) {
+	return hostname === 'localhost' || hostname === '::1' || hostname === '0.0.0.0' || /^127\./.test(hostname);
+}
+
+async function discordUidForParticipant(participant) {
+	if (participant?.discordUid) return participant.discordUid;
+	if (!participant?.userId) return null;
+	const identities = await users.getIdentities(participant.userId);
+	return identities.find(identity => identity.provider === 'discord')?.providerUid || null;
+}
+
+async function discordUidForUser(userId) {
+	if (!userId) return null;
+	const identities = await users.getIdentities(userId);
+	return identities.find(identity => identity.provider === 'discord')?.providerUid || null;
+}
+
+function isPrivateIpv4(address) {
+	const octets = String(address).split('.').map(Number);
+	if (octets.length !== 4 || octets.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+	return octets[0] === 10
+		|| (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+		|| (octets[0] === 192 && octets[1] === 168);
+}
+
+/**
+ * The address another device on this network can use to reach development.
+ * Physical Ethernet/Wi-Fi adapters win over WSL, Docker and VPN adapters;
+ * otherwise a copied link can point into a virtual network a phone cannot see.
+ */
+function preferredLanAddress() {
+	const virtual = /(loopback|virtual|vethernet|wsl|docker|vmware|vbox|hyper-v|tailscale|vpn)/i;
+	const physical = /(ethernet|wi-?fi|wireless|wlan)/i;
+	const candidates = [];
+
+	for (const [name, addresses] of Object.entries(os.networkInterfaces())) {
+		for (const address of addresses || []) {
+			if (address.internal || address.family !== 'IPv4' || address.address.startsWith('169.254.')) continue;
+			candidates.push({
+				address: address.address,
+				score: (isPrivateIpv4(address.address) ? 40 : 0)
+					+ (physical.test(name) ? 20 : 0)
+					- (virtual.test(name) ? 100 : 0),
+			});
+		}
+	}
+
+	return candidates.sort((a, b) => b.score - a.score)[0]?.address || null;
+}
+
+function shareDetails(
+	req,
+	configuredFrontendUrl,
+	lanAddress = preferredLanAddress(),
+	allowLanFallback = process.env.NODE_ENV !== 'production',
+) {
+	const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+	const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+	const requestOrigin = `${forwardedProto || req.protocol || 'http'}://${forwardedHost || req.get('host')}`;
+	let url;
+
+	try {
+		url = new URL(configuredFrontendUrl || requestOrigin);
+	}
+	catch {
+		url = new URL(requestOrigin);
+	}
+
+	// On a friend's phone, localhost means the friend's phone. In development,
+	// replace it with the machine's LAN address before the link reaches chat.
+	if (allowLanFallback && isLoopbackHost(url.hostname)) {
+		if (lanAddress) url.hostname = lanAddress;
+	}
+
+	const reachability = isLoopbackHost(url.hostname)
+		? 'device'
+		: isPrivateIpv4(url.hostname) ? 'network' : 'public';
+
+	return { origin: url.origin, reachability };
+}
 
 /**
  * Who is asking. A caller can be all three at once (signed in, on a known
@@ -61,11 +155,59 @@ function attachActor(req, res, next) {
 	next();
 }
 
-function requireAccount(req, res, next) {
-	if (!req.actor?.userId) {
-		return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อนถึงจะสร้างกิจกรรมได้' });
+function discordProfileFromSession(sessionUser) {
+	if (!sessionUser?.id) return null;
+	return {
+		provider: 'discord',
+		providerUid: String(sessionUser.id),
+		username: sessionUser.username || null,
+		displayName: sessionUser.global_name || sessionUser.username || 'Megu user',
+		avatarUrl: sessionUser.avatar
+			? `https://cdn.discordapp.com/avatars/${sessionUser.id}/${sessionUser.avatar}.${String(sessionUser.avatar).startsWith('a_') ? 'gif' : 'png'}?size=128`
+			: null,
+	};
+}
+
+/**
+ * Turn a Discord login session into a live Megu account.
+ *
+ * Sessions can outlive development database resets. Previously the mere
+ * presence of `meguUserId` passed authentication even when that user row had
+ * gone, so creating an activity surfaced a raw owner foreign-key error. The
+ * Discord identity in the same session is enough to recover deterministically:
+ * reuse its account when it exists, or recreate it when the database is new.
+ */
+async function ensureAccount(req) {
+	if (req.actor?.userId) {
+		const current = await users.getUser(req.actor.userId);
+		if (current) return current;
 	}
-	next();
+
+	const profile = discordProfileFromSession(req.session?.user);
+	if (!profile) {
+		if (req.session) req.session.meguUserId = null;
+		if (req.actor) req.actor.userId = null;
+		return null;
+	}
+
+	const { user } = await users.loginWithIdentity(profile);
+	if (!user) throw new Error('account_recovery_failed');
+
+	req.session.meguUserId = user.id;
+	req.actor.userId = user.id;
+	await users.claimParticipants(user.id);
+	return user;
+}
+
+async function requireAccount(req, res, next) {
+	try {
+		const user = await ensureAccount(req);
+		if (!user) return fail(res, 401, 'session_expired', 'Sign in again to continue');
+		next();
+	}
+	catch (error) {
+		next(error);
+	}
 }
 
 /**
@@ -118,8 +260,9 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
 	// A poll in progress is the loudest thing on the page: it is the decision
 	// the group has been avoiding.
 	if (activity.planState === 'open' && activity.slots.length > 0) {
-		const voted = new Set(activity.slotVotes.map(v => v.participantId));
-		const silent = activity.participants.filter(p => !voted.has(p.id)).map(p => p.displayName);
+		const silent = activity.participants
+			.filter(p => !activity.slots.every(slot => activity.slotVotes.some(v => v.participantId === p.id && v.slotId === slot.id)))
+			.map(p => p.displayName);
 		if (silent.length > 0) return voice.say('pollWaiting', { names: silent }, seed);
 
 		const winner = activities.bestSlot(activity);
@@ -163,9 +306,18 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 	const sum = activities.settlement(activity, scope);
 	const byParticipant = Object.fromEntries(sum.rows.map(r => [r.participantId, r]));
 	const inScope = row => (scope === null ? true : row.periodId === scope);
+	const paymentInScope = payment => scope === null
+		|| payment.periodId === scope
+		|| payment.allocations?.some(allocation => allocation.periodId === scope);
+	const allocatedAmount = payment => scope === null
+		? payment.amountSatang
+		: payment.allocations?.filter(allocation => allocation.periodId === scope)
+			.reduce((subtotal, allocation) => subtotal + allocation.amountSatang, 0) || payment.amountSatang;
 
 	return {
 		code: activity.code,
+		shareUrl: actor?.shareOrigin ? `${actor.shareOrigin}/a/${encodeURIComponent(activity.code)}` : null,
+		shareReachability: actor?.shareReachability || null,
 		title: activity.title,
 		kind: activity.kind,
 		planState: activity.planState,
@@ -186,6 +338,7 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		poll: activity.slots.length > 0
 			? {
 				ready: activities.pollReady(activity),
+				answered: activities.pollAnsweredCount(activity),
 				myVotes: me
 					? Object.fromEntries(activity.slotVotes.filter(v => v.participantId === me.id).map(v => [v.slotId, v.answer]))
 					: {},
@@ -199,7 +352,16 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				})),
 			}
 			: null,
-		periods: activity.periods.map(p => ({ id: p.id, key: p.key, dueAt: p.dueAt })),
+		periods: activity.periods.map((p) => {
+			const standing = me ? activities.settlement(activity, p.id).rows.find(row => row.participantId === me.id) : null;
+			return {
+				id: p.id,
+				key: p.key,
+				dueAt: p.dueAt,
+				outstandingSatang: showAmounts && standing ? standing.outstanding : null,
+				pendingSatang: showAmounts && standing ? standing.pending : null,
+			};
+		}),
 		participants: activity.participants.map(p => publicParticipant(p, me?.id, showAmounts, byParticipant[p.id])),
 		expenses: showAmounts
 			? activity.expenses.filter(inScope).map(e => ({
@@ -207,13 +369,21 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				label: e.label,
 				amountSatang: e.amountSatang,
 				paidBy: e.paidBy,
+				// The ledger already stores the exact split. Returning it with the
+				// expense lets the page answer "whose dish was this?" without
+				// recomputing from today's roster or RSVP state.
+				shares: activity.shares
+					.filter(s => s.expenseId === e.id)
+					.map(s => ({ participantId: s.participantId, amountSatang: s.amountSatang })),
 			}))
 			: [],
 		payments: showAmounts
-			? activity.payments.filter(inScope).map(p => ({
+			? activity.payments.filter(paymentInScope).map(p => ({
 				id: p.id,
 				participantId: p.participantId,
-				amountSatang: p.amountSatang,
+				amountSatang: allocatedAmount(p),
+				transferAmountSatang: p.amountSatang,
+				allocations: p.allocations,
 				// What we asked for at the time. The owner's list prints it
 				// beside the claimed figure when the two disagree, which is how
 				// transferring ฿60 and typing ฿6 gets noticed.
@@ -225,6 +395,18 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				hasSlip: p.hasSlip,
 				slipVerdict: p.slipVerdict,
 				slipUploadedAt: p.slipUploadedAt,
+				slipBank: p.slipBank,
+				slipAmountSatang: p.slipAmountSatang,
+				slipWhen: p.slipWhen,
+				slipSenderName: p.slipSenderName,
+				slipReceiverName: p.slipReceiverName,
+				slipSenderAccountTail: p.slipSenderAccountTail,
+				slipReceiverAccountTail: p.slipReceiverAccountTail,
+				confirmationSource: p.confirmationSource,
+				verificationLevel: p.verificationLevel,
+				reversalReason: p.reversalReason,
+				reversedAt: p.reversedAt,
+				events: role === 'owner' ? p.events : undefined,
 				createdAt: p.createdAt,
 			}))
 			: [],
@@ -262,15 +444,30 @@ function serializeActivity(activity, actor, { periodId } = {}) {
  * @param {(guildIds: string[]) => Promise<string[]>} [deps.botPresence]
  *        Which of these guilds the bot is actually in. Supplied by the host
  *        because it needs IPC to the bot process.
+ * @param {(notice: {recipients: string[], message: string}) => Promise<void>} [deps.notifyPayment]
+ *        Sends private Discord notices through the separately-running bot.
  */
 function router(deps = {}) {
 	const api = express.Router();
 	api.use(attachActor);
+	api.use((req, res, next) => {
+		const share = shareDetails(req, deps.frontendUrl ?? process.env.FRONTEND_URL);
+		req.actor.shareOrigin = share.origin;
+		req.actor.shareReachability = share.reachability;
+		next();
+	});
 
-	api.get('/me', async (req, res) => {
-		if (!req.actor.userId) return res.json({ loggedIn: false, user: null, servers: [] });
+	api.get('/me', async (req, res, next) => {
+		let account;
+		try {
+			account = await ensureAccount(req);
+		}
+		catch (error) {
+			return next(error);
+		}
+		if (!account) return res.json({ loggedIn: false, user: null, servers: [] });
 
-		const user = await users.getUserWithIdentities(req.actor.userId);
+		const user = await users.getUserWithIdentities(account.id);
 		const myGuilds = req.session?.allGuilds || [];
 
 		let botGuildIds = [];
@@ -442,7 +639,13 @@ function router(deps = {}) {
 		const sum = activities.settlement(activity, scope);
 		const row = me ? sum.rows.find(r => r.participantId === me.id) : null;
 
-		return { activity, role, me, period, scope, sum, outstanding: row?.outstanding || 0 };
+		const outstanding = row?.outstanding || 0;
+		const pending = row?.pending || 0;
+		return {
+			activity, role, me, period, scope, sum, row,
+			outstanding,
+			available: Math.max(0, outstanding - pending),
+		};
 	}
 
 	/**
@@ -496,17 +699,41 @@ function router(deps = {}) {
 			if (!ctx) return;
 			if (!ctx.me) return fail(res, 403, 'claim_your_name_first');
 
-			const amount = Number(req.body?.amountSatang) || ctx.outstanding;
+			let allocations;
+			if (Array.isArray(req.body?.allocations) && req.body.allocations.length > 0) {
+				if (ctx.activity.kind !== 'recurring') return fail(res, 400, 'allocations_event_not_allowed');
+				allocations = [];
+				const seen = new Set();
+				for (const requested of req.body.allocations) {
+					const period = ctx.activity.periods.find(item => item.id === requested?.periodId);
+					if (!period || seen.has(period.id)) return fail(res, 400, 'payment_allocation_invalid');
+					seen.add(period.id);
+					const standing = activities.settlement(ctx.activity, period.id).rows
+						.find(item => item.participantId === ctx.me.id);
+					const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
+					const allocationAmount = Number(requested.amountSatang);
+					if (!Number.isSafeInteger(allocationAmount) || allocationAmount <= 0 || allocationAmount > available) {
+						return fail(res, 400, 'payment_allocation_exceeds_outstanding');
+					}
+					allocations.push({ periodId: period.id, amountSatang: allocationAmount });
+				}
+			}
+			else {
+				allocations = [{ periodId: ctx.scope, amountSatang: ctx.available }];
+			}
+
+			const amount = allocations.reduce((sum, allocation) => sum + allocation.amountSatang, 0);
 			if (amount <= 0) return fail(res, 400, 'nothing_outstanding');
 
 			const payment = await activities.recordPayment(ctx.activity.id, ctx.me.id, {
 				amountSatang: amount,
-				method: ctx.activity.payee?.promptpayId ? 'promptpay' : 'manual',
-				periodId: ctx.scope,
+				method: ctx.activity.payee?.promptpayId ? 'bank_transfer' : 'manual',
+				periodId: allocations.length === 1 ? allocations[0].periodId : null,
+				allocations,
 				// What was asked for, and where we sent them. Kept on the row so
 				// the record still explains itself after the expense is corrected
 				// or the owner changes their number.
-				expectedSatang: ctx.outstanding || amount,
+				expectedSatang: amount,
 				promptpayTarget: ctx.activity.payee?.promptpayId || null,
 			});
 
@@ -521,6 +748,57 @@ function router(deps = {}) {
 		}
 	});
 
+	// Cash and other in-person handoffs have no bank slip. They count only
+	// because the owner explicitly records receipt; the verification level says
+	// exactly that rather than making them look like matched transfers.
+	api.post('/a/:code/payments/manual', requireAccount, async (req, res, next) => {
+		try {
+			const activity = await ownerOnly(req, res);
+			if (!activity) return;
+			const participant = activity.participants.find(item => item.id === req.body?.participantId);
+			if (!participant) return fail(res, 400, 'participant_not_in_activity');
+			const period = activity.kind === 'recurring'
+				? activity.periods.find(item => item.id === req.body?.periodId)
+					|| activities.currentPeriod(activity)
+				: null;
+			const standing = activities.settlement(activity, period?.id || null).rows
+				.find(item => item.participantId === participant.id);
+			const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
+			const amountSatang = Number(req.body?.amountSatang);
+			if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0 || amountSatang > available) {
+				return fail(res, 400, 'manual_payment_exceeds_outstanding');
+			}
+
+			await activities.recordPayment(activity.id, participant.id, {
+				amountSatang,
+				method: 'cash',
+				periodId: period?.id || null,
+				expectedSatang: amountSatang,
+				confirmation: {
+					actorUserId: req.actor.userId,
+					source: 'owner_cash',
+					verificationLevel: 'owner_confirmed',
+					reason: String(req.body?.reason || 'รับเงินสดแล้ว').slice(0, 300),
+				},
+			});
+
+			const full = await activities.getActivity(activity.id);
+			if (deps.notifyPayment) {
+				const payerDiscordUid = await discordUidForParticipant(participant);
+				if (payerDiscordUid) {
+					await deps.notifyPayment({
+						recipients: [payerDiscordUid],
+						message: `💵 **${activity.title}** · ฿${(amountSatang / 100).toFixed(2)}\nเจ้าของบันทึกว่าได้รับเงินนอกระบบแล้ว\n${req.actor.shareOrigin}/a/${activity.code}`,
+					}).catch(() => undefined);
+				}
+			}
+			res.json({ activity: serializeActivity(full, req.actor, { periodId: period?.id }) });
+		}
+		catch (error) {
+			next(error);
+		}
+	});
+
 	/**
 	 * Attach the slip to a claim already made.
 	 *
@@ -529,9 +807,10 @@ function router(deps = {}) {
 	 * phone photo off the wire — at which point it is a string, and adding a
 	 * multipart parser to the stack would buy nothing.
 	 *
-	 * `ref` is whatever the browser read out of the slip's own QR. It is not
-	 * trusted to prove anything; it only has to be unique, and the database is
-	 * what enforces that.
+	 * Browser OCR is only a local preview. The server reads the uploaded pixels
+	 * again, derives the checksummed reference itself, and renders the long-term
+	 * evidence card from that server-side reading. Otherwise a caller could edit
+	 * the JSON amount or receiver name and manufacture an automatic match.
 	 */
 	api.post('/a/:code/payments/:paymentId/slip', async (req, res, next) => {
 		try {
@@ -546,26 +825,62 @@ function router(deps = {}) {
 			const isOwner = access.activityRole(req.actor, activity) === 'owner';
 			if (!isOwner && payment.participantId !== me?.id) return fail(res, 403, 'not_your_payment');
 
-			const { dataUrl, ref } = req.body || {};
-			const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(String(dataUrl || ''));
-			if (!match) return fail(res, 400, 'slip_unreadable');
+			const { dataUrl } = req.body || {};
+			const original = decodeDataImage(dataUrl);
+			if (!original) return fail(res, 400, 'slip_unreadable');
 
-			const [, mime, base64] = match;
-			if (!SLIP_TYPES.has(mime.toLowerCase())) return fail(res, 400, 'slip_unreadable');
-
-			const image = Buffer.from(base64, 'base64');
-			if (image.length === 0) return fail(res, 400, 'slip_unreadable');
-			if (image.length > SLIP_MAX_BYTES) return fail(res, 413, 'slip_too_large');
+			const serverReader = deps.readPaymentSlip || readPaymentSlip;
+			const serverResult = await serverReader(original.image);
+			const verifiedQr = serverResult?.slip || null;
+			const serverRead = serverResult?.read || {};
+			const sender = serverRead.parties?.sender || null;
+			const receiver = serverRead.parties?.receiver || null;
+			const readAmount = Number(serverRead.amountSatang);
+			const normalizedReadAmount = Number.isSafeInteger(readAmount) && readAmount > 0 ? readAmount : null;
+			const readWhen = stampWhen(serverRead.when);
+			const evidenceImage = serverResult?.evidenceImage || null;
 
 			const result = await activities.attachSlip(payment.id, {
-				image,
-				mime: mime.toLowerCase(),
-				ref: ref ? String(ref).slice(0, 200) : null,
+				image: serverResult?.normalizedImage || original.image,
+				mime: serverResult?.normalizedMime || original.mime,
+				evidenceImage,
+				evidenceMime: 'image/png',
+				evidenceHash: evidenceImage ? crypto.createHash('sha256').update(evidenceImage).digest('hex') : null,
+				ref: verifiedQr?.ref || null,
+				bank: verifiedQr?.bank?.code || null,
+				amountSatang: normalizedReadAmount,
+				when: readWhen,
+				senderName: sender?.name ? String(sender.name).slice(0, 160) : null,
+				receiverName: receiver?.name ? String(receiver.name).slice(0, 160) : null,
+				senderAccountTail: sender?.accountTail || null,
+				receiverAccountTail: receiver?.accountTail || null,
+				expectedReceiverName: activity.payee?.promptpayName || null,
 			});
 
 			const full = await activities.getActivity(activity.id);
+			if (deps.notifyPayment) {
+				const ownerDiscordUid = await discordUidForUser(activity.ownerUserId);
+				const payerDiscordUid = await discordUidForParticipant(
+					activity.participants.find(participant => participant.id === payment.participantId),
+				);
+				if (ownerDiscordUid && ownerDiscordUid !== payerDiscordUid) {
+					const amount = `฿${(payment.amountSatang / 100).toFixed(2)}`;
+					const link = `${req.actor.shareOrigin}/a/${activity.code}`;
+					const decision = result.autoConfirmed
+						? 'Megu จับคู่สลิปและลงยอดให้อัตโนมัติแล้ว หากเงินไม่เข้าจริงให้ย้อนผลในเว็บพร้อมเหตุผล'
+						: `ยังรอตรวจด้วยตนเอง (${result.reasons.join(', ') || 'ข้อมูลไม่ครบ'})`;
+					await deps.notifyPayment({
+						recipients: [ownerDiscordUid],
+						message: `💸 มีคนแจ้งจ่าย ${amount} · **${activity.title}**\n${decision}\n${link}`,
+					}).catch(() => undefined);
+				}
+			}
 			res.json({
 				verdict: result.verdict,
+				status: result.status,
+				autoConfirmed: result.autoConfirmed,
+				reasons: result.reasons,
+				flags: result.flags,
 				activity: serializeActivity(full, req.actor, { periodId: payment.periodId || undefined }),
 			});
 		}
@@ -599,12 +914,12 @@ function router(deps = {}) {
 				return fail(res, 403, 'not_your_slip');
 			}
 
-			const slip = await activities.getSlip(payment.id);
-			if (!slip) return fail(res, 404, 'no_slip');
+			const storedSlip = await activities.getSlip(payment.id);
+			if (!storedSlip) return fail(res, 404, 'no_slip');
 
-			res.setHeader('Content-Type', slip.mime);
+			res.setHeader('Content-Type', storedSlip.mime);
 			res.setHeader('Cache-Control', 'private, no-store');
-			res.send(slip.image);
+			res.send(storedSlip.image);
 		}
 		catch (error) {
 			next(error);
@@ -762,7 +1077,7 @@ function router(deps = {}) {
 			if (!activity) return;
 			const payment = activity.payments.find(p => p.id === req.params.paymentId);
 			if (!payment) return res.status(404).json({ error: 'ไม่พบรายการจ่ายนี้' });
-			await activities.removePayment(payment.id);
+			await activities.removePayment(payment.id, req.actor.userId, req.body?.reason || 'owner_removed_claim');
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: payment.periodId }) });
 		}
@@ -894,7 +1209,20 @@ function router(deps = {}) {
 		try {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
-			for (const [participantId, attended] of Object.entries(req.body?.attendance || {})) {
+			if (activity.planState !== 'done') {
+				return fail(res, 409, 'attendance_not_ready', 'Finish the activity before recording attendance');
+			}
+			const rosterIds = new Set(activity.participants.map(p => p.id));
+			const entries = Object.entries(req.body?.attendance || {});
+			for (const [participantId, attended] of entries) {
+				if (!rosterIds.has(participantId)) {
+					return fail(res, 400, 'participant_not_in_activity', 'That person is not on this activity');
+				}
+				if (attended !== null && typeof attended !== 'boolean') {
+					return fail(res, 400, 'attendance_invalid', 'Attendance must be true, false, or null');
+				}
+			}
+			for (const [participantId, attended] of entries) {
 				await activities.setAttended(participantId, attended);
 			}
 			const full = await activities.getActivity(activity.id);
@@ -915,15 +1243,45 @@ function router(deps = {}) {
 				return res.status(404).json({ error: 'ไม่พบรายการจ่ายนี้' });
 			}
 
-			if (decision === 'confirm') await activities.confirmPayment(paymentId, req.actor.userId);
-			else if (decision === 'reject') await activities.rejectPayment(paymentId, req.actor.userId);
-			else if (decision === 'undo') await activities.unconfirmPayment(paymentId);
-			else return res.status(400).json({ error: 'decision ต้องเป็น confirm, reject หรือ undo' });
+			const payment = activity.payments.find(item => item.id === paymentId);
+			const reason = String(req.body?.reason || '').trim();
+			if (decision === 'confirm') {
+				const cash = ['cash', 'manual'].includes(payment.method);
+				await activities.confirmPayment(paymentId, req.actor.userId, {
+					source: cash ? 'owner_cash' : 'owner_review',
+					verificationLevel: 'owner_confirmed',
+					reason: reason || (cash ? 'owner_received_cash' : 'owner_checked_transfer'),
+				});
+			}
+			else if (decision === 'reject') {
+				await activities.rejectPayment(paymentId, req.actor.userId, reason);
+			}
+			else if (decision === 'undo') {
+				await activities.reversePayment(paymentId, req.actor.userId, reason);
+			}
+			else {
+				return res.status(400).json({ error: 'decision ต้องเป็น confirm, reject หรือ undo' });
+			}
 
 			// Nothing to close: the money axis settles itself the moment the
 			// last outstanding row reaches zero.
 			const full = await activities.getActivity(activity.id);
 			const periodId = full.payments.find(p => p.id === paymentId)?.periodId || undefined;
+			if (deps.notifyPayment) {
+				const payerDiscordUid = await discordUidForParticipant(
+					activity.participants.find(participant => participant.id === payment.participantId),
+				);
+				if (payerDiscordUid) {
+					const amount = `฿${(payment.amountSatang / 100).toFixed(2)}`;
+					const action = decision === 'confirm'
+						? 'เจ้าของยืนยันว่าได้รับเงินแล้ว'
+						: decision === 'reject' ? `การชำระถูกปฏิเสธ: ${reason}` : `ผลการชำระถูกยกเลิก: ${reason}`;
+					await deps.notifyPayment({
+						recipients: [payerDiscordUid],
+						message: `🔔 **${activity.title}** · ${amount}\n${action}\n${req.actor.shareOrigin}/a/${activity.code}`,
+					}).catch(() => undefined);
+				}
+			}
 			res.json({ activity: serializeActivity(full, req.actor, { periodId }) });
 		}
 		catch (error) {
@@ -934,6 +1292,12 @@ function router(deps = {}) {
 	api.use((err, req, res, next) => {
 		log('Megu', `${req.method} ${req.originalUrl} → ${err.message}`);
 		if (res.headersSent) return next(err);
+		// PostgreSQL messages name tables, columns and constraints. They are
+		// useful in the server log above and never useful in the form someone is
+		// filling in. Keep that implementation detail behind the API boundary.
+		if (/^[0-9A-Z]{5}$/.test(String(err.code || ''))) {
+			return fail(res, 409, 'data_conflict', 'The data changed while saving; reload and try again');
+		}
 		// `code` is what the browser translates; `error` is the sentence it
 		// falls back to when the code is one it has no words for yet.
 		res.status(400).json({ error: err.message || 'failed', code: err.code || null });
@@ -942,4 +1306,4 @@ function router(deps = {}) {
 	return api;
 }
 
-module.exports = { router, attachActor, serializeActivity, DEVICE_COOKIE };
+module.exports = { router, attachActor, serializeActivity, ensureAccount, shareDetails, DEVICE_COOKIE };

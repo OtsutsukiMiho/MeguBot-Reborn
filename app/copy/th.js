@@ -9,6 +9,13 @@
 const th = {
 	code: 'th',
 	label: 'ไทย',
+	nav: {
+		home: 'หน้าแรก',
+		activities: 'กิจกรรม',
+		servers: 'เซิร์ฟเวอร์',
+		signOut: 'ออก',
+		signIn: 'เข้าสู่ระบบด้วย Discord',
+	},
 
 	common: {
 		loading: 'กำลังโหลด…',
@@ -45,6 +52,13 @@ const th = {
 		not_your_payment: 'รายการจ่ายนี้เป็นของคนอื่น',
 		not_your_slip: 'เปิดดูได้เฉพาะคนที่ส่งกับคนที่รับเงิน',
 		no_slip: 'รายการนี้ไม่ได้แนบสลิป',
+		poll_not_ready: 'รอให้ทุกคนตอบก่อน แล้วค่อยฟันธงเวลา',
+		time_not_set: 'เลือกวันเวลาก่อนยืนยันกิจกรรม',
+		split_people_required: 'เลือกก่อนว่าค่าใช้จ่ายนี้หารกับใครบ้าง',
+		attendance_not_ready: 'จบกิจกรรมก่อน แล้วค่อยบันทึกว่าใครมาจริง',
+		attendance_invalid: 'สถานะการเข้าร่วมต้องเป็น มา ไม่ได้มา หรือยังไม่เช็ก',
+		session_expired: 'สถานะเข้าสู่ระบบหมดอายุ เข้าสู่ระบบอีกครั้งแล้วลองใหม่',
+		data_conflict: 'ข้อมูลเปลี่ยนไประหว่างบันทึก โหลดหน้าใหม่แล้วลองอีกครั้ง',
 	},
 
 	plan: {
@@ -71,6 +85,87 @@ const th = {
 		eachPerMonth: amount => `คนละ ${amount}`,
 	},
 
+	// รายการของเจ้าของกิจกรรม ที่ /activities — ทุกคำที่คนอ่านเห็นก่อนจะสร้าง
+	// อะไรสักอย่างอยู่ในนี้ มันเลยเป็นคำอธิบายตัวเองอันแรกของโปรดักต์
+	// ตัวอย่างในนี้จึงมีหน้าที่จริง ไม่ใช่ของประดับ ตอนที่เหลือตัวอย่างเดียว
+	// ("ตีแบด") คนอ่านเข้าใจว่า Megu เอาไว้จองคอร์ทแบดอย่างเดียว
+	activities: {
+		title: 'กิจกรรมของคุณ',
+		liveCount: n => `${n} รายการที่ยังเดินอยู่`,
+		pastCount: n => `${n} รายการที่จบแล้ว`,
+		newActivity: 'เปิดกิจกรรมใหม่',
+		liveTitle: 'กำลังเดินอยู่',
+		pastTitle: 'ที่ผ่านมา',
+		monthly: 'รายเดือน',
+		openMenu: 'เปิด',
+		standing: {
+			awaitingConfirmation: (n, amount) => amount
+				? `รอยืนยัน ${n} รายการ · ค้าง ${amount}`
+				: `รอยืนยัน ${n} รายการ`,
+			outstanding: (n, amount) => `ค้าง ${amount} · ${n} คน`,
+			answered: (answered, total) => `ตอบแล้ว ${answered}/${total}`,
+			allAnswered: total => `ตอบครบ ${total}/${total}`,
+			settled: 'จ่ายครบแล้ว',
+		},
+
+		empty: {
+			says: 'ยังไม่มีอะไรเลย เริ่มอันแรกกันไหม',
+			lede: 'อะไรก็ได้ที่มีคนหลายคนกับเงินเข้ามาเกี่ยว Megu ดูให้ได้หมด:',
+			examples: [
+				'กินข้าวกัน แล้วหารตอนบิลมา',
+				'ทริปที่มีคนจองจ่ายไปก่อน',
+				'ซื้อของเข้าบ้านรวมกัน',
+				'ค่าห้อง ค่าเน็ต ที่เก็บทุกเดือน',
+				'ของขวัญที่ลงขันกัน',
+			],
+		},
+
+		kind: {
+			legend: 'แบบไหน',
+			event: 'ครั้งเดียวจบ',
+			eventHint: 'กินข้าว ไปเที่ยว ซื้อของ ตีแบด — นัดกันครั้งเดียว หารกันแล้วจบ',
+			recurring: 'เก็บทุกเดือน',
+			recurringHint: 'ค่าเน็ต Netflix ค่าห้อง — ยอดเดิมทุกเดือน Megu เปิดรอบให้เอง',
+		},
+
+		saysEvent: 'จะทำอะไร กับใครบ้าง เดี๋ยวเราไปถามให้เอง',
+		saysRecurring: 'ของที่ต้องเก็บทุกเดือน บอกมาว่าเท่าไหร่ กับใครบ้าง',
+
+		titleField: 'เรียกว่าอะไรดี',
+		titlePlaceholderEvent: 'กินหมูกระทะเสาร์นี้',
+		titlePlaceholderRecurring: 'ค่าเน็ตบ้าน',
+		examplesLabel: 'เช่น',
+		exampleTitlesEvent: ['กินข้าว', 'ทริปเขาใหญ่', 'ตีแบด', 'ซื้อของเข้าบ้าน', 'ของขวัญวันเกิด'],
+		exampleTitlesRecurring: ['ค่าเน็ต', 'Netflix', 'ค่าห้อง', 'ค่าน้ำค่าไฟ'],
+
+		whenField: 'เมื่อไหร่',
+		whenAsk: 'ให้ Megu ถามให้',
+		whenKnown: 'รู้วันเวลาแล้ว',
+		whenAskHint: 'Megu จะไปถามก่อนว่าใครว่างวันไหน แล้วค่อยฟันธงให้',
+
+		whereField: 'ที่ไหน',
+		wherePlaceholder: 'ร้าน หรือสถานที่',
+
+		peopleField: 'ใครบ้าง',
+		peoplePlaceholder: 'โอม, นัท, ฟิก',
+		peopleHint: 'คั่นด้วยลูกน้ำหรือขึ้นบรรทัดใหม่ — เพื่อนไม่ต้องสมัครอะไรทั้งนั้น แค่ส่งลิงก์ให้',
+
+		amountField: 'เดือนละเท่าไหร่ (บาท)',
+		dueDayField: 'เก็บเงินทุกวันที่',
+		dueDayHint: 'ของทุกเดือน (1–28)',
+
+		serverField: 'เซิร์ฟเวอร์ Discord',
+		serverNone: 'ไม่ผูกกับเซิร์ฟเวอร์',
+
+		optional: 'ไม่ใส่ก็ได้',
+		create: 'สร้างแล้วเอาลิงก์ไปแปะ',
+		creating: 'กำลังสร้าง…',
+
+		signedOutTitle: 'สวัสดี เราชื่อ Megu',
+		signedOutLede: 'เราจะช่วยจัดกิจกรรมให้กลุ่มคุณ ตั้งแต่ถามว่าใครไป จนถึงตามเงินให้ครบ',
+		signIn: 'เข้าสู่ระบบด้วย Discord',
+	},
+
 	headline: {
 		youOwe: 'คุณต้องจ่าย',
 		youGetBack: 'คุณจะได้คืน',
@@ -92,14 +187,21 @@ const th = {
 		notGoing: 'ไม่ไป',
 	},
 
+	schedule: {
+		title: 'เลือกเวลาก่อน',
+		ownerHint: 'ใส่เวลาที่เป็นไปได้สักสองสามตัวเลือก แล้ว Megu จะถามทุกคนให้ ก่อนเปิดให้ตอบว่าไปไหม',
+		waitingHint: 'เจ้าของกำลังเตรียมตัวเลือกเวลา พอส่งมาแล้วคุณจะตอบได้ทันที',
+	},
+
 	roster: {
 		titleEvent: 'ใครไปบ้าง',
 		titleRecurring: 'สมาชิก',
 		going: 'ไป',
 		notGoing: 'ไม่ไป',
 		noAnswer: 'ยังไม่ตอบ',
-		notLinked: 'ยังไม่ได้กดลิงก์',
+		notLinked: 'ยังไม่ได้เลือกชื่อตัวเอง',
 		paidUp: 'ครบแล้ว',
+		clear: 'เคลียร์',
 		getsBack: amount => `ได้คืน ${amount}`,
 		paidFor: period => `จ่าย${period}แล้ว`,
 		owesFor: (amount, period) => `ค้าง ${amount} ของ${period}`,
@@ -110,6 +212,14 @@ const th = {
 		confirmRemove: name => `เอา ${name} ออกจากกิจกรรม?`,
 	},
 
+	attendance: {
+		title: 'ใครมาจริง',
+		hint: 'เช็กหลังจบกิจกรรม เพื่อให้ประวัติบอกสิ่งที่เกิดขึ้นจริง ไม่ใช่แค่สิ่งที่ตอบไว้',
+		came: 'มา',
+		absent: 'ไม่ได้มา',
+		marked: (done, total) => `เช็กแล้ว ${done}/${total}`,
+	},
+
 	expenses: {
 		title: 'ค่าใช้จ่าย',
 		total: 'รวม',
@@ -118,6 +228,11 @@ const th = {
 		amountField: 'กี่บาท',
 		payerField: 'ใครออกให้ก่อน',
 		payerOption: name => `${name} ออกให้ก่อน`,
+		splitField: 'หารกับใครบ้าง',
+		splitHint: 'คนที่ติ๊กจะมียอดต้องจ่าย ตรวจรายชื่อก่อนเพิ่มค่าใช้จ่าย',
+		forPerson: name => `ของ ${name}`,
+		splitBetween: names => `หารกับ ${names}`,
+		viewSplit: 'ดูยอดต่อคน',
 		confirmDelete: (label, amount) => `ลบ "${label}" ${amount}?`,
 	},
 
@@ -127,8 +242,26 @@ const th = {
 		received: 'ได้รับแล้ว',
 		notYet: 'ยังไม่เข้า',
 		confirmedTitle: 'ที่ยืนยันไปแล้ว',
+		historyTitle: 'ประวัติการชำระที่ถูกย้อนผล',
 		undo: 'ยกเลิกการยืนยัน',
-		confirmDeletePayment: 'ลบรายการจ่ายนี้ทิ้ง?',
+		reversalReason: 'เหตุผลที่ยกเลิกผลการชำระ (ลูกหนี้จะเห็นข้อความนี้)',
+		rejectionReason: 'เหตุผลที่ปฏิเสธการชำระ (ลูกหนี้จะเห็นข้อความนี้)',
+		rejectedNotice: reason => `การชำระถูกปฏิเสธ: ${reason}`,
+		reversedNotice: reason => `ผลการชำระถูกยกเลิก: ${reason}`,
+		allocatedFromTransfer: (allocated, total) => `ส่วนของรอบนี้ ${allocated} จากยอดโอนรวม ${total}`,
+		autoMatched: 'ระบบจับคู่สลิปให้อัตโนมัติ',
+		ownerConfirmed: 'เจ้าของตรวจและยืนยันแล้ว',
+		cashConfirmed: 'เจ้าของยืนยันรับเงินนอกระบบ',
+		confirmDeletePayment: 'ยกเลิกรายการนี้โดยเก็บประวัติไว้?',
+	},
+
+	cash: {
+		title: 'รับเงินนอกระบบ',
+		hint: 'ใช้เมื่อได้รับเงินสดหรือเช็คยอดเองแล้ว รายการนี้ไม่มีสลิปและจะยืนยันด้วยชื่อคุณ',
+		person: 'รับจาก',
+		amount: 'จำนวนเงิน (บาท)',
+		received: 'บันทึกว่าได้รับเงินแล้ว',
+		reason: 'เจ้าของยืนยันว่าได้รับเงินนอกระบบแล้ว',
 	},
 
 	poll: {
@@ -167,6 +300,9 @@ const th = {
 		title: 'ชวนคนอื่น',
 		hint: 'ส่งลิงก์นี้ในกลุ่มได้เลย เพื่อนไม่ต้องสมัครอะไร',
 		linkLabel: 'ลิงก์กิจกรรม',
+		networkOnly: 'โหมดทดสอบ: ลิงก์นี้เปิดได้จากอุปกรณ์ที่อยู่ใน Wi-Fi หรือเครือข่ายเดียวกัน',
+		deviceOnly: 'ลิงก์นี้ยังเปิดได้เฉพาะเครื่องนี้ ตั้ง FRONTEND_URL เป็น URL ที่คนอื่นเข้าถึงได้ก่อนแชร์',
+		copyFailed: 'คัดลอกอัตโนมัติไม่ได้ ลิงก์ถูกเลือกไว้แล้ว—แตะค้างหรือกด Ctrl+C เพื่อคัดลอก',
 	},
 
 	pay: {
@@ -182,16 +318,21 @@ const th = {
 		copyAmount: 'คัดลอกยอด',
 		numberCopied: 'คัดลอกเลขแล้ว',
 		amountCopied: 'คัดลอกยอดแล้ว',
+		choosePeriods: 'เลือกงวดและยอดที่จะจ่าย',
+		selectAllOutstanding: 'เลือกที่ค้างทั้งหมด',
+		amountFor: period => `ยอดสำหรับ ${period}`,
+		allocationHint: 'จ่ายบางส่วนได้ และเลือกหลายเดือนได้ในสลิปเดียว',
+		baht: 'บาท',
 		iHavePaid: 'โอนแล้ว',
 		attachSlip: 'แนบสลิป',
-		attachSlipHint: 'ไม่บังคับ — แนบไว้จะได้ไม่ต้องถามกันว่าเงินเข้าหรือยัง',
+		attachSlipHint: 'ต้องแนบสลิปจึงจะนับว่าชำระแล้ว ระบบจะเก็บเฉพาะข้อมูลหลักฐานที่จำเป็น',
 		slipAttached: 'แนบสลิปแล้ว',
 		replaceSlip: 'เปลี่ยนสลิป',
 		viewSlip: 'ดูสลิป',
 		reading: 'กำลังอ่านสลิป…',
 		noPromptPay: name => `${name} ยังไม่ได้ใส่เลขพร้อมเพย์`,
 		noPromptPayOwner: 'ใส่เลขพร้อมเพย์ไว้ เพื่อนจะได้ QR ที่ใส่ยอดมาให้แล้ว ไม่ต้องพิมพ์เอง',
-		waitingConfirm: 'แจ้งให้แล้ว รอเจ้าของยืนยันว่าเงินเข้า',
+		waitingConfirm: 'แนบสลิปเพื่อให้ระบบตรวจและบันทึกการชำระ',
 	},
 
 	promptpay: {
@@ -205,15 +346,50 @@ const th = {
 		payeeField: 'ใครเป็นคนรับเงิน',
 		notSet: 'ยังไม่ได้ตั้ง',
 		remove: 'เอาเลขนี้ออก',
+		fromQr: 'อ่านจากรูป QR ของฉัน',
+		fromQrHint: 'เลือกรูป QR พร้อมเพย์ที่แอปธนาคารบันทึกไว้ อ่านในเครื่องนี้ ไม่ได้ส่งรูปขึ้นเซิร์ฟเวอร์',
+		reading: 'กำลังอ่านรูป…',
+		qrRead: masked => `อ่านได้จากรูป: ${masked}`,
+		qrAmountIgnored: amount => `ใน QR นั้นมียอด ${amount} ติดมาด้วย เก็บไว้แต่เลขบัญชี — ยอดเงิน Megu ใส่ให้ใหม่ทุกครั้ง`,
 	},
 
 	slip: {
 		verdictUnread: 'แนบสลิปแล้ว — อ่านรหัสอ้างอิงไม่ออก',
+		verdictReview: 'แนบสลิปแล้ว — รอเจ้าของตรวจ',
 		verdictMatched: 'แนบสลิปแล้ว',
 		verdictDuplicate: 'สลิปนี้เคยใช้ไปแล้ว',
 		expected: amount => `ยอดที่ขอไป ${amount}`,
 		uploaded: when => `แนบเมื่อ ${when}`,
 		privacyNote: 'เปิดดูได้เฉพาะคุณกับคนที่ส่งมา',
+		readingImage: 'กำลังอ่านสลิป…',
+		sentFrom: bank => `โอนจาก ${bank}`,
+		readAmount: amount => `ในสลิปอ่านได้ ${amount}`,
+		readDiffers: (read, expected) => `ในสลิปอ่านได้ ${read} แต่ยอดที่ขอไปคือ ${expected}`,
+		readNote: 'อ่านจากรูป ไม่ได้เช็คกับธนาคาร ดูอีกรอบก่อนกดยืนยัน',
+	},
+
+	receipt: {
+		scan: 'สแกนใบเสร็จ',
+		hint: 'ถ่ายรูปใบเสร็จ Megu จะอ่านรายการออกมาให้ ตรวจก่อนค่อยเพิ่มเข้าไป',
+		reading: 'กำลังอ่านใบเสร็จ…',
+		found: count => `อ่านได้ ${count} รายการ`,
+		checkNote: 'อ่านมาจากรูป ตรวจอีกทีนะ แก้ได้ทุกช่อง อันไหนไม่เอาก็ติ๊กออก',
+		selected: count => `เลือกไว้ ${count} รายการ`,
+		matchesPrinted: total => `รวมแล้วตรงกับยอด ${total} ที่พิมพ์บนใบเสร็จ`,
+		differsFromPrinted: (total, gap) => `บนใบเสร็จเขียน ${total} — ต่างกันอยู่ ${gap}`,
+		addAll: (count, total) => `เพิ่ม ${count} รายการ · ${total}`,
+		asOneLine: total => `หรือเพิ่มทั้งบิลเป็นรายการเดียว (${total})`,
+		wholeBill: 'ทั้งบิล',
+		untitled: 'รายการ',
+		serviceLine: 'ค่าบริการ',
+		taxLine: 'ภาษีมูลค่าเพิ่ม',
+		addService: amount => `เพิ่มค่าบริการ ${amount}`,
+		addTax: amount => `เพิ่มภาษี ${amount}`,
+		includeLine: label => `เอา ${label} ด้วย`,
+		nothingFound: 'อ่านอะไรจากรูปนี้ไม่ได้เลย ลองใหม่ วางใบเสร็จให้เรียบและถ่ายให้ครบทั้งใบ',
+		failed: 'อ่านรูปนี้ไม่ได้',
+		partial: (added, total) => `เพิ่มไปแล้ว ${added} จาก ${total} รายการ แล้วติดขัด — ที่เหลือยังไม่ได้เพิ่ม`,
+		unavailable: 'เซิร์ฟเวอร์นี้ยังไม่ได้ติดตั้งตัวอ่านใบเสร็จ',
 	},
 };
 

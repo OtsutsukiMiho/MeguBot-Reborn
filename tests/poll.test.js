@@ -37,15 +37,25 @@ async function main() {
 	assert.strictEqual(full.startsAt, null, 'nobody has picked a time yet');
 	assert.strictEqual(full.slots.length, 0);
 	ok('activity starts with no time — exactly the state a group chat gets stuck in');
+	await assert.rejects(() => activities.setPlanState(act.id, 'confirmed'), error => error.code === 'time_not_set');
+	await assert.rejects(() => activities.setPlanState(act.id, 'done'), error => error.code === 'time_not_set');
+	ok('an unscheduled event cannot be confirmed or finished as if the decision were made');
 
 	await activities.proposeSlots(act.id, [SAT_17, SAT_19, SUN_17]);
 	full = await activities.getActivity(act.id);
 	assert.strictEqual(full.slots.length, 3);
 	assert.strictEqual(activities.pollReady(full), false);
 	ok('three times on the table, poll not ready — nobody answered');
+	await assert.rejects(() => activities.lockBestSlot(act.id), error => error.code === 'poll_not_ready');
+	ok('the backend refuses to lock a suggestion before everyone has answered');
 
 	const P = Object.fromEntries(full.participants.map(p => [p.displayName, p.id]));
 	const S = Object.fromEntries(full.slots.map((s, i) => [['sat17', 'sat19', 'sun17'][i], s.id]));
+	await activities.voteSlot(S.sat17, P['ฟิก'], 'yes');
+	full = await activities.getActivity(act.id);
+	assert.strictEqual(activities.pollAnsweredCount(full), 0);
+	assert.strictEqual(activities.pollReady(full), false);
+	ok('one answer is not mistaken for completing a poll with three options');
 
 	// โอม can only do Saturday evening; นัท cannot do Saturday at all.
 	await activities.voteSlot(S.sat17, P['ฟิก'], 'yes');
@@ -62,6 +72,7 @@ async function main() {
 
 	full = await activities.getActivity(act.id);
 	assert.strictEqual(activities.pollReady(full), false, 'A has still not answered');
+	await assert.rejects(() => activities.lockBestSlot(act.id), error => error.code === 'poll_not_ready');
 	ok('poll waits for the last person instead of guessing');
 
 	const silent = full.participants.filter(p => !full.slotVotes.some(v => v.participantId === p.id));

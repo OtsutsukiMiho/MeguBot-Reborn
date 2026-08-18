@@ -19,8 +19,11 @@ if (fs.existsSync('.env')) {
 }
 const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
+const DISCORD_TEST_MODE = process.env.MEGU_DISCORD_TEST_MODE === '1';
+const DISCORD_TEST_GUILD_ID = String(process.env.MEGU_DISCORD_TEST_GUILD_ID || '');
+const DISCORD_TEST_CHANNEL_ID = String(process.env.MEGU_DISCORD_TEST_CHANNEL_ID || '');
 const client = new Client({
-	intents: [
+	intents: DISCORD_TEST_MODE ? [GatewayIntentBits.Guilds] : [
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.GuildMessages,
 		GatewayIntentBits.GuildMembers,
@@ -107,6 +110,18 @@ client.once(Events.ClientReady, async (readyClient) => {
 	BotLogs('Bot', `${COLOR.green}Gateway instance ${COLOR.white}${INSTANCE}${COLOR.reset} — one token, one of these. Two means duplicate replies.`);
 
 	await database.initDatabase();
+	if (DISCORD_TEST_MODE) {
+		try {
+			const core = require('../../core/index.js');
+			core.setLogger((scope, message) => BotLogs(scope, message));
+			await core.initCoreSchema();
+			BotLogs('Megu', `${COLOR.yellow}Discord test mode: only /จ่าย in ${DISCORD_TEST_GUILD_ID}/${DISCORD_TEST_CHANNEL_ID}`);
+		}
+		catch (error) {
+			BotLogs('Megu', `${COLOR.red}Test-mode core init failed: ${error.message}`);
+		}
+		return;
+	}
 
 	// Megu chases unpaid shares by DM. Core decides who and what to say; the
 	// sender only opens the conversation.
@@ -263,6 +278,11 @@ for (const folder of commandFolders) {
 }
 
 client.on(Events.InteractionCreate, async (interaction) => {
+	if (DISCORD_TEST_MODE) {
+		if (String(interaction.guildId || '') !== DISCORD_TEST_GUILD_ID) return;
+		if (String(interaction.channelId || '') !== DISCORD_TEST_CHANNEL_ID) return;
+		if (interaction.commandName !== 'จ่าย') return;
+	}
 
 	if (interaction.isChatInputCommand()) {
 		const command = interaction.client.commands.get(interaction.commandName);
@@ -364,6 +384,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.on(Events.ClientReady, async () => {
+	if (DISCORD_TEST_MODE) return;
 	// Set once, not on a timer. Discord allows 5 presence updates per 60
 	// seconds per session; this used to re-send the same unchanged presence
 	// every 5 seconds — 12 a minute, forever — which is a straight 12x overrun
@@ -1742,6 +1763,19 @@ process.on('message', async (msg) => {
 		}
 		if (process.send) {
 			process.send({ target: 'web', type: 'guilds_presence_response', reqId: msg.reqId, presence, guildInfo });
+		}
+	}
+	else if (msg.type === 'payment_notice') {
+		let delivered = 0;
+		const recipients = Array.isArray(msg.recipients) ? [...new Set(msg.recipients)] : [];
+		const message = String(msg.message || '').slice(0, 1900);
+		for (const discordUid of recipients) {
+			if (!/^\d{17,20}$/.test(String(discordUid)) || !message) continue;
+			const user = await client.users.fetch(String(discordUid)).catch(() => null);
+			if (user && await user.send(message).then(() => true).catch(() => false)) delivered++;
+		}
+		if (process.send) {
+			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, delivered });
 		}
 	}
 	else if (msg.type === 'get_guild_details') {

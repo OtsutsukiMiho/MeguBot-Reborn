@@ -270,6 +270,9 @@ app.use('/api/megu', meguApi.router({
 		const presence = (ipcRes && ipcRes.presence) ? ipcRes.presence : {};
 		return Object.keys(presence).filter(id => presence[id]);
 	},
+	notifyPayment: async ({ recipients, message }) => {
+		await sendIpcRequest({ type: 'payment_notice', recipients, message });
+	},
 }));
 
 function requireAdminGuild(req, res, next) {
@@ -1632,9 +1635,14 @@ app.get('/', (req, res) => {
 });
 
 BotLogs('Megu', `Core database: ${COLOR.white}${core.db.describe()}`);
-core.initCoreSchema().catch((error) => {
-	BotLogs('Megu', `${COLOR.red}Core schema init failed: ${error.message}. Activity features will not work.`);
-});
+core.initCoreSchema()
+	.then(async () => {
+		const forgotten = await core.activities.forgetOldSlips(7);
+		if (forgotten > 0) BotLogs('Megu', `${COLOR.yellow}Expired ${forgotten} temporary raw slip image(s).`);
+	})
+	.catch((error) => {
+		BotLogs('Megu', `${COLOR.red}Core schema init failed: ${error.message}. Activity features will not work.`);
+	});
 
 const server = app.listen(PORT, () => {
 	BotLogs('SYSTEM', `Express health check & dashboard server running on port ${PORT}`);

@@ -79,6 +79,13 @@ async function loginWithIdentity(profile) {
 	if (!providerUid) throw new Error('providerUid is required');
 
 	return transaction(async (client) => {
+		// OAuth callback and stale-session recovery can arrive together from two
+		// browser requests. Serialize work for this provider identity so both
+		// cannot observe "missing" and race to insert the same unique key.
+		await client.query(
+			'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+			[provider, String(providerUid)],
+		);
 		const existing = await client.query(
 			'SELECT * FROM identities WHERE provider = $1 AND provider_uid = $2',
 			[provider, String(providerUid)],

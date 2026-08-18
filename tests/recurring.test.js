@@ -23,6 +23,7 @@ async function main() {
 	const badminton = await activities.createActivity({
 		ownerUserId: megu.user.id,
 		title: 'ตีแบด',
+		startsAt: new Date('2026-08-22T17:00:00+07:00'),
 		participants: [{ displayName: 'Megu', userId: megu.user.id }, { displayName: 'โอม' }, { displayName: 'นัท' }],
 	});
 	let full = await activities.getActivity(badminton.id);
@@ -35,6 +36,7 @@ async function main() {
 		label: 'ค่าคอร์ท',
 		amountSatang: money.toSatang(300),
 		paidBy: full.participants[0].id,
+		shareParticipantIds: full.participants.map(p => p.id),
 	});
 	full = await activities.getActivity(badminton.id);
 	assert.strictEqual(full.planState, 'open', 'billing must not drag the plan forward');
@@ -116,6 +118,19 @@ async function main() {
 	assert.strictEqual(activities.settlement(full, aug.period.id).rows.find(r => r.displayName === 'นัท').outstanding, 0);
 	assert.strictEqual(activities.settlement(full, sep.period.id).rows.find(r => r.displayName === 'นัท').outstanding, 6650);
 	ok('paying สิงหาคม leaves กันยายน untouched');
+
+	const augustList = await activities.listActivitiesForOwner(megu.user.id, { at: new Date('2026-08-20T00:00:00Z') });
+	const augustStanding = augustList.find(a => a.id === yt.id).summary;
+	assert.strictEqual(augustStanding.periodKey, '2026-08');
+	assert.strictEqual(augustStanding.unpaidCount, 4);
+	assert.strictEqual(augustStanding.outstandingSatang, 26600);
+
+	const septemberList = await activities.listActivitiesForOwner(megu.user.id, { at: new Date('2026-09-20T00:00:00Z') });
+	const septemberStanding = septemberList.find(a => a.id === yt.id).summary;
+	assert.strictEqual(septemberStanding.periodKey, '2026-09');
+	assert.strictEqual(septemberStanding.unpaidCount, 5);
+	assert.strictEqual(septemberStanding.outstandingSatang, 33250);
+	ok('the owner list shows only the month being viewed, never two monthly balances added together');
 
 	console.log('\nreminders');
 

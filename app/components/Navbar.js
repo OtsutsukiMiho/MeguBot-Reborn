@@ -6,12 +6,14 @@ import { usePathname } from 'next/navigation';
 import MeguMark from './MeguMark';
 import ThemeToggle from './ThemeToggle';
 import { useLang, LANGS } from './LangProvider';
+import { useCopy } from '../copy';
 
 export default function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDev, setIsDev] = useState(false);
 	const pathname = usePathname();
 	const { lang, setLang } = useLang();
+	const { t } = useCopy();
 
 	useEffect(() => {
 		fetch('/api/auth/me')
@@ -54,13 +56,13 @@ export default function Navbar() {
 
 				<div className="nav-menu">
 					<Link href="/" className={`tab-btn ${pathname === '/' ? 'active' : ''}`}>
-						หน้าแรก
+						{t.nav.home}
 					</Link>
 					<Link href="/activities" className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
-						กิจกรรม
+						{t.nav.activities}
 					</Link>
 					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
-						เซิร์ฟเวอร์
+						{t.nav.servers}
 					</Link>
 					{isDev && (
 						<Link href="/developer" className={`tab-btn ${pathname.startsWith('/developer') ? 'active' : ''}`}>
@@ -89,12 +91,12 @@ export default function Navbar() {
 							<img src={avatarUrl} className="user-avatar" alt="" width={28} height={28} />
 							<span className="user-name">{user.global_name || user.username}</span>
 							<button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ marginLeft: '0.25rem' }}>
-								ออก
+								{t.nav.signOut}
 							</button>
 						</div>
 					) : (
 						<a href="/api/auth/login" className="btn btn-discord btn-sm">
-							เข้าสู่ระบบด้วย Discord
+							{t.nav.signIn}
 						</a>
 					)}
 				</div>

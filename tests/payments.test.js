@@ -12,6 +12,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const core = require('../core/index.js');
 const meguApi = require('../adapters/http/megu-api.js');
+const { renderEvidenceCard } = require('../adapters/payment-evidence-card.js');
 
 const created = { users: [], activities: [] };
 let ok = 0;
@@ -20,7 +21,7 @@ function pass(m) {
 	console.log(`  ok  ${m}`);
 }
 
-function makeApp(sessionFor) {
+function makeApp(sessionFor, deps = {}) {
 	const app = express();
 	// Mirrors the real host: slips get a larger ceiling than everything else.
 	const slipBody = express.json({ limit: '4mb' });
@@ -33,7 +34,7 @@ function makeApp(sessionFor) {
 		req.session = sessionFor(req);
 		next();
 	});
-	app.use('/api/megu', meguApi.router({ botPresence: async () => [] }));
+	app.use('/api/megu', meguApi.router({ botPresence: async () => [], ...deps }));
 	return app;
 }
 
@@ -60,8 +61,57 @@ function client(base) {
 	};
 }
 
-// A one-pixel PNG is a valid image and is all the transport needs to carry.
-const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+function field(id, value) {
+	return `${id}${String(value.length).padStart(2, '0')}${value}`;
+}
+
+function bankSlip(bank, ref) {
+	const inner = field('00', '000001') + field('01', bank) + field('02', ref);
+	const body = `${field('00', inner)}9104`;
+	return `${body}${core.promptpay.crc16(body)}`;
+}
+
+function exactSlipBody(ref, amountSatang, { qr = true } = {}) {
+	const fixture = Buffer.from(JSON.stringify({ ref, amountSatang, qr }));
+	return {
+		dataUrl: `data:image/png;base64,${fixture.toString('base64')}`,
+		// Deliberately forged client readings. The HTTP adapter must ignore every
+		// one and use only what its server-side pixel reader returns below.
+		qrPayload: bankSlip('999', 'CALLER-FORGED'),
+		readAmountSatang: 1,
+		readWhen: '2099-01-01 00:00',
+		sender: { name: 'ผู้ส่งปลอม', accountTail: '9999' },
+		receiver: { name: 'ผู้รับปลอม', accountTail: '9999' },
+	};
+}
+
+async function readTestPaymentSlip(image) {
+	let fixture;
+	try {
+		fixture = JSON.parse(image.toString('utf8'));
+	}
+	catch {
+		const error = new Error('slip_unreadable');
+		error.code = 'slip_unreadable';
+		throw error;
+	}
+	const qrPayload = fixture.qr ? bankSlip('006', fixture.ref) : null;
+	const slip = qrPayload ? core.slip.readSlipQr(qrPayload) : null;
+	const read = {
+		amountSatang: fixture.amountSatang,
+		when: { year: 2026, month: 8, day: 1, hour: 10, minute: 30 },
+		parties: {
+			sender: { name: 'บุคคลอื่น โอนแทนโอม', accountTail: '00001234' },
+			receiver: { name: 'Megu S.', accountTail: '00005678' },
+		},
+	};
+	return {
+		qrPayload,
+		slip,
+		read,
+		evidenceImage: slip ? await renderEvidenceCard(slip, read) : null,
+	};
+}
 
 let server = null;
 
@@ -78,8 +128,12 @@ async function main() {
 		owner: { meguUserId: megu.user.id, user: { id: '__pay_megu__' }, allGuilds: [] },
 		anon: {},
 	};
+	const notices = [];
 
-	const app = makeApp(() => sessions[whoAmI] || {});
+	const app = makeApp(() => sessions[whoAmI] || {}, {
+		notifyPayment: async notice => notices.push(notice),
+		readPaymentSlip: readTestPaymentSlip,
+	});
 	server = app.listen(0);
 	await new Promise(r => server.once('listening', r));
 	const base = `http://127.0.0.1:${server.address().port}`;
@@ -114,10 +168,11 @@ async function main() {
 	const meRow = roster.find(p => p.isMe);
 	const ohmRow = roster.find(p => p.displayName === 'โอม');
 
-	// Nobody has answered yet, so the split falls back to the whole roster —
-	// ฿300 three ways. That fallback is what makes the ฿100 below predictable.
+	// The organizer explicitly includes the whole roster — ฿300 three ways.
+	// RSVP and the money split are separate decisions.
 	r = await owner('POST', `/api/megu/a/${code}/expenses`, {
 		label: 'Court', amountBaht: 300, paidBy: meRow.id,
+		shareParticipantIds: roster.map(p => p.id),
 	});
 	assert.strictEqual(r.status, 200);
 	pass('the owner fronted ฿300 for the court');
@@ -188,30 +243,37 @@ async function main() {
 	// ── the slip ───────────────────────────────────────────────────────────
 
 	whoAmI = 'anon';
-	r = await ohm('POST', `/api/megu/a/${code}/payments/${paymentId}/slip`, {
-		dataUrl: TINY_PNG,
-		ref: 'TXN-0001',
-	});
+	r = await ohm('POST', `/api/megu/a/${code}/payments/${paymentId}/slip`, exactSlipBody('TXN-0001', 10000));
 	assert.strictEqual(r.status, 200);
 	assert.strictEqual(r.body.verdict, 'matched');
-	pass('โอม attached a slip with a readable reference');
+	assert.strictEqual(r.body.autoConfirmed, true);
+	assert.strictEqual(notices.length, 1);
+	assert.ok(notices[0].message.includes('ลงยอดให้อัตโนมัติแล้ว'));
+	pass('server ignored forged browser fields, re-read the uploaded pixels, and auto-confirmed the real values');
 
 	r = await ohm('GET', `/api/megu/a/${code}`);
 	const withSlip = r.body.activity.payments.find(p => p.id === paymentId);
 	assert.strictEqual(withSlip.hasSlip, true);
 	assert.strictEqual(withSlip.slipVerdict, 'matched');
+	assert.strictEqual(withSlip.status, 'confirmed');
+	assert.strictEqual(withSlip.verificationLevel, 'slip_matched');
+	assert.strictEqual(withSlip.slipAmountSatang, 10000);
+	assert.strictEqual(withSlip.slipWhen, '2026-08-01 10:30');
+	assert.strictEqual(withSlip.slipReceiverName, 'Megu S.');
+	assert.strictEqual(withSlip.slipReceiverAccountTail, '5678');
 	assert.strictEqual(withSlip.slipImage, undefined);
-	pass('the activity says a slip exists without carrying the image in it');
+	pass('the activity exposes the decision level without carrying either private image in JSON');
 
 	r = await ohm('GET', `/api/megu/a/${code}/payments/${paymentId}/slip`);
 	assert.strictEqual(r.status, 200);
 	assert.ok(r.type.includes('image/'));
-	pass('the person who sent the slip can open it again');
+	assert.ok(r.body.length > 1000, 'server-rendered evidence must replace the caller-provided one-pixel image');
+	pass('the payer opens a server-rendered evidence card, not a caller-supplied image masquerading as one');
 
 	whoAmI = 'owner';
 	r = await owner('GET', `/api/megu/a/${code}/payments/${paymentId}/slip`);
 	assert.strictEqual(r.status, 200);
-	pass('the person being paid can open it');
+	pass('the person being paid can open the sanitized evidence card');
 
 	whoAmI = 'anon';
 	r = await stranger('GET', `/api/megu/a/${code}/payments/${paymentId}/slip`);
@@ -223,6 +285,7 @@ async function main() {
 	whoAmI = 'owner';
 	r = await owner('POST', `/api/megu/a/${code}/expenses`, {
 		label: 'Shuttlecocks', amountBaht: 90, paidBy: meRow.id,
+		shareParticipantIds: roster.map(p => p.id),
 	});
 	assert.strictEqual(r.status, 200);
 
@@ -231,32 +294,98 @@ async function main() {
 	const secondClaim = r.body.paymentId;
 	assert.ok(secondClaim && secondClaim !== paymentId);
 
-	r = await ohm('POST', `/api/megu/a/${code}/payments/${secondClaim}/slip`, {
-		dataUrl: TINY_PNG,
-		ref: 'TXN-0001',
-	});
+	r = await ohm('POST', `/api/megu/a/${code}/payments/${secondClaim}/slip`, exactSlipBody('TXN-0001', 3000));
 	assert.strictEqual(r.status, 409);
 	assert.strictEqual(r.body.code, 'slip_duplicate');
 	pass('the same transaction reference cannot be spent on a second payment');
 
-	r = await ohm('POST', `/api/megu/a/${code}/payments/${secondClaim}/slip`, {
-		dataUrl: TINY_PNG,
-		ref: 'TXN-0002',
-	});
+	r = await ohm('POST', `/api/megu/a/${code}/payments/${secondClaim}/slip`, exactSlipBody('TXN-0002', 3000));
 	assert.strictEqual(r.status, 200);
 	pass('a different reference on the same image is fine — people do pay twice');
 
-	// A slip nobody could read is still evidence, and must not be refused.
+	// A claim for another expense gives us a pending row on which to test an
+	// unread slip. No QR means it cannot auto-confirm, even if the caller sends
+	// a made-up `ref` field beside it.
 	whoAmI = 'owner';
-	r = await owner('POST', `/api/megu/a/${code}/payments/${paymentId}/slip`, { dataUrl: TINY_PNG });
+	r = await owner('POST', `/api/megu/a/${code}/expenses`, {
+		label: 'Drinks', amountBaht: 60, paidBy: meRow.id,
+		shareParticipantIds: roster.map(p => p.id),
+	});
+	assert.strictEqual(r.status, 200);
+	whoAmI = 'anon';
+	r = await ohm('POST', `/api/megu/a/${code}/pay`);
+	const unreadClaim = r.body.paymentId;
+	r = await ohm('POST', `/api/megu/a/${code}/payments/${unreadClaim}/slip`, {
+		...exactSlipBody('INVENTED-BUT-IGNORED', 2000, { qr: false }),
+		ref: 'INVENTED-BUT-IGNORED',
+	});
 	assert.strictEqual(r.status, 200);
 	assert.strictEqual(r.body.verdict, 'unread');
-	pass('a slip with no readable QR is accepted and marked unread');
+	assert.strictEqual(r.body.autoConfirmed, false);
+	pass('a slip with no valid QR is accepted for review but a caller-invented reference cannot confirm it');
 
-	r = await owner('POST', `/api/megu/a/${code}/payments/${paymentId}/slip`, { dataUrl: 'not-an-image' });
+	r = await ohm('POST', `/api/megu/a/${code}/payments/${unreadClaim}/slip`, { dataUrl: 'not-an-image' });
 	assert.strictEqual(r.status, 400);
 	assert.strictEqual(r.body.code, 'slip_unreadable');
 	pass('something that is not an image at all is refused');
+
+	r = await ohm('POST', `/api/megu/a/${code}/payments/${unreadClaim}/slip`, {
+		dataUrl: `data:image/png;base64,${Buffer.from('forged image header').toString('base64')}`,
+	});
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'slip_unreadable');
+	pass('an image MIME header cannot smuggle non-image bytes into temporary evidence');
+
+	// Link the participant to Discord before owner decisions. A device-only
+	// payer still sees the reason in the web ledger; a linked payer must also
+	// receive the private notification promised by the payment flow.
+	await core.db.query('UPDATE participants SET discord_uid = $2 WHERE id = $1', [ohmRow.id, '__pay_ohm__']);
+	const noticesBeforeDecisions = notices.length;
+
+	whoAmI = 'owner';
+	r = await owner('POST', `/api/megu/a/${code}/payments/${paymentId}/undo`);
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'reversal_reason_required');
+	r = await owner('POST', `/api/megu/a/${code}/payments/${paymentId}/undo`, {
+		reason: 'ตรวจบัญชีธนาคารแล้วไม่พบยอดเข้า',
+	});
+	assert.strictEqual(r.status, 200);
+	assert.strictEqual(r.body.activity.payments.find(p => p.id === paymentId).status, 'reversed');
+	assert.strictEqual(notices.length, noticesBeforeDecisions + 1);
+	assert.deepStrictEqual(notices.at(-1).recipients, ['__pay_ohm__']);
+	assert.ok(notices.at(-1).message.includes('ตรวจบัญชีธนาคารแล้วไม่พบยอดเข้า'));
+	pass('owner can reverse an automatic confirmation only with a reason visible in the ledger');
+
+	r = await owner('POST', `/api/megu/a/${code}/payments/${unreadClaim}/reject`);
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'rejection_reason_required');
+	r = await owner('POST', `/api/megu/a/${code}/payments/${unreadClaim}/reject`, {
+		reason: 'ภาพไม่มี QR ธุรกรรมให้อ้างอิง',
+	});
+	assert.strictEqual(r.status, 200);
+	assert.strictEqual(r.body.activity.payments.find(p => p.id === unreadClaim).status, 'rejected');
+	assert.deepStrictEqual(notices.at(-1).recipients, ['__pay_ohm__']);
+	assert.ok(notices.at(-1).message.includes('ภาพไม่มี QR ธุรกรรมให้อ้างอิง'));
+	pass('rejecting a pending claim also requires a reason');
+
+	whoAmI = 'anon';
+	r = await ohm('POST', `/api/megu/a/${code}/payments/manual`, {
+		participantId: ohmRow.id, amountSatang: 1000,
+	});
+	assert.strictEqual(r.status, 401);
+	whoAmI = 'owner';
+	r = await owner('POST', `/api/megu/a/${code}/payments/manual`, {
+		participantId: ohmRow.id,
+		amountSatang: 1000,
+		reason: 'รับเงินสดต่อหน้าแล้ว',
+	});
+	assert.strictEqual(r.status, 200);
+	const cash = r.body.activity.payments.find(p => p.method === 'cash');
+	assert.strictEqual(cash.status, 'confirmed');
+	assert.strictEqual(cash.confirmationSource, 'owner_cash');
+	assert.strictEqual(cash.verificationLevel, 'owner_confirmed');
+	assert.strictEqual(cash.hasSlip, false);
+	pass('only the owner can record cash; it confirms under the owner without inventing slip evidence');
 
 	// ── who collects ───────────────────────────────────────────────────────
 

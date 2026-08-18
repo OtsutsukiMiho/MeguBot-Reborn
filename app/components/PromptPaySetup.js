@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useCopy } from '../copy';
+import QrPicker from './QrPicker';
 
 /**
  * The owner's half of the pay screen: where the money lands, and who it lands
@@ -13,7 +14,7 @@ import { useCopy } from '../copy';
  * to go looking for is a settings page nobody visits.
  */
 export default function PromptPaySetup({ payTo, participants, busy, call, onSaved }) {
-	const { t, error } = useCopy();
+	const { t, fmt, error } = useCopy();
 
 	const [open, setOpen] = useState(!payTo?.ready);
 	const [number, setNumber] = useState(payTo?.number || '');
@@ -21,6 +22,30 @@ export default function PromptPaySetup({ payTo, participants, busy, call, onSave
 	const [saving, setSaving] = useState(false);
 	const [problem, setProblem] = useState('');
 	const [saved, setSaved] = useState(false);
+	const [scanned, setScanned] = useState(null);
+
+	/**
+	 * What the picture said, put into the fields — and no further.
+	 *
+	 * Reading a QR is evidence; saving it is an act. Keeping them apart means
+	 * the number is on screen, masked, next to the name the bank printed on it,
+	 * before anyone commits to being paid there. A QR read straight into the
+	 * account would be a picture from the photo library silently changing where
+	 * a group's money goes.
+	 */
+	function fromQr(result) {
+		if (result?.error) {
+			setScanned(null);
+			setProblem(error({ code: result.error }));
+			return;
+		}
+		setProblem('');
+		setScanned(result);
+		setNumber(result.target);
+		// An account name typed by hand is a decision; the one on the QR is a
+		// default. It fills a blank field and never overwrites an answer.
+		if (result.accountName && !name.trim()) setName(result.accountName);
+	}
 
 	async function save(event) {
 		event.preventDefault();
@@ -83,8 +108,32 @@ export default function PromptPaySetup({ payTo, participants, busy, call, onSave
 							autoComplete="tel"
 							placeholder="081-234-5678"
 							value={number}
-							onChange={e => setNumber(e.target.value)}
+							onChange={e => { setNumber(e.target.value); setScanned(null); }}
 						/>
+
+						<div className="pp-import">
+							<QrPicker
+								label={t.promptpay.fromQr}
+								busyLabel={t.promptpay.reading}
+								disabled={saving}
+								onRead={fromQr}
+							/>
+							<small className="pp-note">{t.promptpay.fromQrHint}</small>
+						</div>
+
+						{scanned && (
+							<div className="pp-scanned">
+								<span className="chip chip-clear">{t.promptpay.qrRead(scanned.masked)}</span>
+								{/* The QR people have saved is usually the one with
+								    a figure already in it. Taking the account and
+								    dropping the amount is the right thing to do and
+								    the surprising thing to do, so it is said out
+								    loud rather than done quietly. */}
+								{scanned.amountSatang != null && (
+									<small className="pp-note">{t.promptpay.qrAmountIgnored(fmt.money(scanned.amountSatang))}</small>
+								)}
+							</div>
+						)}
 					</div>
 
 					<div>
@@ -127,7 +176,7 @@ export default function PromptPaySetup({ payTo, participants, busy, call, onSave
 								type="button"
 								className="link-btn danger"
 								disabled={saving}
-								onClick={() => { setNumber(''); setName(''); }}
+								onClick={() => { setNumber(''); setName(''); setScanned(null); }}
 							>
 								{t.promptpay.remove}
 							</button>
