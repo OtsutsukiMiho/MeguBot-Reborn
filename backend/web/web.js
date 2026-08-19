@@ -708,8 +708,12 @@ app.get('/api/guilds/:guildId', requireAdminGuild, async (req, res) => {
 		config: {
 			welcome_channel_id: vars.welcome_channel_id || null,
 			welcome_message_template: vars.welcome_message_template || '',
+			welcome_mode: vars.welcome_mode || 'text',
+			welcome_embed: typeof vars.welcome_embed === 'string' ? (() => { try { return JSON.parse(vars.welcome_embed); } catch { return null; } })() : (vars.welcome_embed || null),
 			leave_channel_id: vars.leave_channel_id || null,
 			leave_message_template: vars.leave_message_template || '',
+			leave_mode: vars.leave_mode || 'text',
+			leave_embed: typeof vars.leave_embed === 'string' ? (() => { try { return JSON.parse(vars.leave_embed); } catch { return null; } })() : (vars.leave_embed || null),
 			autorole_id: vars.autorole_id || null,
 			autorole_ids: Array.isArray(vars.autorole_ids) ? vars.autorole_ids : (vars.autorole_id ? [vars.autorole_id] : []),
 			bot_autorole_ids: Array.isArray(vars.bot_autorole_ids) ? vars.bot_autorole_ids : [],
@@ -739,8 +743,12 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 	const {
 		welcome_channel_id,
 		welcome_message_template,
+		welcome_mode,
+		welcome_embed,
 		leave_channel_id,
 		leave_message_template,
+		leave_mode,
+		leave_embed,
 		autorole_id,
 		autorole_ids,
 		bot_autorole_ids,
@@ -766,8 +774,12 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 
 		await database.setGuildVar(guildId, 'welcome_channel_id', welcome_channel_id || null);
 		await database.setGuildVar(guildId, 'welcome_message_template', welcome_message_template || '');
+		await database.setGuildVar(guildId, 'welcome_mode', welcome_mode || 'text');
+		await database.setGuildVar(guildId, 'welcome_embed', typeof welcome_embed === 'object' && welcome_embed !== null ? JSON.stringify(welcome_embed) : (welcome_embed || ''));
 		await database.setGuildVar(guildId, 'leave_channel_id', leave_channel_id || null);
 		await database.setGuildVar(guildId, 'leave_message_template', leave_message_template || '');
+		await database.setGuildVar(guildId, 'leave_mode', leave_mode || 'text');
+		await database.setGuildVar(guildId, 'leave_embed', typeof leave_embed === 'object' && leave_embed !== null ? JSON.stringify(leave_embed) : (leave_embed || ''));
 		await database.setGuildVar(guildId, 'autorole_id', autorole_id || (Array.isArray(autorole_ids) && autorole_ids[0] ? autorole_ids[0] : null));
 		await database.setGuildVar(guildId, 'autorole_ids', Array.isArray(autorole_ids) ? autorole_ids : (autorole_id ? [autorole_id] : []));
 		await database.setGuildVar(guildId, 'bot_autorole_ids', Array.isArray(bot_autorole_ids) ? bot_autorole_ids : []);

@@ -1123,23 +1123,126 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
 	try {
 		const welcomeChannelId = await database.getGuildVar(guildId, 'welcome_channel_id');
+		const welcomeMode = (await database.getGuildVar(guildId, 'welcome_mode')) || 'text';
+		const rawWelcomeEmbed = await database.getGuildVar(guildId, 'welcome_embed');
 		const template = await database.getGuildVar(guildId, 'welcome_message_template');
-		if (welcomeChannelId && template) {
-			const channel = member.guild.channels.cache.get(welcomeChannelId);
-			if (channel) {
-				const formattedMessage = template
-					.replace(/{member}/g, `<@${member.id}>`)
-					.replace(/{server}/g, member.guild.name);
 
-				await channel.send(formattedMessage);
-				BotLogs(member.guild.name, `${COLOR.green}Welcome message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user.tag}`);
+		if (welcomeChannelId) {
+			const channel = member.guild.channels.cache.get(welcomeChannelId);
+			if (channel && channel.isTextBased()) {
+				if (welcomeMode === 'embed' && rawWelcomeEmbed) {
+					try {
+						const embedConfig = typeof rawWelcomeEmbed === 'string' ? JSON.parse(rawWelcomeEmbed) : rawWelcomeEmbed;
+						const embed = buildWelcomeLeaveEmbed(embedConfig, member, member.guild);
+						if (embed) {
+							await channel.send({ embeds: [embed] });
+							BotLogs(member.guild.name, `${COLOR.green}Welcome embed sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+						}
+					} catch (e) {
+						BotLogs(member.guild.name, `${COLOR.red}Error parsing welcome embed config: ${e.message}`);
+					}
+				} else if (template) {
+					const formattedMessage = renderMemberTemplate(template, member, member.guild);
+					await channel.send(formattedMessage);
+					BotLogs(member.guild.name, `${COLOR.green}Welcome message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+				}
 			}
 		}
 	}
 	catch (error) {
-		BotLogs(member.guild.name, `${COLOR.red}Error executing welcome message for ${member.user.tag}: ${error.toString()}`);
+		BotLogs(member.guild.name, `${COLOR.red}Error executing welcome message for ${member.user ? member.user.tag : member.id}: ${error.toString()}`);
 	}
 });
+
+function renderMemberTemplate(str, member, guild) {
+	if (!str || typeof str !== 'string') return '';
+	const user = member?.user || {};
+	const username = user.username || member?.id || 'Unknown';
+	const displayName = member?.displayName || user.globalName || user.username || username;
+	const nickname = member?.nickname || displayName;
+	const avatarUrl = (typeof user.displayAvatarURL === 'function' ? user.displayAvatarURL({ size: 256 }) : '') || '';
+
+	return str
+		.replace(/\{member\}/g, `<@${member.id}>`)
+		.replace(/\{user\}/g, `<@${member.id}>`)
+		.replace(/\{username\}/g, username)
+		.replace(/\{displayname\}/g, displayName)
+		.replace(/\{displayName\}/g, displayName)
+		.replace(/\{nickname\}/g, nickname)
+		.replace(/\{server\}/g, guild?.name || '')
+		.replace(/\{servername\}/g, guild?.name || '')
+		.replace(/\{membercount\}/g, String(guild?.memberCount || ''))
+		.replace(/\{avatar\}/g, avatarUrl)
+		.replace(/\{avatarUrl\}/g, avatarUrl);
+}
+
+function buildWelcomeLeaveEmbed(embedConfig, member, guild) {
+	if (!embedConfig || typeof embedConfig !== 'object') return null;
+	const embed = new EmbedBuilder();
+	let hasContent = false;
+
+	if (embedConfig.title) {
+		embed.setTitle(renderMemberTemplate(embedConfig.title, member, guild));
+		hasContent = true;
+	}
+	if (embedConfig.titleUrl || embedConfig.url) {
+		embed.setURL(renderMemberTemplate(embedConfig.titleUrl || embedConfig.url, member, guild));
+	}
+	if (embedConfig.description) {
+		embed.setDescription(renderMemberTemplate(embedConfig.description, member, guild));
+		hasContent = true;
+	}
+	if (embedConfig.color) {
+		embed.setColor(embedConfig.color);
+	}
+	if (embedConfig.thumbnailUrl) {
+		const thumb = renderMemberTemplate(embedConfig.thumbnailUrl, member, guild);
+		if (thumb.startsWith('http://') || thumb.startsWith('https://')) {
+			embed.setThumbnail(thumb);
+			hasContent = true;
+		}
+	}
+	if (embedConfig.imageUrl) {
+		const img = renderMemberTemplate(embedConfig.imageUrl, member, guild);
+		if (img.startsWith('http://') || img.startsWith('https://')) {
+			embed.setImage(img);
+			hasContent = true;
+		}
+	}
+	if (embedConfig.authorName) {
+		embed.setAuthor({
+			name: renderMemberTemplate(embedConfig.authorName, member, guild),
+			iconURL: embedConfig.authorIconUrl ? renderMemberTemplate(embedConfig.authorIconUrl, member, guild) : undefined,
+			url: embedConfig.authorUrl ? renderMemberTemplate(embedConfig.authorUrl, member, guild) : undefined,
+		});
+		hasContent = true;
+	}
+	if (embedConfig.footerText) {
+		embed.setFooter({
+			text: renderMemberTemplate(embedConfig.footerText, member, guild),
+			iconURL: embedConfig.footerIconUrl ? renderMemberTemplate(embedConfig.footerIconUrl, member, guild) : undefined,
+		});
+		hasContent = true;
+	}
+	if (embedConfig.includeTimestamp || embedConfig.timestamp) {
+		embed.setTimestamp();
+	}
+	if (Array.isArray(embedConfig.fields) && embedConfig.fields.length > 0) {
+		const fields = embedConfig.fields
+			.filter(f => f && (f.name || f.value))
+			.map(f => ({
+				name: renderMemberTemplate(f.name || '\u200b', member, guild),
+				value: renderMemberTemplate(f.value || '\u200b', member, guild),
+				inline: !!f.inline,
+			}));
+		if (fields.length > 0) {
+			embed.addFields(fields);
+			hasContent = true;
+		}
+	}
+
+	return hasContent ? embed : null;
+}
 
 client.on(Events.GuildMemberRemove, async (member) => {
 	const guildId = member.guild.id;
@@ -1157,18 +1260,29 @@ client.on(Events.GuildMemberRemove, async (member) => {
 		}
 
 		const leaveChannelId = await database.getGuildVar(guildId, 'leave_channel_id');
+		const leaveMode = (await database.getGuildVar(guildId, 'leave_mode')) || 'text';
+		const rawLeaveEmbed = await database.getGuildVar(guildId, 'leave_embed');
 		const template = await database.getGuildVar(guildId, 'leave_message_template');
-		if (leaveChannelId && template) {
-			const channel = member.guild.channels.cache.get(leaveChannelId);
-			if (channel) {
-				const username = member.user ? member.user.username : member.id;
-				const formattedMessage = template
-					.replace(/{member}/g, `<@${member.id}>`)
-					.replace(/{username}/g, username)
-					.replace(/{server}/g, member.guild.name);
 
-				await channel.send(formattedMessage);
-				BotLogs(member.guild.name, `${COLOR.green}Leave message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+		if (leaveChannelId) {
+			const channel = member.guild.channels.cache.get(leaveChannelId);
+			if (channel && channel.isTextBased()) {
+				if (leaveMode === 'embed' && rawLeaveEmbed) {
+					try {
+						const embedConfig = typeof rawLeaveEmbed === 'string' ? JSON.parse(rawLeaveEmbed) : rawLeaveEmbed;
+						const embed = buildWelcomeLeaveEmbed(embedConfig, member, member.guild);
+						if (embed) {
+							await channel.send({ embeds: [embed] });
+							BotLogs(member.guild.name, `${COLOR.green}Leave embed sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+						}
+					} catch (e) {
+						BotLogs(member.guild.name, `${COLOR.red}Error parsing leave embed config: ${e.message}`);
+					}
+				} else if (template) {
+					const formattedMessage = renderMemberTemplate(template, member, member.guild);
+					await channel.send(formattedMessage);
+					BotLogs(member.guild.name, `${COLOR.green}Leave message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+				}
 			}
 		}
 	}
@@ -2222,15 +2336,42 @@ process.on('message', async (msg) => {
 			const embed = new EmbedBuilder();
 
 			if (embedData.title) embed.setTitle(embedData.title);
+			if (embedData.titleUrl || embedData.url) embed.setURL(embedData.titleUrl || embedData.url);
 			if (embedData.description) embed.setDescription(embedData.description);
 			if (embedData.color) embed.setColor(embedData.color);
 			if (embedData.imageUrl) embed.setImage(embedData.imageUrl);
 			if (embedData.thumbnailUrl) embed.setThumbnail(embedData.thumbnailUrl);
-			if (embedData.footerText) embed.setFooter({ text: embedData.footerText });
-			if (embedData.authorName) embed.setAuthor({ name: embedData.authorName });
+			if (embedData.footerText) {
+				embed.setFooter({
+					text: embedData.footerText,
+					iconURL: embedData.footerIconUrl || undefined,
+				});
+			}
+			if (embedData.authorName) {
+				embed.setAuthor({
+					name: embedData.authorName,
+					iconURL: embedData.authorIconUrl || undefined,
+					url: embedData.authorUrl || undefined,
+				});
+			}
+			if (embedData.includeTimestamp || embedData.timestamp) {
+				embed.setTimestamp();
+			}
+			if (Array.isArray(embedData.fields) && embedData.fields.length > 0) {
+				const validFields = embedData.fields
+					.filter(f => f && f.name && f.value)
+					.map(f => ({
+						name: String(f.name).slice(0, 256),
+						value: String(f.value).slice(0, 1024),
+						inline: !!f.inline,
+					}));
+				if (validFields.length > 0) {
+					embed.addFields(validFields);
+				}
+			}
 
 			await channel.send({ embeds: [embed] });
-			BotLogs(guild.name, `${COLOR.green}Sent custom embed to channel #${channel.name} via Web Dashboard.`);
+			BotLogs(guild.name, `${COLOR.green}Sent rich custom embed to channel #${channel.name} via Web Dashboard.`);
 
 			if (process.send) process.send({ target: 'web', type: 'send_embed_response', reqId: msg.reqId, success: true });
 		}
