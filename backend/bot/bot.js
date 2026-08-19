@@ -413,26 +413,24 @@ client.on(Events.ClientReady, async () => {
 			const channelId = '1225208114941399110';
 
 			client.channels.fetch(channelId).then(async channel => {
-				const fetched = await channel.messages.fetch({ limit: 10 });
-				await channel.bulkDelete(fetched).catch(console.error);
+				if (!channel || !channel.isTextBased()) return;
+				const fetched = await channel.messages.fetch({ limit: 5 }).catch(() => null);
+				let statusMessage = fetched?.find(m => m.author?.id === client.user.id);
 
-				const statusMessage = await channel.send('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString());
+				const content = `🟢 **Megu is Online!**\nLast Checked: ${new Date().toLocaleTimeString()} (Ping: ${client.ws.ping || 0}ms)`;
+				if (statusMessage) {
+					await statusMessage.edit(content).catch(() => null);
+				} else {
+					statusMessage = await channel.send(content).catch(() => null);
+				}
 
-				// Every 5 minutes, not every 3–9 seconds. The old loop edited
-				// this one message roughly 10,000 times a day for no reader's
-				// benefit, which is exactly the sustained traffic that gets an
-				// IP blocked. A liveness stamp is still a liveness stamp at
-				// five-minute resolution.
-				//
-				// It also stops itself: if the edit fails twice in a row the
-				// channel is gone, the message was deleted, or Discord is
-				// refusing us — and in all three cases retrying forever is the
-				// wrong answer.
+				if (!statusMessage) return;
+
 				const HEARTBEAT_MS = 5 * 60 * 1000;
 				let consecutiveFailures = 0;
 
 				const heartbeat = setInterval(() => {
-					statusMessage.edit('🟢 **Megu is Online!**\nLast Checked: ' + new Date().toLocaleTimeString() + `\nPing: ${client.ws.ping}ms`)
+					statusMessage.edit(`🟢 **Megu is Online!**\nLast Checked: ${new Date().toLocaleTimeString()}\nPing: ${client.ws.ping}ms`)
 						.then(() => {
 							consecutiveFailures = 0;
 						})
@@ -441,11 +439,11 @@ client.on(Events.ClientReady, async () => {
 							BotLogs('SYSTEM', `${COLOR.red}Online-ping heartbeat failed (${consecutiveFailures}/2): ${COLOR.white}${err.message}`);
 							if (consecutiveFailures >= 2) {
 								clearInterval(heartbeat);
-								BotLogs('SYSTEM', `${COLOR.yellow}Online-ping heartbeat stopped. Restart the bot to bring it back.`);
+								BotLogs('SYSTEM', `${COLOR.yellow}Online-ping heartbeat stopped.`);
 							}
 						});
 				}, HEARTBEAT_MS);
-			}).catch(console.error);
+			}).catch(() => undefined);
 		}
 	}
 	catch (error) {
@@ -1147,9 +1145,8 @@ client.on(Events.GuildMemberRemove, async (member) => {
 	const guildId = member.guild.id;
 
 	try {
-		// Check if user was kicked by a moderator
-		const kickLogs = await member.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick }).catch(() => null);
-		const entry = kickLogs?.entries?.first();
+		// Check if user was kicked by a moderator (rate-limited and permission-checked)
+		const entry = await fetchAuditLogSafe(member.guild, AuditLogEvent.MemberKick, 4000);
 		if (entry && entry.targetId === member.id && Date.now() - entry.createdTimestamp < 4000) {
 			const actor = entry.executor ? entry.executor.username : 'Moderator';
 			const actorId = entry.executor ? entry.executor.id : null;
@@ -1184,6 +1181,32 @@ client.on(Events.GuildMemberRemove, async (member) => {
 // --- DISCORD NATIVE AUDIT & MODERATION LOGGING SUITE ---
 // =========================================================================
 
+const auditLogCooldownMap = new Map();
+
+async function fetchAuditLogSafe(guild, type, maxAgeMs = 5000) {
+	if (!guild) return null;
+	const botMember = guild.members.me;
+	if (!botMember || !botMember.permissions.has(PermissionFlagsBits.ViewAuditLog)) {
+		return null;
+	}
+	const key = `${guild.id}:${type}`;
+	const now = Date.now();
+	const last = auditLogCooldownMap.get(key);
+	if (last && (now - last.timestamp < 3500)) {
+		return (last.entry && (now - (last.entry.createdTimestamp || last.timestamp) < maxAgeMs)) ? last.entry : null;
+	}
+
+	try {
+		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type }).catch(() => null);
+		const entry = auditLogs?.entries?.first() || null;
+		auditLogCooldownMap.set(key, { timestamp: now, entry });
+		return entry;
+	}
+	catch {
+		return null;
+	}
+}
+
 // 1. Message Deleted
 client.on(Events.MessageDelete, async (message) => {
 	if (!message.guild || message.author?.id === client.user?.id) return;
@@ -1201,8 +1224,7 @@ client.on(Events.MessageDelete, async (message) => {
 		let executorName = authorTag;
 		let executorId = authorId;
 
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MessageDelete }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MessageDelete, 3500);
 		if (entry && entry.targetId === authorId && Date.now() - entry.createdTimestamp < 3500) {
 			executorName = entry.executor ? entry.executor.username : 'Moderator';
 			executorId = entry.executor ? entry.executor.id : null;
@@ -1223,8 +1245,7 @@ client.on(Events.MessageBulkDelete, async (messages, channel) => {
 	if (!channel.guild) return;
 	try {
 		const guild = channel.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MessageBulkDelete }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MessageBulkDelete, 4000);
 		const actor = entry?.executor?.username || 'Moderator';
 		const actorId = entry?.executor?.id || null;
 
@@ -1289,8 +1310,7 @@ client.on(Events.InviteDelete, async (invite) => {
 client.on(Events.GuildBanAdd, async (ban) => {
 	try {
 		const guild = ban.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberBanAdd, 4000);
 		const actor = (entry && entry.targetId === ban.user.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Moderator'
 			: 'Moderator';
@@ -1314,8 +1334,7 @@ client.on(Events.GuildBanAdd, async (ban) => {
 client.on(Events.GuildBanRemove, async (ban) => {
 	try {
 		const guild = ban.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanRemove }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberBanRemove, 4000);
 		const actor = (entry && entry.targetId === ban.user.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Moderator'
 			: 'Moderator';
@@ -1341,8 +1360,7 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 
 		// A. Timeout Added
 		if (!oldMember.isCommunicationDisabled() && newMember.isCommunicationDisabled()) {
-			const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberUpdate }).catch(() => null);
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberUpdate, 4000);
 			const actor = (entry && entry.targetId === newMember.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Moderator'
 				: 'Moderator';
@@ -1395,8 +1413,7 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 			if (addedRoles.size > 0) diffParts.push(`+Added: ${addedRoles.map(r => '@' + r.name).join(', ')}`);
 			if (removedRoles.size > 0) diffParts.push(`-Removed: ${removedRoles.map(r => '@' + r.name).join(', ')}`);
 
-			const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberRoleUpdate }).catch(() => null);
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberRoleUpdate, 4000);
 			const actor = (entry && entry.targetId === newMember.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Administrator'
 				: 'Administrator';
@@ -1421,8 +1438,7 @@ client.on(Events.ChannelCreate, async (channel) => {
 	if (!channel.guild) return;
 	try {
 		const guild = channel.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelCreate }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.ChannelCreate, 4000);
 		const actor = (entry && entry.targetId === channel.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1447,8 +1463,7 @@ client.on(Events.ChannelDelete, async (channel) => {
 	if (!channel.guild) return;
 	try {
 		const guild = channel.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.ChannelDelete, 4000);
 		const actor = (entry && entry.targetId === channel.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1484,8 +1499,7 @@ client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
 		}
 
 		if (changes.length > 0) {
-			const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelUpdate }).catch(() => null);
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.ChannelUpdate, 4000);
 			const actor = (entry && entry.targetId === newChannel.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Administrator'
 				: 'Administrator';
@@ -1509,8 +1523,7 @@ client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
 client.on(Events.GuildRoleCreate, async (role) => {
 	try {
 		const guild = role.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleCreate }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.RoleCreate, 4000);
 		const actor = (entry && entry.targetId === role.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1533,8 +1546,7 @@ client.on(Events.GuildRoleCreate, async (role) => {
 client.on(Events.GuildRoleDelete, async (role) => {
 	try {
 		const guild = role.guild;
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleDelete }).catch(() => null);
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.RoleDelete, 4000);
 		const actor = (entry && entry.targetId === role.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1572,8 +1584,7 @@ client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
 		}
 
 		if (changes.length > 0) {
-			const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleUpdate }).catch(() => null);
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.RoleUpdate, 4000);
 			const actor = (entry && entry.targetId === newRole.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Administrator'
 				: 'Administrator';
@@ -1596,145 +1607,129 @@ client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
 
 
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
-	if (reaction.partial) {
-		try {
-			await reaction.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction partial: ${error.toString()}`);
-			return;
-		}
-	}
+	if (user.bot) return;
+	const guildId = reaction.message.guildId || reaction.message.guild?.id;
+	if (!guildId) return;
 
-	if (reaction.message && reaction.message.partial) {
-		try {
-			await reaction.message.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction message partial: ${error.toString()}`);
-			return;
-		}
-	}
-
-	if (user.bot || !reaction.message || !reaction.message.guild) return;
-
-	const guildId = reaction.message.guild.id;
 	const messageId = reaction.message.id;
 	const emojiKey = reaction.emoji.id || reaction.emoji.name;
 
 	try {
+		// 1. Fast check: Only query Discord REST if this message actually has reaction roles
 		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
 		const mappings = parseReactionRolesMap(rawMap);
 		const messageMappings = mappings[messageId];
-		if (messageMappings && messageMappings[emojiKey]) {
-			const mapEntry = messageMappings[emojiKey];
-			if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
-				return; // Ignore disabled reaction role mapping
-			}
-			const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
+		if (!messageMappings || !messageMappings[emojiKey]) return;
 
-			const guild = reaction.message.guild;
-			const role = guild.roles.cache.get(roleId);
-			if (role) {
-				const member = await guild.members.fetch(user.id).catch(() => undefined);
-				if (member) {
-					const botMember = guild.members.me;
-					if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
-						await member.roles.add(role);
-						BotLogs(guild.name, `${COLOR.green}Reaction role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${user.tag} for emoji ${COLOR.white}${reaction.emoji.name}`);
-						
-						database.logAuditEvent(
-							guildId,
-							'REACTION_ROLE',
-							user.id,
-							user.tag || user.username,
-							`Added role @${role.name} via reaction ${reaction.emoji.name}`,
-							guild.name
-						).catch(() => undefined);
-					}
-					else {
-						BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to assign reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
-					}
+		const mapEntry = messageMappings[emojiKey];
+		if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
+			return; // Ignore disabled reaction role mapping
+		}
+		const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
+
+		// 2. Fetch partials only when confirmed valid
+		if (reaction.partial) {
+			await reaction.fetch().catch(() => null);
+		}
+		if (reaction.message && reaction.message.partial) {
+			await reaction.message.fetch().catch(() => null);
+		}
+
+		const guild = reaction.message.guild || client.guilds.cache.get(guildId);
+		if (!guild) return;
+
+		const role = guild.roles.cache.get(roleId);
+		if (role) {
+			const member = guild.members.cache.get(user.id) || (await guild.members.fetch(user.id).catch(() => undefined));
+			if (member) {
+				const botMember = guild.members.me;
+				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+					await member.roles.add(role);
+					BotLogs(guild.name, `${COLOR.green}Reaction role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${user.tag || user.username} for emoji ${COLOR.white}${reaction.emoji.name}`);
+					
+					database.logAuditEvent(
+						guildId,
+						'REACTION_ROLE',
+						user.id,
+						user.tag || user.username,
+						`Added role @${role.name} via reaction ${reaction.emoji.name}`,
+						guild.name
+					).catch(() => undefined);
+				}
+				else {
+					BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to assign reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
 				}
 			}
 		}
 	}
 	catch (error) {
-		BotLogs(reaction.message.guild.name, `${COLOR.red}Error assigning reaction role: ${error.toString()}`);
+		BotLogs('SYSTEM', `Error assigning reaction role: ${error.toString()}`);
 	}
 });
 
 client.on(Events.MessageReactionRemove, async (reaction, user) => {
-	if (reaction.partial) {
-		try {
-			await reaction.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction partial: ${error.toString()}`);
-			return;
-		}
-	}
+	if (user.bot) return;
+	const guildId = reaction.message.guildId || reaction.message.guild?.id;
+	if (!guildId) return;
 
-	if (reaction.message && reaction.message.partial) {
-		try {
-			await reaction.message.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction message partial: ${error.toString()}`);
-			return;
-		}
-	}
-
-	if (user.bot || !reaction.message || !reaction.message.guild) return;
-
-	const guildId = reaction.message.guild.id;
 	const messageId = reaction.message.id;
 	const emojiKey = reaction.emoji.id || reaction.emoji.name;
 
 	try {
+		// 1. Fast check: Only query Discord REST if this message actually has reaction roles
 		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
 		const mappings = parseReactionRolesMap(rawMap);
 		const messageMappings = mappings[messageId];
-		if (messageMappings && messageMappings[emojiKey]) {
-			const mapEntry = messageMappings[emojiKey];
-			if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
-				return; // Ignore disabled reaction role mapping
-			}
-			const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
-			const mode = typeof mapEntry === 'object' ? (mapEntry.mode || 'toggle') : 'toggle';
+		if (!messageMappings || !messageMappings[emojiKey]) return;
 
-			if (mode === 'give_only') {
-				return; // Give-only mode preserves role when reaction is removed
-			}
+		const mapEntry = messageMappings[emojiKey];
+		if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
+			return; // Ignore disabled reaction role mapping
+		}
+		const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
+		const mode = typeof mapEntry === 'object' ? (mapEntry.mode || 'toggle') : 'toggle';
 
-			const guild = reaction.message.guild;
-			const role = guild.roles.cache.get(roleId);
-			if (role) {
-				const member = await guild.members.fetch(user.id).catch(() => undefined);
-				if (member) {
-					const botMember = guild.members.me;
-					if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
-						await member.roles.remove(role);
-						BotLogs(guild.name, `${COLOR.green}Reaction role removed: took ${COLOR.white}${role.name}${COLOR.green} from user ${COLOR.white}${user.tag} for emoji ${COLOR.white}${reaction.emoji.name}`);
-						
-						database.logAuditEvent(
-							guildId,
-							'REACTION_ROLE',
-							user.id,
-							user.tag || user.username,
-							`Removed role @${role.name} via reaction remove ${reaction.emoji.name}`,
-							guild.name
-						).catch(() => undefined);
-					}
-					else {
-						BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to remove reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
-					}
+		if (mode === 'give_only') {
+			return; // Give-only mode preserves role when reaction is removed
+		}
+
+		// 2. Fetch partials only when confirmed valid
+		if (reaction.partial) {
+			await reaction.fetch().catch(() => null);
+		}
+		if (reaction.message && reaction.message.partial) {
+			await reaction.message.fetch().catch(() => null);
+		}
+
+		const guild = reaction.message.guild || client.guilds.cache.get(guildId);
+		if (!guild) return;
+
+		const role = guild.roles.cache.get(roleId);
+		if (role) {
+			const member = guild.members.cache.get(user.id) || (await guild.members.fetch(user.id).catch(() => undefined));
+			if (member) {
+				const botMember = guild.members.me;
+				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+					await member.roles.remove(role);
+					BotLogs(guild.name, `${COLOR.green}Reaction role removed: took ${COLOR.white}${role.name}${COLOR.green} from user ${COLOR.white}${user.tag || user.username} for emoji ${COLOR.white}${reaction.emoji.name}`);
+					
+					database.logAuditEvent(
+						guildId,
+						'REACTION_ROLE',
+						user.id,
+						user.tag || user.username,
+						`Removed role @${role.name} via reaction remove ${reaction.emoji.name}`,
+						guild.name
+					).catch(() => undefined);
+				}
+				else {
+					BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to remove reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
 				}
 			}
 		}
 	}
 	catch (error) {
-		BotLogs(reaction.message.guild.name, `${COLOR.red}Error removing reaction role: ${error.toString()}`);
+		BotLogs('SYSTEM', `Error removing reaction role: ${error.toString()}`);
 	}
 });
 
@@ -1787,45 +1782,37 @@ process.on('message', async (msg) => {
 			return;
 		}
 
-		// Fetch full member roster directly from Discord REST API
-		let members = [];
-		try {
-			const rawMembers = await client.rest.get(Routes.guildMembers(msg.guildId), {
-				query: new URLSearchParams({ limit: '1000' }),
-			}).catch(() => null);
+		// 1. Fast retrieval directly from Gateway member cache
+		let members = Array.from(guild.members.cache.values()).map(m => {
+			const u = m.user || {};
+			const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
+			return {
+				id: m.id,
+				username: u.username || 'Unknown',
+				displayName: m.displayName || u.globalName || u.username || 'Unknown',
+				avatar: avatarUrl,
+				isBot: !!u.bot,
+				roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
+			};
+		});
 
-			if (Array.isArray(rawMembers) && rawMembers.length > 0) {
-				members = rawMembers.map(m => {
+		// Fallback: If cache is completely empty on fresh boot, fetch with limit
+		if (members.length === 0) {
+			try {
+				await guild.members.fetch({ limit: 100, time: 3000 }).catch(() => undefined);
+				members = Array.from(guild.members.cache.values()).map(m => {
 					const u = m.user || {};
-					const avatarUrl = u.avatar
-						? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64`
-						: `https://cdn.discordapp.com/embed/avatars/${Number(u.discriminator || 0) % 5}.png`;
+					const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
 					return {
-						id: u.id,
+						id: m.id,
 						username: u.username || 'Unknown',
-						displayName: m.nick || u.global_name || u.username || 'Unknown',
+						displayName: m.displayName || u.globalName || u.username || 'Unknown',
 						avatar: avatarUrl,
 						isBot: !!u.bot,
-						roles: Array.isArray(m.roles) ? m.roles : [],
+						roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
 					};
 				});
-			}
-		} catch {}
-
-		// Fallback to in-memory cache if REST is unavailable
-		if (members.length === 0) {
-			members = Array.from(guild.members.cache.values()).map(m => {
-				const u = m.user || {};
-				const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
-				return {
-					id: m.id,
-					username: u.username || 'Unknown',
-					displayName: m.displayName || u.globalName || u.username || 'Unknown',
-					avatar: avatarUrl,
-					isBot: !!u.bot,
-					roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-				};
-			});
+			} catch {}
 		}
 
 		members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
@@ -2051,58 +2038,49 @@ process.on('message', async (msg) => {
 			const queryText = (msg.query || '').trim();
 			let members = [];
 
-			// 1. Fetch via direct Discord REST API
-			try {
-				let rawMembers = [];
-				if (queryText) {
-					rawMembers = await client.rest.get(Routes.guildMembersSearch(msg.guildId), {
-						query: new URLSearchParams({ query: queryText, limit: '100' }),
-					});
-				} else {
-					rawMembers = await client.rest.get(Routes.guildMembers(msg.guildId), {
-						query: new URLSearchParams({ limit: '1000' }),
-					});
-				}
-
-				if (Array.isArray(rawMembers) && rawMembers.length > 0) {
-					members = rawMembers.map(m => {
-						const u = m.user || {};
-						const avatarUrl = u.avatar
-							? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64`
-							: `https://cdn.discordapp.com/embed/avatars/${Number(u.discriminator || 0) % 5}.png`;
-						return {
-							id: u.id,
-							username: u.username || 'Unknown',
-							displayName: m.nick || u.global_name || u.username || 'Unknown',
-							avatar: avatarUrl,
-							isBot: !!u.bot,
-							roles: Array.isArray(m.roles) ? m.roles : [],
-						};
-					});
-				}
-			} catch (restErr) {
-				BotLogs('SYSTEM', `Notice: REST member fetch error (${restErr.message}). Trying cache fallback.`);
+			// 1. Search directly in Discord.js Gateway Cache first
+			let cachedMembers = Array.from(guild.members.cache.values());
+			if (queryText) {
+				const q = queryText.toLowerCase();
+				cachedMembers = cachedMembers.filter(m => 
+					(m.displayName || '').toLowerCase().includes(q) ||
+					(m.user?.username || '').toLowerCase().includes(q) ||
+					(m.user?.globalName || '').toLowerCase().includes(q) ||
+					m.id.includes(q)
+				);
 			}
 
-			// 2. Fallback to Discord.js guild cache if REST returned empty
-			if (members.length === 0) {
+			if (cachedMembers.length > 0) {
+				members = cachedMembers.map(m => {
+					const u = m.user || {};
+					const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
+					return {
+						id: m.id,
+						username: u.username || 'Unknown',
+						displayName: m.displayName || u.globalName || u.username || 'Unknown',
+						avatar: avatarUrl,
+						isBot: !!u.bot,
+						roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
+					};
+				});
+			} else {
+				// Only fetch if cache has no matches and user performed a search
 				try {
 					if (queryText) {
-						await guild.members.fetch({ query: queryText, limit: 100, time: 3000 }).catch(() => undefined);
+						await guild.members.fetch({ query: queryText, limit: 50, time: 3000 }).catch(() => undefined);
 					} else {
-						await guild.members.fetch({ limit: 1000, time: 3000 }).catch(() => undefined);
+						await guild.members.fetch({ limit: 100, time: 3000 }).catch(() => undefined);
 					}
+					members = Array.from(guild.members.cache.values())
+						.map(m => ({
+							id: m.id,
+							username: m.user.username,
+							displayName: m.displayName || m.user.globalName || m.user.username,
+							avatar: m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL,
+							isBot: m.user.bot,
+							roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
+						}));
 				} catch {}
-
-				members = Array.from(guild.members.cache.values())
-					.map(m => ({
-						id: m.id,
-						username: m.user.username,
-						displayName: m.displayName || m.user.globalName || m.user.username,
-						avatar: m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL,
-						isBot: m.user.bot,
-						roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-					}));
 			}
 
 			members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
