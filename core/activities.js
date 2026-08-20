@@ -28,6 +28,8 @@ const MONEY_STATES = ['none', 'open', 'settled'];
 const KINDS = ['event', 'recurring'];
 const RSVP = ['pending', 'yes', 'no'];
 const SLOT_ANSWERS = ['yes', 'maybe', 'no'];
+const SUPPORTED_CURRENCIES = ['THB', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'CAD'];
+const PAYMENT_OPTION_TYPES = ['bank_transfer', 'payment_link', 'cash', 'custom'];
 
 // A single "no" sinks a slot faster than a "yes" lifts it: the point of the
 // poll is to find a time nobody is blocked on, not the most popular one.
@@ -55,6 +57,7 @@ function rowToActivity(row) {
 		location: row.location,
 		startsAt: row.starts_at,
 		currency: row.currency,
+		paymentOptions: Array.isArray(row.payment_options) ? row.payment_options : [],
 		recurrence: row.recurrence,
 		dueDay: row.due_day,
 		payeeParticipantId: row.payee_participant_id || null,
@@ -127,6 +130,8 @@ async function createActivity(input) {
 		channelId = null,
 		recurrence = null,
 		dueDay = null,
+		currency = 'THB',
+		paymentOptions = [],
 		participants = [],
 	} = input;
 
@@ -136,18 +141,21 @@ async function createActivity(input) {
 	if (kind === 'recurring' && recurrence !== 'monthly') {
 		throw new Error('recurring activities currently support monthly only');
 	}
+	const storedCurrency = cleanCurrency(currency);
+	const storedPaymentOptions = normalisePaymentOptions(paymentOptions);
 
 	return transaction(async (client) => {
 		const activityId = newId('act');
 		const res = await client.query(
 			`INSERT INTO activities
-			   (id, code, owner_user_id, title, kind, location, starts_at, guild_id, channel_id, recurrence, due_day, plan_state)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+			   (id, code, owner_user_id, title, kind, location, starts_at, currency, guild_id, channel_id, recurrence, due_day, plan_state, payment_options)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb) RETURNING *`,
 			[
 				activityId, newActivityCode(), ownerUserId, title.trim(), kind,
-				location, startsAt, guildId, channelId, recurrence, dueDay,
+				location, startsAt, storedCurrency, guildId, channelId, recurrence, dueDay,
 				// A monthly agreement has nothing to agree on — it just runs.
 				kind === 'recurring' ? 'confirmed' : 'open',
+				JSON.stringify(storedPaymentOptions),
 			],
 		);
 
@@ -158,7 +166,7 @@ async function createActivity(input) {
 				[
 					newId('par'),
 					activityId,
-					String(p.displayName || 'ใครไม่รู้').trim(),
+					cleanDisplayName(p.displayName),
 					p.userId || null,
 					p.discordUid ? String(p.discordUid) : null,
 					kind === 'recurring' ? 'yes' : 'pending',
@@ -254,6 +262,7 @@ async function loadActivity(where, value) {
 		amountSatang: Number(r.amount_satang),
 		expectedSatang: r.expected_satang == null ? null : Number(r.expected_satang),
 		promptpayTarget: r.promptpay_target || null,
+		paymentDestination: r.payment_destination || null,
 		method: r.method,
 		status: r.status,
 		allocations: allocationsByPayment.get(r.id) || [],
@@ -299,7 +308,10 @@ async function loadActivity(where, value) {
  * Whoever fronted the money is the one owed it, which is usually but not
  * always the owner — on a shared subscription it is whoever's card the bill
  * lands on. An explicit `payee_participant_id` wins; otherwise it falls back
- * to the owner's own row on the roster.
+ * to the owner's own row on the roster. If the organizer deliberately did
+ * not join, their account is still a valid payment recipient — ownership and
+ * attendance are separate axes, so receiving money must not add them back to
+ * the participant list by accident.
  *
  * The PromptPay number comes from that person's account, so it follows them
  * across every activity rather than being retyped into each one. A participant
@@ -314,7 +326,20 @@ async function resolvePayee(activity) {
 		|| activity.participants.find(p => p.userId === activity.ownerUserId)
 		|| null;
 
-	if (!participant) return null;
+	if (!participant) {
+		const owner = await query(
+			'SELECT id, display_name, promptpay_id, promptpay_name FROM users WHERE id = $1',
+			[activity.ownerUserId],
+		);
+		if (!owner.rows[0]) return null;
+		return {
+			participantId: null,
+			displayName: owner.rows[0].display_name,
+			userId: owner.rows[0].id,
+			promptpayId: owner.rows[0].promptpay_id || null,
+			promptpayName: owner.rows[0].promptpay_name || null,
+		};
+	}
 
 	const base = {
 		participantId: participant.id,
@@ -387,6 +412,55 @@ async function listActivitiesForOwner(ownerUserId, { includeClosed = true, at = 
 		...rowToActivity(row),
 		summary: byActivity[row.id],
 	}));
+}
+
+function cleanDisplayName(value) {
+	const name = String(value || '').trim();
+	if (!name) throw codedError('display_name_required');
+	if ([...name].length > 80) throw codedError('display_name_too_long');
+	return name;
+}
+
+function cleanCurrency(value) {
+	const currency = String(value || 'THB').toUpperCase();
+	if (!SUPPORTED_CURRENCIES.includes(currency)) throw codedError('currency_not_supported');
+	return currency;
+}
+
+function normalisePaymentOptions(options) {
+	if (!Array.isArray(options)) return [];
+	const usedIds = new Set();
+	return options.slice(0, 8).map((option) => {
+		const type = String(option?.type || 'custom');
+		if (!PAYMENT_OPTION_TYPES.includes(type)) throw codedError('payment_option_invalid');
+		const label = String(option?.label || '').trim();
+		if (!label || [...label].length > 60) throw codedError('payment_option_invalid');
+		const instructions = String(option?.instructions || '').trim().slice(0, 500);
+		const destination = String(option?.destination || '').trim().slice(0, 180);
+		const accountName = String(option?.accountName || '').trim().slice(0, 120);
+		const url = String(option?.url || '').trim();
+		if (type === 'payment_link') {
+			let parsed;
+			try { parsed = new URL(url); }
+			catch { throw codedError('payment_link_invalid'); }
+			if (!['https:', 'http:'].includes(parsed.protocol)) throw codedError('payment_link_invalid');
+		}
+		if (type === 'bank_transfer' && !destination) throw codedError('payment_destination_required');
+		const requestedId = String(option?.id || '');
+		const id = /^pmo_[0-9a-f]{16}$/.test(requestedId) && !usedIds.has(requestedId)
+			? requestedId
+			: newId('pmo');
+		usedIds.add(id);
+		return {
+			id,
+			type,
+			label,
+			instructions: instructions || null,
+			destination: destination || null,
+			accountName: accountName || null,
+			url: type === 'payment_link' ? url : null,
+		};
+	});
 }
 
 /**
@@ -532,12 +606,12 @@ async function setRsvp(participantId, rsvp) {
 
 async function renameParticipant(participantId, displayName) {
 	const name = String(displayName || '').trim();
-	if (!name) throw new Error('ต้องมีชื่อ');
+	if (!name) throw codedError('display_name_required');
 	const res = await query(
 		'UPDATE participants SET display_name = $2 WHERE id = $1 RETURNING *',
 		[participantId, name],
 	);
-	if (res.rows.length === 0) throw new Error('ไม่พบคนนี้ในกิจกรรม');
+	if (res.rows.length === 0) throw codedError('participant_not_in_activity');
 	return rowToParticipant(res.rows[0]);
 }
 
@@ -556,9 +630,9 @@ async function removeParticipant(participantId) {
 			[participantId],
 		);
 		const { shares, payments, paid } = money.rows[0];
-		if (Number(paid) > 0) throw new Error('คนนี้ออกเงินให้กลุ่มอยู่ ลบรายการค่าใช้จ่ายก่อน');
+		if (Number(paid) > 0) throw codedError('participant_paid_out');
 		if (Number(shares) > 0 || Number(payments) > 0) {
-			throw new Error('คนนี้มีรายการเงินอยู่ ลบค่าใช้จ่ายที่เกี่ยวข้องก่อน');
+			throw codedError('participant_has_money');
 		}
 
 		const res = await client.query('DELETE FROM participants WHERE id = $1 RETURNING id', [participantId]);
@@ -577,7 +651,7 @@ async function resetClaim(participantId) {
 		 WHERE id = $1 RETURNING *`,
 		[participantId],
 	);
-	if (res.rows.length === 0) throw new Error('ไม่พบคนนี้ในกิจกรรม');
+	if (res.rows.length === 0) throw codedError('participant_not_in_activity');
 	return rowToParticipant(res.rows[0]);
 }
 
@@ -635,7 +709,7 @@ async function proposeSlots(activityId, startTimes) {
 		.filter(d => !Number.isNaN(d.getTime()))
 		.slice(0, 12);
 
-	if (times.length === 0) throw new Error('ต้องเสนออย่างน้อยหนึ่งช่วงเวลา');
+	if (times.length === 0) throw codedError('slot_required');
 
 	return transaction(async (client) => {
 		await client.query('DELETE FROM slots WHERE activity_id = $1', [activityId]);
@@ -737,7 +811,7 @@ async function lockBestSlot(activityId) {
 	}
 
 	const winner = bestSlot(activity);
-	if (!winner) throw new Error('ยังไม่มีช่วงเวลาให้เลือก');
+	if (!winner) throw codedError('time_not_set');
 
 	await query(
 		'UPDATE activities SET starts_at = $2, updated_at = now() WHERE id = $1',
@@ -797,7 +871,7 @@ async function addExpense(activityId, input) {
 	const { label, amountSatang, paidBy, shareParticipantIds = null, periodId = null } = input;
 
 	if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
-		throw new Error('amountSatang must be a positive integer');
+		throw codedError('amount_invalid');
 	}
 
 	return transaction(async (client) => {
@@ -807,7 +881,7 @@ async function addExpense(activityId, input) {
 			 FROM participants WHERE activity_id = $1 ORDER BY position, created_at`,
 			[activityId],
 		);
-		if (roster.rows.length === 0) throw new Error('activity has no participants');
+		if (roster.rows.length === 0) throw codedError('participant_required');
 
 		let ids = shareParticipantIds;
 		if (!Array.isArray(ids) || ids.length === 0) {
@@ -825,15 +899,15 @@ async function addExpense(activityId, input) {
 
 		const known = new Set(roster.rows.map(r => r.id));
 		for (const id of ids) {
-			if (!known.has(id)) throw new Error(`participant ${id} is not in this activity`);
+			if (!known.has(id)) throw codedError('participant_not_in_activity');
 		}
-		if (!known.has(paidBy)) throw new Error('paidBy is not a participant of this activity');
+		if (!known.has(paidBy)) throw codedError('participant_not_in_activity');
 
 		const expenseId = newId('exp');
 		await client.query(
 			`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			[expenseId, activityId, periodId, String(label || 'ค่าใช้จ่าย').trim(), amountSatang, paidBy],
+			[expenseId, activityId, periodId, String(label || 'Expense').trim(), amountSatang, paidBy],
 		);
 
 		const split = splitEvenlyBy(amountSatang, ids);
@@ -856,7 +930,7 @@ async function addExpense(activityId, input) {
 async function updateExpense(expenseId, input) {
 	return transaction(async (client) => {
 		const found = await client.query('SELECT * FROM expenses WHERE id = $1 FOR UPDATE', [expenseId]);
-		if (found.rows.length === 0) throw new Error('ไม่พบรายการนี้');
+		if (found.rows.length === 0) throw codedError('expense_not_found');
 		const expense = found.rows[0];
 
 		const label = input.label != null ? String(input.label).trim() : expense.label;
@@ -864,7 +938,7 @@ async function updateExpense(expenseId, input) {
 		const paidBy = input.paidBy || expense.paid_by;
 
 		if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
-			throw new Error('จำนวนเงินต้องมากกว่า 0');
+			throw codedError('amount_invalid');
 		}
 
 		let ids = input.shareParticipantIds;
@@ -872,7 +946,7 @@ async function updateExpense(expenseId, input) {
 			const existing = await client.query('SELECT participant_id FROM shares WHERE expense_id = $1', [expenseId]);
 			ids = existing.rows.map(r => r.participant_id);
 		}
-		if (ids.length === 0) throw new Error('ต้องมีคนอย่างน้อยหนึ่งคนในรายการนี้');
+		if (ids.length === 0) throw codedError('split_people_required');
 
 		// Same guard addExpense has. Without it a stale or mistyped id reaches
 		// the database and surfaces as a foreign key error nobody can read.
@@ -882,9 +956,9 @@ async function updateExpense(expenseId, input) {
 		);
 		const known = new Set(roster.rows.map(r => r.id));
 		for (const id of ids) {
-			if (!known.has(id)) throw new Error(`participant ${id} is not in this activity`);
+			if (!known.has(id)) throw codedError('participant_not_in_activity');
 		}
-		if (!known.has(paidBy)) throw new Error('paidBy is not a participant of this activity');
+		if (!known.has(paidBy)) throw codedError('participant_not_in_activity');
 
 		await client.query(
 			'UPDATE expenses SET label = $2, amount_satang = $3, paid_by = $4 WHERE id = $1',
@@ -918,6 +992,10 @@ async function updateActivity(activityId, input) {
 		values.push(key === 'title' ? String(input[key]).trim() : input[key]);
 		fields.push(`${column} = $${values.length}`);
 	}
+	if (input.paymentOptions !== undefined) {
+		values.push(JSON.stringify(normalisePaymentOptions(input.paymentOptions)));
+		fields.push(`payment_options = $${values.length}::jsonb`);
+	}
 	if (fields.length === 0) return null;
 
 	const res = await query(
@@ -943,6 +1021,7 @@ async function recordPayment(activityId, participantId, input) {
 		allocations = null,
 		expectedSatang = null,
 		promptpayTarget = null,
+		paymentDestination = null,
 		confirmation = null,
 	} = input;
 	const normalized = validateAllocations(
@@ -971,15 +1050,16 @@ async function recordPayment(activityId, participantId, input) {
 		const res = await client.query(
 			`INSERT INTO payments
 			   (id, activity_id, period_id, participant_id, amount_satang, method, reference,
-			    expected_satang, promptpay_target, status, confirmed_by, confirmed_at,
+			    expected_satang, promptpay_target, payment_destination, status, confirmed_by, confirmed_at,
 			    confirmation_source, verification_level)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-			         $10, $11, CASE WHEN $10 = 'confirmed' THEN now() ELSE NULL END, $12, $13)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
+			         $11, $12, CASE WHEN $11 = 'confirmed' THEN now() ELSE NULL END, $13, $14)
 			 RETURNING *`,
 			[
 				paymentId, activityId, primaryPeriodId, participantId, amountSatang, method, reference,
 				expectedSatang == null ? Number(amountSatang) : Number(expectedSatang),
 				promptpayTarget,
+				paymentDestination ? JSON.stringify(paymentDestination) : null,
 				confirmation ? 'confirmed' : 'pending',
 				confirmation?.actorUserId || null,
 				confirmation?.source || null,
@@ -1461,7 +1541,10 @@ module.exports = {
 	KINDS,
 	RSVP,
 	SLOT_ANSWERS,
+	SUPPORTED_CURRENCIES,
+	PAYMENT_OPTION_TYPES,
 	SLIP_VERDICTS,
+	normalisePaymentOptions,
 	canTransition,
 	proposeSlots,
 	voteSlot,

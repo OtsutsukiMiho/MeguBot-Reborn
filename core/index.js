@@ -12,8 +12,10 @@ const receipt = require('./receipt.js');
 const paymentEvidence = require('./payment-evidence.js');
 const { initCoreSchema } = require('./schema.js');
 const users = require('./users.js');
+const oauthCredentials = require('./oauth-credentials.js');
 const activities = require('./activities.js');
 const reminders = require('./reminders.js');
+const notifications = require('./notifications.js');
 const access = require('./auth/access.js');
 const tokens = require('./auth/tokens.js');
 const voice = require('./megu/voice.js');
@@ -30,8 +32,10 @@ module.exports = {
 	receipt,
 	paymentEvidence,
 	users,
+	oauthCredentials,
 	activities,
 	reminders,
+	notifications,
 	access,
 	tokens,
 	voice,

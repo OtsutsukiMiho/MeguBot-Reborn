@@ -4,16 +4,16 @@ import { use, useCallback, useEffect, useRef, useState } from 'react';
 import MeguMark from '../../components/MeguMark';
 import PayPanel from '../../components/PayPanel';
 import PromptPaySetup from '../../components/PromptPaySetup';
+import PaymentOptionsSetup from '../../components/PaymentOptionsSetup';
 import SlipPicker from '../../components/SlipPicker';
 import SlipReading from '../../components/SlipReading';
 import ReceiptScanner from '../../components/ReceiptScanner';
-import { useCopy } from '../../copy';
+import { CurrencyProvider, useCopy } from '../../copy';
 
 export default function ActivityPage({ params }) {
 	const { code } = use(params);
-	const { t, fmt, lang, error: readError } = useCopy();
-
 	const [activity, setActivity] = useState(null);
+	const { t, fmt, lang, error: readError } = useCopy(activity?.currency);
 	const [problem, setProblem] = useState('');
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
@@ -161,6 +161,7 @@ export default function ActivityPage({ params }) {
 	}
 
 	return (
+		<CurrencyProvider currency={activity.currency}>
 		<div className="stack-lg">
 			<header className="page-head rise">
 				<h1>{activity.title}</h1>
@@ -247,7 +248,7 @@ export default function ActivityPage({ params }) {
 
 			<div className="two-col rise rise-3">
 				<div className="stack-lg" style={{ paddingBottom: 0 }}>
-					{!me && (
+					{!me && !isOwner && (
 						<section className="panel">
 							<div className="panel-head">
 								<span className="panel-title">{t.claim.title}</span>
@@ -282,6 +283,10 @@ export default function ActivityPage({ params }) {
 								amountSatang={myRow.outstanding}
 								periodId={period?.id || null}
 								periods={recurring ? periods : []}
+								paymentOptions={myPending?.paymentDestination
+									&& !(activity.paymentOptions || []).some(option => option.id === myPending.paymentDestination.id)
+									? [myPending.paymentDestination, ...(activity.paymentOptions || [])]
+									: activity.paymentOptions || []}
 								pending={myPending}
 								busy={busy}
 								call={call}
@@ -443,12 +448,17 @@ export default function ActivityPage({ params }) {
 						<section className="panel">
 							<div className="panel-head"><span className="panel-title">{t.owner.title}</span></div>
 							<div>
-								<PromptPaySetup
+								{activity.currency === 'THB' && <PromptPaySetup
 									payTo={payTo}
 									participants={participants}
 									busy={busy}
 									call={call}
 									onSaved={() => load(viewPeriod)}
+								/>}
+								<PaymentOptionsSetup
+									options={activity.paymentOptions || []}
+									busy={busy}
+									call={call}
 								/>
 								<OwnerControls activity={activity} busy={busy} call={call} participants={participants} requestAction={setActionDialog} />
 								<CashPaymentForm participants={participants} period={period} busy={busy} call={call} />
@@ -487,6 +497,7 @@ export default function ActivityPage({ params }) {
 				/>
 			)}
 		</div>
+		</CurrencyProvider>
 	);
 }
 
@@ -936,11 +947,11 @@ function ExpenseRow({ e, editing, participants, nameOf, busy, call, requestActio
 			<input
 				className="form-control inline-input mono"
 				type="number"
-				min="1"
+				min="0.01"
 				step="0.01"
 				value={amount}
 				onChange={ev => setAmount(ev.target.value)}
-				onBlur={() => Number(amount) > 0 && Number(amount) * 100 !== e.amountSatang && save({ amountBaht: Number(amount) })}
+				onBlur={() => Number(amount) > 0 && Number(amount) * 100 !== e.amountSatang && save({ amount: Number(amount) })}
 				aria-label={t.expenses.amountField}
 			/>
 			<span className="row-tools">
@@ -1119,7 +1130,7 @@ function OwnerControls({ activity, busy, call, participants, requestAction }) {
 					if (!amount) return;
 					call('POST', '/expenses', {
 						label: label || activity.title,
-						amountBaht: Number(amount),
+						amount: Number(amount),
 						paidBy,
 						shareParticipantIds,
 						// Bill the month being looked at, not whichever one
@@ -1135,7 +1146,7 @@ function OwnerControls({ activity, busy, call, participants, requestAction }) {
 			>
 				<span className="field-label">{t.owner.addExpense}</span>
 				<input className="form-control" placeholder={t.expenses.labelField} value={label} onChange={e => setLabel(e.target.value)} aria-label={t.expenses.labelField} />
-				<input className="form-control" type="number" min="1" step="0.01" placeholder={t.expenses.amountField} value={amount} onChange={e => setAmount(e.target.value)} aria-label={t.expenses.amountField} />
+				<input className="form-control" type="number" min="0.01" step="0.01" placeholder={t.expenses.amountField} value={amount} onChange={e => setAmount(e.target.value)} aria-label={t.expenses.amountField} />
 				<select className="form-control" value={paidBy} onChange={e => setPaidBy(e.target.value)} aria-label={t.expenses.payerField}>
 					{participants.map(p => <option key={p.id} value={p.id}>{t.expenses.payerOption(p.displayName)}</option>)}
 				</select>

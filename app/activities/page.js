@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import MeguMark from '../components/MeguMark';
+import LoginOptions from '../components/LoginOptions';
 import { useCopy } from '../copy';
 
 /**
@@ -73,7 +74,7 @@ export default function ActivitiesPage() {
 					{t.activities.signedOutTitle}
 				</h1>
 				<p className="quiet-note" style={{ maxWidth: '42ch' }}>{t.activities.signedOutLede}</p>
-				<a href="/api/auth/login" className="btn btn-primary btn-lg">{t.activities.signIn}</a>
+				<LoginOptions />
 			</div>
 		);
 	}
@@ -97,6 +98,7 @@ export default function ActivitiesPage() {
 			{creating ? (
 				<CreateActivity
 					guilds={guilds}
+					user={me.user}
 					onCancel={() => setCreating(false)}
 					onCreated={a => (window.location.href = `/a/${a.code}`)}
 				/>
@@ -213,14 +215,14 @@ function ActivityRow({ a, t, fmt, quiet }) {
 		standing = {
 			text: t.activities.standing.awaitingConfirmation(
 				summary.awaitingConfirmation,
-				summary.outstandingSatang > 0 ? fmt.money(summary.outstandingSatang) : null,
+				summary.outstandingSatang > 0 ? fmt.money(summary.outstandingSatang, a.currency) : null,
 			),
 			tone: 'fig-due',
 		};
 	}
 	else if (summary?.moneyState === 'open') {
 		standing = {
-			text: t.activities.standing.outstanding(summary.unpaidCount, fmt.money(summary.outstandingSatang)),
+			text: t.activities.standing.outstanding(summary.unpaidCount, fmt.money(summary.outstandingSatang, a.currency)),
 			tone: 'fig-due',
 		};
 	}
@@ -247,8 +249,8 @@ function ActivityRow({ a, t, fmt, quiet }) {
 	);
 }
 
-function CreateActivity({ guilds, onCreated, onCancel }) {
-	const { t } = useCopy();
+function CreateActivity({ guilds, user, onCreated, onCancel }) {
+	const { t, error: readError } = useCopy();
 	const [kind, setKind] = useState('event');
 	const [title, setTitle] = useState('');
 	const [knowsWhen, setKnowsWhen] = useState(false);
@@ -256,7 +258,12 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 	const [location, setLocation] = useState('');
 	const [amount, setAmount] = useState('');
 	const [dueDay, setDueDay] = useState('1');
+	const [currency, setCurrency] = useState('THB');
+	const [ownerParticipation, setOwnerParticipation] = useState(true);
+	const [ownerDisplayName, setOwnerDisplayName] = useState(user?.displayName || '');
+	const [saveOwnerDisplayName, setSaveOwnerDisplayName] = useState(false);
 	const [names, setNames] = useState('');
+	const [initialPayerPosition, setInitialPayerPosition] = useState('0');
 	const [guildId, setGuildId] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
@@ -265,6 +272,12 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 	const recurring = kind === 'recurring';
 	const activeGuilds = guilds.filter(g => g.isBotInGuild);
 	const c = t.activities;
+	const guestNames = names.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+	const rosterPreview = [
+		...(ownerParticipation && ownerDisplayName.trim() ? [ownerDisplayName.trim()] : []),
+		...guestNames,
+	];
+	const rosterReady = ownerParticipation ? Boolean(ownerDisplayName.trim()) : guestNames.length > 0;
 
 	// The panel replaces a button the reader just pressed, so the caret belongs
 	// in the first field rather than wherever the removed button used to be.
@@ -275,7 +288,7 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 		setBusy(true);
 		setError('');
 		try {
-			const participants = names.split(/[,\n]/).map(s => s.trim()).filter(Boolean).map(displayName => ({ displayName }));
+			const participants = guestNames.map(displayName => ({ displayName }));
 			const res = await fetch('/api/megu/activities', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -287,15 +300,20 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 					// An unknown time is the ordinary case, not a missing value:
 					// it is what puts Megu's poll in charge of finding one.
 					startsAt: recurring || !knowsWhen ? null : startsAt || null,
-					amountBaht: recurring ? Number(amount) || undefined : undefined,
+					amount: recurring ? Number(amount) || undefined : undefined,
 					dueDay: recurring ? Number(dueDay) || 1 : undefined,
+					currency,
+					ownerParticipation,
+					ownerDisplayName: ownerParticipation ? ownerDisplayName.trim() : undefined,
+					saveOwnerDisplayName: ownerParticipation && saveOwnerDisplayName,
+					initialPayerPosition: Number(initialPayerPosition) || 0,
 					guildId: guildId || null,
 					participants,
 				}),
 			});
 			const data = await res.json();
 			if (!res.ok) {
-				setError(data.error || t.errors.failed);
+				setError(readError(data));
 				return;
 			}
 			onCreated(data.activity);
@@ -364,11 +382,49 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 					)}
 				</div>
 
+				<fieldset className="field">
+					<legend className="field-label">{c.yourParticipation.legend}</legend>
+					<div className="segmented">
+						<input type="radio" id="owner-joins" name="owner-participation" checked={ownerParticipation} onChange={() => { setOwnerParticipation(true); setInitialPayerPosition('0'); }} />
+						<label htmlFor="owner-joins">{c.yourParticipation.joins}</label>
+						<input type="radio" id="owner-organizes" name="owner-participation" checked={!ownerParticipation} onChange={() => { setOwnerParticipation(false); setInitialPayerPosition('0'); }} />
+						<label htmlFor="owner-organizes">{c.yourParticipation.organizes}</label>
+					</div>
+					<p className="field-hint">{ownerParticipation ? c.yourParticipation.joinsHint : c.yourParticipation.organizesHint}</p>
+				</fieldset>
+
+				{ownerParticipation && (
+					<div className="field">
+						<label className="field-label" htmlFor="megu-owner-name">{c.yourParticipation.nameField}</label>
+						<input
+							id="megu-owner-name"
+							className="form-control"
+							required
+							maxLength={80}
+							value={ownerDisplayName}
+							onChange={e => setOwnerDisplayName(e.target.value)}
+						/>
+						<p className="field-hint">{c.yourParticipation.nameHint}</p>
+						<label className="check-row">
+							<input type="checkbox" checked={saveOwnerDisplayName} onChange={e => setSaveOwnerDisplayName(e.target.checked)} />
+							<span>{c.yourParticipation.saveDefault}</span>
+						</label>
+					</div>
+				)}
+
+				<div className="field">
+					<label className="field-label" htmlFor="megu-currency">{c.currencyField}</label>
+					<select id="megu-currency" className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
+						{['THB', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'CAD'].map(code => <option key={code} value={code}>{code}</option>)}
+					</select>
+					<p className="field-hint">{c.currencyHint}</p>
+				</div>
+
 				{recurring ? (
 					<div className="field-pair">
 						<div className="field">
-							<label className="field-label" htmlFor="megu-amount">{c.amountField}</label>
-							<input id="megu-amount" className="form-control" type="number" inputMode="decimal" min="1" step="0.01" placeholder="169" value={amount} onChange={e => setAmount(e.target.value)} />
+							<label className="field-label" htmlFor="megu-amount">{c.amountField(currency)}</label>
+							<input id="megu-amount" className="form-control" type="number" inputMode="decimal" min="0.01" step="0.01" placeholder="169" value={amount} onChange={e => setAmount(e.target.value)} />
 						</div>
 						{/* This field ships with a default, so its placeholder never shows —
 						    without a label the box just reads as a bare "1". */}
@@ -414,6 +470,16 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 					<p className="field-hint">{c.peopleHint}</p>
 				</div>
 
+				{recurring && Number(amount) > 0 && rosterPreview.length > 0 && (
+					<div className="field">
+						<label className="field-label" htmlFor="megu-initial-payer">{c.initialPayerField}</label>
+						<select id="megu-initial-payer" className="form-control" value={initialPayerPosition} onChange={e => setInitialPayerPosition(e.target.value)}>
+							{rosterPreview.map((name, index) => <option key={`${name}-${index}`} value={index}>{name}</option>)}
+						</select>
+						<p className="field-hint">{c.initialPayerHint}</p>
+					</div>
+				)}
+
 				{activeGuilds.length > 0 && (
 					<div className="field">
 						<label className="field-label" htmlFor="megu-guild">
@@ -427,7 +493,7 @@ function CreateActivity({ guilds, onCreated, onCancel }) {
 				)}
 
 				<div className="form-actions">
-					<button type="submit" className="btn btn-primary btn-lg" disabled={busy || !title.trim()}>
+					<button type="submit" className="btn btn-primary btn-lg" disabled={busy || !title.trim() || !rosterReady}>
 						{busy ? c.creating : c.create}
 					</button>
 					<button type="button" className="btn btn-ghost" onClick={onCancel}>{t.common.cancel}</button>

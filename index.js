@@ -37,6 +37,45 @@ const HEALTHY_UPTIME_MS = 60 * 1000;
 
 const restarts = Object.create(null);
 
+// The block is on the IP, so it belongs to the whole box — but each child holds
+// its own guard in memory, and a child that restarts comes back believing
+// nothing is wrong. That is how a fifteen-minute cooldown turned into an
+// afternoon: the web process would crash, come up with a clean guard, and start
+// sending people to Discord again inside the same block.
+//
+// The supervisor is the only thing here that outlives its children, so it is
+// where the deadline lives. Whichever child sees the refusal first reports it,
+// every other child is told at once, and a child that starts while the deadline
+// is still in the future is told as soon as it is forked.
+let discordBlockedUntil = 0;
+
+function discordBlockRemainingMs() {
+	return Math.max(0, discordBlockedUntil - Date.now());
+}
+
+function tellChildAboutBlock(child) {
+	if (!child || !child.connected || discordBlockRemainingMs() <= 0) return;
+	try {
+		child.send({ type: 'discord_block', untilMs: discordBlockedUntil });
+	}
+	catch {}
+}
+
+function noteDiscordBlock(untilMs, source) {
+	const stamp = Number(untilMs) || 0;
+	if (stamp <= discordBlockedUntil) return;
+
+	const first = discordBlockRemainingMs() <= 0;
+	discordBlockedUntil = stamp;
+	if (first) {
+		logMaster('System', `${COLOR.red}Discord has blocked this server's IP (reported by ${source}). Pausing every Discord call for ${Math.round(discordBlockRemainingMs() / 60000)} minutes — see DISCORD-RATE-LIMITS.md.`);
+	}
+
+	// Everyone, including the reporter: adopt() ignores a deadline it already
+	// has, so telling it twice costs nothing and forgetting one is the bug.
+	for (const child of [webProcess, botProcess]) tellChildAboutBlock(child);
+}
+
 function scheduleRestart(name, start, startedAt, exitCode) {
 	const state = restarts[name] || (restarts[name] = { attempts: 0 });
 
@@ -51,8 +90,16 @@ function scheduleRestart(name, start, startedAt, exitCode) {
 	// into a block is the one thing guaranteed to make it last longer, so this
 	// case ignores the backoff curve and simply waits the block out.
 	if (exitCode === BLOCK_EXIT_CODE) {
+		noteDiscordBlock(Date.now() + BLOCK_COOLDOWN_MS, name);
 		delay = Math.max(delay, BLOCK_COOLDOWN_MS);
-		logMaster('System', `${COLOR.red}Discord has blocked this server's IP. Holding ${name} down for ${Math.round(delay / 60000)} minutes rather than retrying into the block.`);
+		logMaster('System', `${COLOR.red}Holding ${name} down for ${Math.round(delay / 60000)} minutes rather than retrying into the block.`);
+	}
+	else if (name === 'Discord Bot' && discordBlockRemainingMs() > 0) {
+		// The bot did not exit *because* of the block, but coming back now means
+		// a fresh gateway IDENTIFY into an IP Cloudflare is refusing, which
+		// restarts the clock. Whatever killed it will still be there afterwards.
+		delay = Math.max(delay, discordBlockRemainingMs());
+		logMaster('System', `${COLOR.yellow}Discord is still blocking this IP, so ${name} waits ${Math.round(delay / 60000)} more minutes before reconnecting.`);
 	}
 
 	logMaster('System', `${COLOR.yellow}Restarting ${name} in ${Math.round(delay / 1000)}s (attempt ${state.attempts}).`);
@@ -95,8 +142,21 @@ function startWeb() {
 		},
 	});
 
+	tellChildAboutBlock(webProcess);
+
 	webProcess.on('message', (message) => {
-		if (message.type === 'ping_bot') {
+		if (!message) return;
+		if (message.type === 'discord_block') {
+			noteDiscordBlock(message.untilMs, 'the web process');
+		}
+		else if (message.type === 'discord_block_query') {
+			// Asked on boot. A child that starts mid-block has to hear about it
+			// before it serves its first request, and asking is the only way to
+			// be sure of that — a message pushed at a child that has not
+			// attached its listener yet is simply dropped.
+			tellChildAboutBlock(webProcess);
+		}
+		else if (message.type === 'ping_bot') {
 			if (botProcess && botProcess.connected) {
 				botProcess.send({ type: 'ping' });
 			}
@@ -118,7 +178,27 @@ function startNext() {
 	logMaster('System', `${COLOR.cyan}Starting Next.js App Router Frontend server (Port ${NEXT_PORT})...`);
 	const startedAt = Date.now();
 	const nextBin = path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next');
-	const mode = process.env.NODE_ENV === 'production' ? 'start' : 'dev';
+
+	// Running `next dev` on a deploy is not a cosmetic mistake. It compiles on
+	// demand and holds far more memory, so on a small instance it gets killed,
+	// the loop below restarts it, and every restart of this supervisor's
+	// children is another gateway IDENTIFY and another round of boot-time
+	// Discord calls. From Cloudflare's side a crash loop caused by the wrong
+	// Next mode is indistinguishable from a bot hammering the API.
+	//
+	// NODE_ENV stays the decision, because a developer who has run `npm run
+	// build` once should still get `next dev` locally. But PORT is injected by
+	// the host and never set by hand here, so PORT plus a build present is a
+	// deploy that forgot to say so — and that is worth saying out loud.
+	const deployed = Boolean(process.env.PORT);
+	const built = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'));
+	const mode = (process.env.NODE_ENV === 'production' || (deployed && built)) ? 'start' : 'dev';
+	if (mode === 'start' && process.env.NODE_ENV !== 'production') {
+		logMaster('System', `${COLOR.yellow}NODE_ENV is not "production" but this looks like a deploy with a build present, so Next is starting in production mode. Set NODE_ENV=production to make it explicit.`);
+	}
+	else if (mode === 'dev' && deployed) {
+		logMaster('System', `${COLOR.red}Running "next dev" on a deploy: no production build was found. It will use several times the memory and may be killed and restarted repeatedly, which is Discord rate-limit territory. Run "npm run build" during deploy and set NODE_ENV=production.`);
+	}
 	nextProcess = fork(nextBin, [mode, '-p', String(NEXT_PORT)], {
 		stdio: ['inherit', 'pipe', 'pipe', 'ipc'],
 		env: {
@@ -169,7 +249,18 @@ function startBot() {
 		},
 	});
 
+	tellChildAboutBlock(botProcess);
+
 	botProcess.on('message', (message) => {
+		if (!message) return;
+		if (message.type === 'discord_block') {
+			noteDiscordBlock(message.untilMs, 'the bot');
+			return;
+		}
+		if (message.type === 'discord_block_query') {
+			tellChildAboutBlock(botProcess);
+			return;
+		}
 		if (message.target === 'web') {
 			if (webProcess && webProcess.connected) {
 				webProcess.send(message);

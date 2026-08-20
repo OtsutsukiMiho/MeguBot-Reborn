@@ -11,6 +11,7 @@ const {
 } = require('./test-database.js');
 
 const SUITES = [
+	['rate-limit.test.js', 'the Discord block guard — recognise it, hold it, share it'],
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
 	['promptpay.test.js', 'the PromptPay payload — checksum, accounts, amounts'],
@@ -19,10 +20,13 @@ const SUITES = [
 	['discord-payment.test.js', 'explicit Discord slip intake and sanitized evidence rendering'],
 	['copy.test.js', 'both languages — matching keys, calendars and timezone'],
 	['ui-dialogs.test.js', 'embedded-browser-safe confirmation and correction dialogs'],
+	['auth-notifications.test.js', 'linked identities, encrypted credentials and channel preferences'],
 	['test-database.test.js', 'destructive suites are isolated from the development database'],
 	// First against Postgres, because it rebuilds the schema into its pre-rename
 	// shape and migrates it forward — which is where the suites below start.
 	['rename.test.js', 'the megu_ rename, run against a database that already had data'],
+	['session-store.test.js', 'sessions on Postgres — a restart no longer signs everyone out'],
+	['notification-integration.test.js', 'linked accounts fan one event out to Discord and email without merging'],
 	['e2e.test.js', 'core against Postgres — full badminton lifecycle'],
 	['recurring.test.js', 'monthly agreements, periods and DM reminders'],
 	['payment-lifecycle.test.js', 'multi-period transfers, private evidence, auto-confirmation and reversal'],

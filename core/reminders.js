@@ -1,6 +1,6 @@
 const { query } = require('./db.js');
 const { newId } = require('./ids.js');
-const { formatTHB } = require('./money.js');
+const { formatMoney } = require('./format.js');
 const activities = require('./activities.js');
 
 // Megu nags on a schedule, but she is not a spammer. One person gets at most
@@ -42,12 +42,13 @@ async function outstandingByPerson({ now = new Date() } = {}) {
 
 			for (const row of sum.unpaid) {
 				const participant = activity.participants.find(p => p.id === row.participantId);
-				if (!participant?.discordUid) continue;
+				if (!participant?.userId && !participant?.discordUid) continue;
 
-				if (!people.has(participant.discordUid)) {
-					people.set(participant.discordUid, { discordUid: participant.discordUid, displayName: participant.displayName, lines: [], total: 0 });
+				const personKey = `${participant.userId ? `user:${participant.userId}` : `discord:${participant.discordUid}`}:${activity.currency}`;
+				if (!people.has(personKey)) {
+					people.set(personKey, { userId: participant.userId || null, discordUid: participant.discordUid || null, displayName: participant.displayName, currency: activity.currency, lines: [], total: 0 });
 				}
-				const person = people.get(participant.discordUid);
+				const person = people.get(personKey);
 				person.lines.push({
 					activityId: activity.id,
 					code: activity.code,
@@ -58,6 +59,7 @@ async function outstandingByPerson({ now = new Date() } = {}) {
 					dueAt: scope.period?.dueAt || null,
 					participantId: participant.id,
 					amountSatang: row.outstanding,
+					currency: activity.currency,
 					owedTo: activity.participants.find(p => p.id === activity.expenses.find(e => e.periodId === scope.periodId)?.paidBy)?.displayName || null,
 				});
 				person.total += row.outstanding;
@@ -100,11 +102,13 @@ async function due({ now = new Date(), cooldownHours = DEFAULT_COOLDOWN_HOURS, b
 
 		const total = fresh.reduce((sum, l) => sum + l.amountSatang, 0);
 		out.push({
+			userId: person.userId,
 			discordUid: person.discordUid,
 			displayName: person.displayName,
 			lines: fresh,
 			total,
-			message: composeStatement({ displayName: person.displayName, lines: fresh, total, baseUrl, now }),
+			currency: person.currency,
+			message: composeStatement({ displayName: person.displayName, lines: fresh, total, currency: person.currency, baseUrl, now }),
 		});
 	}
 	return out;
@@ -114,24 +118,25 @@ async function due({ now = new Date(), cooldownHours = DEFAULT_COOLDOWN_HOURS, b
  * A statement, in Megu's voice at the top and the bank's format underneath.
  * Plain text so it survives any channel; the adapter decides how to dress it.
  */
-function composeStatement({ displayName, lines, total, baseUrl = '', now = new Date() }) {
-	const head = lines.length === 1
-		? `${displayName} มียอดค้างอยู่รายการนึงนะ`
-		: `${displayName} มียอดค้างอยู่ ${lines.length} รายการนะ`;
+function composeStatement({ displayName, lines, total, currency = 'THB', baseUrl = '', now = new Date(), locale = 'th' }) {
+	const th = locale === 'th';
+	const head = th
+		? (lines.length === 1 ? `${displayName} มียอดค้างอยู่รายการนึงนะ` : `${displayName} มียอดค้างอยู่ ${lines.length} รายการนะ`)
+		: (lines.length === 1 ? `${displayName}, you have one outstanding payment.` : `${displayName}, you have ${lines.length} outstanding payments.`);
 
 	const body = lines.map((line) => {
 		const when = line.periodLabel ? ` · ${line.periodLabel}` : '';
 		const late = line.dueAt ? daysLate(line.dueAt, now) : null;
-		const lateText = late && late > 0 ? `  (เลยกำหนด ${late} วัน)` : '';
+		const lateText = late && late > 0 ? (th ? `  (เลยกำหนด ${late} วัน)` : `  (${late} days overdue)`) : '';
 		const link = baseUrl ? `\n   ${baseUrl}/a/${line.code}` : '';
-		return `• ${line.title}${when}\n   ${formatTHB(line.amountSatang)}${lateText}${link}`;
+		return `• ${line.title}${when}\n   ${formatMoney(line.amountSatang, line.currency || currency)}${lateText}${link}`;
 	}).join('\n');
 
 	const foot = lines.length > 1
-		? `\n\nรวมทั้งหมด ${formatTHB(total)}`
+		? `\n\n${th ? 'รวมทั้งหมด' : 'Total'} ${formatMoney(total, currency)}`
 		: '';
 
-	return `${head}\n\n${body}${foot}\n\nจ่ายแล้วกดแจ้งในลิงก์ได้เลย เดี๋ยวเราบอกเจ้าของให้`;
+	return `${head}\n\n${body}${foot}\n\n${th ? 'จ่ายแล้วกดแจ้งในลิงก์ได้เลย เดี๋ยวเราบอกเจ้าของให้' : 'After paying, use the link to submit it and Megu will tell the organizer.'}`;
 }
 
 function daysLate(dueAt, now = new Date()) {

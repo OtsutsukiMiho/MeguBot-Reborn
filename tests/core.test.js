@@ -54,6 +54,26 @@ assert.ok(!Object.keys(activities.PLAN_TRANSITIONS).includes('settling'), 'money
 assert.deepStrictEqual(activities.MONEY_STATES, ['none', 'open', 'settled']);
 ok('money lives on its own axis, not in the plan pipeline');
 
+console.log('\npayment options');
+const paymentOptions = activities.normalisePaymentOptions([
+	{ type: 'bank_transfer', label: '日本の銀行', destination: 'Bank 123', accountName: '雲' },
+	{ type: 'payment_link', label: 'Pay online', url: 'https://pay.example/abc' },
+]);
+assert.strictEqual(paymentOptions.length, 2);
+assert.match(paymentOptions[0].id, /^pmo_[0-9a-f]{16}$/);
+assert.strictEqual(paymentOptions[0].label, '日本の銀行');
+assert.strictEqual(paymentOptions[1].url, 'https://pay.example/abc');
+ok('payment methods preserve Unicode labels and validate their destination');
+
+const stable = activities.normalisePaymentOptions(paymentOptions);
+assert.deepStrictEqual(stable.map(option => option.id), paymentOptions.map(option => option.id));
+const duplicate = activities.normalisePaymentOptions([paymentOptions[0], paymentOptions[0]]);
+assert.notStrictEqual(duplicate[0].id, duplicate[1].id);
+assert.throws(() => activities.normalisePaymentOptions([
+	{ type: 'payment_link', label: 'Unsafe', url: 'javascript:alert(1)' },
+]), error => error.code === 'payment_link_invalid');
+ok('saved method ids stay stable while duplicate and unsafe ids are replaced or refused');
+
 console.log('\naccess: server scope');
 assert.ok(access.hasGuildManagePermission('8'));
 assert.ok(access.hasGuildManagePermission('32'));

@@ -28,6 +28,7 @@ function rowToIdentity(row) {
 		provider: row.provider,
 		providerUid: row.provider_uid,
 		email: row.email,
+		emailVerified: Boolean(row.email_verified),
 		username: row.username,
 		avatarUrl: row.avatar_url,
 	};
@@ -74,7 +75,7 @@ async function findByIdentity(provider, providerUid) {
  * refreshed on every login so a renamed Discord account stays current.
  */
 async function loginWithIdentity(profile) {
-	const { provider, providerUid, email, username, avatarUrl, displayName } = profile;
+	const { provider, providerUid, email, emailVerified, username, avatarUrl, displayName } = profile;
 	assertProvider(provider);
 	if (!providerUid) throw new Error('providerUid is required');
 
@@ -94,10 +95,15 @@ async function loginWithIdentity(profile) {
 		if (existing.rows.length > 0) {
 			const identity = existing.rows[0];
 			await client.query(
-				'UPDATE identities SET email = $2, username = $3, avatar_url = $4 WHERE id = $1',
-				[identity.id, email || null, username || null, avatarUrl || null],
+				'UPDATE identities SET email = $2, email_verified = $3, username = $4, avatar_url = $5 WHERE id = $1',
+				[identity.id, email || null, Boolean(emailVerified), username || null, avatarUrl || null],
 			);
 			const user = await client.query('SELECT * FROM users WHERE id = $1', [identity.user_id]);
+			await client.query(
+				`INSERT INTO notification_preferences (user_id, mode)
+				 VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING`,
+				[identity.user_id, provider === 'google' && emailVerified ? 'email' : provider === 'discord' ? 'discord' : 'off'],
+			);
 			return { user: rowToUser(user.rows[0]), created: false };
 		}
 
@@ -108,9 +114,14 @@ async function loginWithIdentity(profile) {
 			[userId, name, avatarUrl || null],
 		);
 		await client.query(
-			`INSERT INTO identities (id, user_id, provider, provider_uid, email, username, avatar_url)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			[newId('idn'), userId, provider, String(providerUid), email || null, username || null, avatarUrl || null],
+			`INSERT INTO identities (id, user_id, provider, provider_uid, email, email_verified, username, avatar_url)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			[newId('idn'), userId, provider, String(providerUid), email || null, Boolean(emailVerified), username || null, avatarUrl || null],
+		);
+		await client.query(
+			`INSERT INTO notification_preferences (user_id, mode)
+			 VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING`,
+			[userId, provider === 'google' && emailVerified ? 'email' : provider === 'discord' ? 'discord' : 'off'],
 		);
 
 		return { user: rowToUser(created.rows[0]), created: true };
@@ -123,7 +134,7 @@ async function loginWithIdentity(profile) {
  * which of the two accounts should win.
  */
 async function linkIdentity(userId, profile) {
-	const { provider, providerUid, email, username, avatarUrl } = profile;
+	const { provider, providerUid, email, emailVerified, username, avatarUrl } = profile;
 	assertProvider(provider);
 
 	const owner = await query(
@@ -136,12 +147,64 @@ async function linkIdentity(userId, profile) {
 		return { linked: false, reason: 'claimed-by-another-user' };
 	}
 
-	await query(
-		`INSERT INTO identities (id, user_id, provider, provider_uid, email, username, avatar_url)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		[newId('idn'), userId, provider, String(providerUid), email || null, username || null, avatarUrl || null],
+	return transaction(async (client) => {
+		await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [userId, provider]);
+		const sameProvider = await client.query(
+			'SELECT provider_uid FROM identities WHERE user_id = $1 AND provider = $2',
+			[userId, provider],
+		);
+		if (sameProvider.rows.length > 0) {
+			return { linked: false, reason: sameProvider.rows[0].provider_uid === String(providerUid) ? 'already-linked' : 'provider-already-linked' };
+		}
+		await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [provider, String(providerUid)]);
+		const claimed = await client.query(
+			'SELECT user_id FROM identities WHERE provider = $1 AND provider_uid = $2',
+			[provider, String(providerUid)],
+		);
+		if (claimed.rows.length > 0) {
+			if (claimed.rows[0].user_id === userId) return { linked: false, reason: 'already-linked' };
+			return { linked: false, reason: 'claimed-by-another-user' };
+		}
+		await client.query(
+			`INSERT INTO identities (id, user_id, provider, provider_uid, email, email_verified, username, avatar_url)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			[newId('idn'), userId, provider, String(providerUid), email || null, Boolean(emailVerified), username || null, avatarUrl || null],
+		);
+		return { linked: true };
+	});
+}
+
+async function getNotificationPreferences(userId) {
+	const identities = await getIdentities(userId);
+	const fallbackMode = identities.some(identity => identity.provider === 'discord') ? 'discord'
+		: identities.some(identity => identity.provider === 'google' && identity.emailVerified) ? 'email' : 'off';
+	const res = await query(
+		`INSERT INTO notification_preferences (user_id, mode)
+		 VALUES ($1, $2)
+		 ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+		 RETURNING mode, locale, updated_at`,
+		[userId, fallbackMode],
 	);
-	return { linked: true };
+	return { mode: res.rows[0].mode, locale: res.rows[0].locale, updatedAt: res.rows[0].updated_at };
+}
+
+async function setNotificationPreferences(userId, { mode, locale }) {
+	const allowedModes = new Set(['discord', 'email', 'both', 'off']);
+	if (!allowedModes.has(mode)) throw new Error('notification_mode_invalid');
+	if (!['en', 'th'].includes(locale)) throw new Error('notification_locale_invalid');
+	const identities = await getIdentities(userId);
+	const hasDiscord = identities.some(identity => identity.provider === 'discord');
+	const hasEmail = identities.some(identity => identity.provider === 'google' && identity.emailVerified && identity.email);
+	if (['discord', 'both'].includes(mode) && !hasDiscord) throw new Error('notification_discord_unavailable');
+	if (['email', 'both'].includes(mode) && !hasEmail) throw new Error('notification_email_unavailable');
+	const res = await query(
+		`INSERT INTO notification_preferences (user_id, mode, locale)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, locale = EXCLUDED.locale, updated_at = now()
+		 RETURNING mode, locale, updated_at`,
+		[userId, mode, locale],
+	);
+	return { mode: res.rows[0].mode, locale: res.rows[0].locale, updatedAt: res.rows[0].updated_at };
 }
 
 async function unlinkIdentity(userId, provider) {
@@ -190,6 +253,19 @@ async function setPromptPay(userId, { promptpayId, promptpayName }) {
 	return rowToUser(res.rows[0]);
 }
 
+async function setDisplayName(userId, displayName) {
+	const value = String(displayName || '').trim();
+	if (!value) throw new Error('display_name_required');
+	if ([...value].length > 80) throw new Error('display_name_too_long');
+
+	const res = await query(
+		'UPDATE users SET display_name = $2 WHERE id = $1 RETURNING *',
+		[userId, value],
+	);
+	if (res.rows.length === 0) throw new Error('user_not_found');
+	return rowToUser(res.rows[0]);
+}
+
 /**
  * When someone who has only ever tapped a link finally signs in, adopt every
  * participant row the organizer already created for them. This is why the
@@ -220,5 +296,8 @@ module.exports = {
 	linkIdentity,
 	unlinkIdentity,
 	setPromptPay,
+	setDisplayName,
 	claimParticipants,
+	getNotificationPreferences,
+	setNotificationPreferences,
 };

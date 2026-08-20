@@ -24,13 +24,14 @@ import SlipReading from './SlipReading';
  * the masked form goes on the screen. Screens get photographed and shared into
  * the same group chat the link came from.
  */
-export default function PayPanel({ code, payTo, amountSatang, periodId, periods = [], pending, busy, call, onError }) {
-	const { t, fmt } = useCopy();
+export default function PayPanel({ code, payTo, amountSatang, periodId, periods = [], paymentOptions = [], pending, busy, call, onError }) {
+	const { t, fmt, currency } = useCopy();
 	const [flash, setFlash] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [attaching, setAttaching] = useState(false);
 	const [selected, setSelected] = useState({});
 	const [amounts, setAmounts] = useState({});
+	const [selectedMethodId, setSelectedMethodId] = useState(pending?.paymentDestination?.id || paymentOptions[0]?.id || '');
 	const payablePeriods = useMemo(() => periods
 		.map(period => ({ ...period, available: Math.max(0, (period.outstandingSatang || 0) - (period.pendingSatang || 0)) }))
 		.filter(period => period.available > 0)
@@ -49,6 +50,16 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 		});
 	}, [periodId, payablePeriods]);
 
+	useEffect(() => {
+		const preferred = pending?.paymentDestination?.id;
+		if (preferred && paymentOptions.some(option => option.id === preferred)) {
+			setSelectedMethodId(preferred);
+		}
+		else if (!paymentOptions.some(option => option.id === selectedMethodId)) {
+			setSelectedMethodId(paymentOptions[0]?.id || '');
+		}
+	}, [paymentOptions, pending?.paymentDestination?.id, selectedMethodId]);
+
 	const allocations = useMemo(() => payablePeriods
 		.filter(period => selected[period.id])
 		.map((period) => {
@@ -64,9 +75,13 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 	const payAmount = pending?.transferAmountSatang || chosenAmount;
 	const allocationInvalid = payablePeriods.length > 0
 		&& allocations.length !== payablePeriods.filter(period => selected[period.id]).length;
-	const claimBody = payablePeriods.length > 0 ? { allocations } : (periodId ? { periodId } : undefined);
+	const selectedMethod = paymentOptions.find(option => option.id === selectedMethodId) || paymentOptions[0] || null;
+	const recipientName = selectedMethod?.accountName || payTo?.displayName || t.pay.organizerRecipient;
+	const acceptsTransferProof = ['promptpay', 'bank_transfer', 'payment_link'].includes(selectedMethod?.type);
+	const baseClaimBody = payablePeriods.length > 0 ? { allocations } : (periodId ? { periodId } : {});
+	const claimBody = { ...baseClaimBody, paymentMethodId: selectedMethod?.id || undefined };
 
-	const qrUrl = `/api/megu/a/${code}/qr?amount=${payAmount}${periodId ? `&period=${periodId}` : ''}`;
+	const qrUrl = `/api/megu/a/${code}/qr?amount=${payAmount}${periodId ? `&period=${periodId}` : ''}${selectedMethod?.id ? `&method=${encodeURIComponent(selectedMethod.id)}` : ''}`;
 
 	function say(message) {
 		setFlash(message);
@@ -175,7 +190,7 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 							onChange={event => setAmounts(previous => ({ ...previous, [period.id]: event.target.value }))}
 							aria-label={t.pay.amountFor(fmt.period(period.key))}
 						/>
-						<span>{t.pay.baht}</span>
+						<span>{t.pay.currencyUnit(currency)}</span>
 					</span>
 				</label>
 			))}
@@ -184,24 +199,19 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 	);
 
 	// Nobody has told this person where to send anything yet.
-	if (!payTo?.ready) {
+	if (paymentOptions.length === 0) {
 		return (
 			<section className="panel pay-panel">
 				<div className="panel-head"><span className="panel-title">{t.pay.title}</span></div>
 				<div className="pay-body">
 					<div className="pay-figure">
 						<span className="pay-amount">{fmt.money(payAmount)}</span>
-						<span className="pay-to">{t.pay.payTo(payTo?.displayName || '—')}</span>
+						<span className="pay-to">{t.pay.payTo(recipientName)}</span>
 					</div>
 					<p className="quiet-note">
-						{payTo?.isMe ? t.pay.noPromptPayOwner : t.pay.noPromptPay(payTo?.displayName || '—')}
+						{t.pay.noPaymentMethod(recipientName)}
 					</p>
 					{periodPicker}
-					{!pending && (
-						<button type="button" className="btn btn-pay btn-block" disabled={busy || allocationInvalid || payAmount <= 0} onClick={() => call('POST', '/pay', claimBody)}>
-							{t.pay.iHavePaid}
-						</button>
-					)}
 					{pending && <p className="quiet-note">{t.pay.waitingConfirm}</p>}
 				</div>
 			</section>
@@ -218,44 +228,64 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 			<div className="pay-body">
 				<div className="pay-figure">
 					<span className="pay-amount">{fmt.money(payAmount)}</span>
-					<span className="pay-to">{t.pay.payTo(payTo.displayName)}</span>
+					<span className="pay-to">{t.pay.payTo(recipientName)}</span>
 				</div>
 
 				{periodPicker}
 
-				<figure className="pay-qr">
-					{/* A plain <img> and not a background image, so that a long
-					    press offers "Add to Photos" without any of our code
-					    being involved. */}
-					<img src={qrUrl} alt={`${t.pay.scanHint} — ${fmt.money(payAmount)}`} width={640} height={640} />
-				</figure>
+				{paymentOptions.length > 1 && (
+					<label className="field">
+						<span className="field-label">{t.pay.chooseMethod}</span>
+						<select className="form-control" value={selectedMethod?.id || ''} disabled={Boolean(pending)} onChange={event => setSelectedMethodId(event.target.value)}>
+							{paymentOptions.map(option => <option value={option.id} key={option.id}>{option.label}</option>)}
+						</select>
+					</label>
+				)}
 
-				<p className="pay-hint">{t.pay.sameDeviceHint}</p>
-
-				<button type="button" className="btn btn-primary btn-block" disabled={saving} onClick={saveQr}>
-					{saving ? t.common.saving : t.pay.saveImage}
-				</button>
-
-				<div className="pay-fallback">
-					<span className="field-label">{t.pay.orTransferTo}</span>
-
-					<div className="pay-copy-row">
-						<div>
-							<span className="pay-number">{payTo.masked}</span>
-							{payTo.accountName && <span className="pay-account">{payTo.accountName}</span>}
+				{selectedMethod?.type === 'promptpay' ? (
+					<>
+						<figure className="pay-qr">
+							<img src={qrUrl} alt={`${t.pay.scanHint} — ${fmt.money(payAmount)}`} width={640} height={640} />
+						</figure>
+						<p className="pay-hint">{t.pay.sameDeviceHint}</p>
+						<button type="button" className="btn btn-primary btn-block" disabled={saving} onClick={saveQr}>
+							{saving ? t.common.saving : t.pay.saveImage}
+						</button>
+						<div className="pay-fallback">
+							<span className="field-label">{t.pay.orTransferTo}</span>
+							<div className="pay-copy-row">
+								<div>
+									<span className="pay-number">{selectedMethod.masked}</span>
+									{selectedMethod.accountName && <span className="pay-account">{selectedMethod.accountName}</span>}
+								</div>
+								<button type="button" className="btn btn-sm btn-secondary" onClick={() => copy(selectedMethod.destination, t.pay.numberCopied)}>{t.pay.copyNumber}</button>
+							</div>
+							<div className="pay-copy-row">
+								<span className="pay-number">{fmt.money(payAmount)}</span>
+								<button type="button" className="btn btn-sm btn-secondary" onClick={() => copy((payAmount / 100).toFixed(2), t.pay.amountCopied)}>{t.pay.copyAmount}</button>
+							</div>
 						</div>
-						<button type="button" className="btn btn-sm btn-secondary" onClick={() => copy(payTo.number, t.pay.numberCopied)}>
-							{t.pay.copyNumber}
-						</button>
+					</>
+				) : (
+					<div className="pay-fallback">
+						<span className="field-label">{selectedMethod?.label}</span>
+						{selectedMethod?.destination && (
+							<div className="pay-copy-row">
+								<div>
+									<span className="pay-number">{selectedMethod.destination}</span>
+									{selectedMethod.accountName && <span className="pay-account">{selectedMethod.accountName}</span>}
+								</div>
+								<button type="button" className="btn btn-sm btn-secondary" onClick={() => copy(selectedMethod.destination, t.pay.destinationCopied)}>{t.pay.copyDestination}</button>
+							</div>
+						)}
+						{selectedMethod?.instructions && <p className="quiet-note payment-instructions">{selectedMethod.instructions}</p>}
+						{selectedMethod?.url && <a className="btn btn-primary btn-block" href={selectedMethod.url} target="_blank" rel="noreferrer">{t.pay.openPaymentLink}</a>}
+						<div className="pay-copy-row">
+							<span className="pay-number">{fmt.money(payAmount)}</span>
+							<button type="button" className="btn btn-sm btn-secondary" onClick={() => copy((payAmount / 100).toFixed(2), t.pay.amountCopied)}>{t.pay.copyAmount}</button>
+						</div>
 					</div>
-
-					<div className="pay-copy-row">
-						<span className="pay-number">{fmt.money(payAmount)}</span>
-						<button type="button" className="btn btn-sm btn-secondary" onClick={() => copy((payAmount / 100).toFixed(2), t.pay.amountCopied)}>
-							{t.pay.copyAmount}
-						</button>
-					</div>
-				</div>
+				)}
 
 				{!pending ? (
 					<button
@@ -268,10 +298,10 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 					</button>
 				) : (
 					<div className="pay-claimed">
-						<p className="quiet-note">{t.pay.waitingConfirm}</p>
+						<p className="quiet-note">{acceptsTransferProof ? t.pay.waitingConfirm : t.pay.waitingOwnerConfirm}</p>
 
-						{pending.hasSlip
-							? (
+						{acceptsTransferProof && (pending.hasSlip
+								? (
 								<div className="slip-state">
 									<span className={`chip ${pending.slipVerdict === 'duplicate' ? 'chip-due' : 'chip-clear'}`}>
 										{pending.slipVerdict === 'duplicate'
@@ -301,7 +331,7 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 									/>
 									<p className="quiet-note">{t.pay.attachSlipHint}</p>
 								</div>
-							)}
+							))}
 					</div>
 				)}
 			</div>

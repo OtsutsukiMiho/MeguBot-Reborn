@@ -14,7 +14,10 @@ const database = require('../database/database.js');
 const core = require('../../core/index.js');
 const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
+const googleOAuth = require('../../adapters/google/oauth.js');
+const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
+const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
 
 // When Cloudflare blocks our IP, every sign-in fails at the token exchange. The
 // old behaviour was a bare 400 with "Failed to exchange code", which reads to a
@@ -22,8 +25,26 @@ const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
 // to Discord that extends the block. This remembers the block instead, so we
 // stop sending anyone to Discord until it has had time to clear.
 const discordBlock = createBlockGuard({
-	onTrip: (seconds) => BotLogs('SYSTEM', `${COLOR.red}Discord has blocked this server's IP. Pausing all Discord sign-ins for ${Math.round(seconds / 60)} minutes — see DISCORD-RATE-LIMITS.md.`),
+	onTrip: (seconds) => {
+		BotLogs('SYSTEM', `${COLOR.red}Discord has blocked this server's IP. Pausing all Discord sign-ins for ${Math.round(seconds / 60)} minutes — see DISCORD-RATE-LIMITS.md.`);
+		// The ban is on the IP, so the bot process is blocked too and does not
+		// know it yet. Telling the supervisor stops it finding out the way we
+		// did — by sending a request that gets refused.
+		if (process.send) {
+			try { process.send({ type: 'discord_block', untilMs: discordBlock.blockedUntil() }); }
+			catch {}
+		}
+	},
 });
+
+// This process restarts on its own crashes and on every deploy, and the guard
+// above lives in memory, so a restart used to clear a live block and start
+// sending people to Discord again inside it. The supervisor remembers the
+// deadline across restarts; ask for it before serving anything.
+if (process.send) {
+	try { process.send({ type: 'discord_block_query' }); }
+	catch {}
+}
 
 core.setLogger((scope, message) => BotLogs(scope, message));
 
@@ -33,6 +54,13 @@ try {
 }
 catch {
 	// Ignore
+}
+
+// Keep the adapter provider-neutral while preserving the existing config.json
+// fallback used by older deployments.
+if (!process.env.DISCORD_CLIENT_ID && config.clientId) process.env.DISCORD_CLIENT_ID = config.clientId;
+if (!process.env.DISCORD_CLIENT_SECRET && (config.clientSecret || config.client_secret)) {
+	process.env.DISCORD_CLIENT_SECRET = config.clientSecret || config.client_secret;
 }
 
 const app = express();
@@ -70,6 +98,18 @@ if (process.env.NODE_ENV === 'production') {
 
 	if (!process.env.SESSION_SECRET) {
 		missing.push('SESSION_SECRET — a random one is generated per boot, so every restart signs everyone out, and two instances never share a session at all.');
+	}
+
+	if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+		missing.push('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET — Google sign-in and account linking stay unavailable until both are configured.');
+	}
+
+	if (!process.env.MEGU_OAUTH_CREDENTIAL_KEY) {
+		missing.push('MEGU_OAUTH_CREDENTIAL_KEY — linked Discord refresh tokens cannot be stored, so Google sign-in cannot restore the Discord server dashboard.');
+	}
+
+	if (!process.env.RESEND_API_KEY || !process.env.MEGU_EMAIL_FROM) {
+		missing.push('RESEND_API_KEY / MEGU_EMAIL_FROM — email deliveries remain in retry state because transactional email is not configured.');
 	}
 
 	for (const line of missing) {
@@ -127,6 +167,24 @@ function parseAutomodConfig(raw) {
 	return { ...defaultConfig, ...parsed };
 }
 
+// Audit rows written by the bot carry a trailing `[hostname#pid.hex]` naming the
+// instance that handled them, which is what `npm run bot:instances` reads to
+// answer "is more than one copy of the bot running on this token?".
+//
+// That stamp is a diagnostic, not something a human scrolling the audit log
+// wants appended to every line — and it is now on TTS, which is the highest
+// volume event there is. So it comes off for display and is handed back as its
+// own field, where the dashboard can show it if it ever wants to.
+const INSTANCE_STAMP = /\s\[([^\]]+)\]$/;
+
+function splitInstanceStamp(logs) {
+	return (Array.isArray(logs) ? logs : []).map((row) => {
+		const match = row && typeof row.details === 'string' ? INSTANCE_STAMP.exec(row.details) : null;
+		if (!match) return row;
+		return { ...row, details: row.details.replace(INSTANCE_STAMP, ''), instance: match[1] };
+	});
+}
+
 // Express JSON Parsing Error Handler (Catches double-encoded or malformed JSON payloads)
 app.use((err, req, res, next) => {
 	if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
@@ -153,7 +211,22 @@ app.use(express.static(path.join(__dirname, '../../public')));
 
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
+// Sessions live in Postgres, not in this process. A restart used to empty them
+// and sign everyone out at once, and every one of those people signing back in
+// is an OAuth round trip to Discord — a burst of traffic caused by our own
+// restart, from an IP that gets banned for exactly that. See
+// adapters/http/pg-session-store.js.
+//
+// SESSION_SECRET still matters and is still checked at boot: without it the
+// cookies are signed with a fresh key each time, so the rows survive the
+// restart but nobody can present a cookie that matches them.
+const sessionStore = createSessionStore(session, {
+	ttlMs: 24 * 60 * 60 * 1000,
+	log: message => BotLogs('SYSTEM', `${COLOR.yellow}${message}`),
+});
+
 app.use(session({
+	store: sessionStore,
 	secret: SESSION_SECRET,
 	resave: false,
 	saveUninitialized: false,
@@ -179,13 +252,14 @@ const ABSOLUTE_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours absolute max durati
 const EXPIRED_SESSION_LANDING = '/';
 
 app.use((req, res, next) => {
-	if (req.session && req.session.user) {
+	if (req.session && req.session.meguUserId) {
 		const now = Date.now();
 		const userAgent = req.headers['user-agent'] || '';
+		const sessionName = req.session.account?.displayName || req.session.user?.username || req.session.meguUserId;
 
 		// 1. Session Fingerprint Verification (User-Agent mismatch detection)
 		if (req.session.userAgent && req.session.userAgent !== userAgent) {
-			BotLogs('SYSTEM', `Security Warning: User-Agent mismatch for user ${req.session.user.username}. Possible session hijacking. Terminating session.`);
+			BotLogs('SYSTEM', `Security Warning: User-Agent mismatch for user ${sessionName}. Possible session hijacking. Terminating session.`);
 			return req.session.destroy(() => {
 				res.clearCookie('connect.sid');
 				if (req.path.startsWith('/api/')) {
@@ -197,7 +271,7 @@ app.use((req, res, next) => {
 
 		// 2. Inactivity Timeout (30 minutes of no requests)
 		if (req.session.lastActivity && (now - req.session.lastActivity > IDLE_TIMEOUT_MS)) {
-			BotLogs('SYSTEM', `Session Timeout: User ${req.session.user.username} inactive for 30+ minutes. Session terminated.`);
+			BotLogs('SYSTEM', `Session Timeout: User ${sessionName} inactive for 30+ minutes. Session terminated.`);
 			return req.session.destroy(() => {
 				res.clearCookie('connect.sid');
 				if (req.path.startsWith('/api/')) {
@@ -209,7 +283,7 @@ app.use((req, res, next) => {
 
 		// 3. Absolute Session Lifetime Timeout (24 hours)
 		if (req.session.loginTimestamp && (now - req.session.loginTimestamp > ABSOLUTE_TIMEOUT_MS)) {
-			BotLogs('SYSTEM', `Session Timeout: User ${req.session.user.username} reached max 24h lifetime limit.`);
+			BotLogs('SYSTEM', `Session Timeout: User ${sessionName} reached max 24h lifetime limit.`);
 			return req.session.destroy(() => {
 				res.clearCookie('connect.sid');
 				if (req.path.startsWith('/api/')) {
@@ -228,7 +302,12 @@ const pendingIpcRequests = new Map();
 
 process.on('message', (msg) => {
 	if (!msg) return;
-	if (msg.type === 'log_entry' && msg.log) {
+	if (msg.type === 'discord_block') {
+		if (discordBlock.adopt(msg.untilMs)) {
+			BotLogs('SYSTEM', `${COLOR.yellow}Discord is blocking this server's IP (reported elsewhere). Sign-ins are paused for ${Math.round(discordBlock.retryAfterSeconds() / 60)} minutes.`);
+		}
+	}
+	else if (msg.type === 'log_entry' && msg.log) {
 		addLogEntry(msg.log);
 	}
 	else if (msg.reqId && pendingIpcRequests.has(msg.reqId)) {
@@ -274,6 +353,27 @@ app.use('/api/megu', meguApi.router({
 		await sendIpcRequest({ type: 'payment_notice', recipients, message });
 	},
 }));
+
+const notificationDispatcher = createDispatcher({
+	// Throwing here is what leaves the delivery pending, so the dispatcher's
+	// exponential backoff picks it up later instead of the row being marked
+	// sent for a message nobody received. Only transient failures qualify: a
+	// bot that is blocked or not running will succeed later, whereas a member
+	// with DMs closed will not, and retrying that one eight times is eight
+	// pointless requests.
+	sendDiscord: async ({ recipients, message }) => {
+		// Longer than the default: opening a DM and sending it is two round
+		// trips to Discord, and timing out at three seconds would report a
+		// delivery as failed while it was still on its way.
+		const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message }, 10_000);
+		if (!reply) throw new Error('The bot process did not answer');
+		if (reply.blocked) throw new Error('Discord is blocking this server, delivery deferred');
+		return reply;
+	},
+	log: message => BotLogs('Megu', message),
+});
+const notificationTimer = setInterval(() => notificationDispatcher.drain().catch(error => BotLogs('Megu', `Notification dispatcher failed: ${error.message}`)), 15_000);
+notificationTimer.unref();
 
 function requireAdminGuild(req, res, next) {
 	if (!req.session || !req.session.user || !req.session.adminGuilds) {
@@ -421,7 +521,173 @@ function sendBlockedPage(res) {
 	`);
 }
 
-app.get('/api/auth/login', (req, res) => {
+function manageableGuilds(guilds) {
+	return (Array.isArray(guilds) ? guilds : []).filter(guild => {
+		if (guild.owner) return true;
+		const permissions = BigInt(guild.permissions || '0');
+		return (permissions & 0x8n) === 0x8n || (permissions & 0x20n) === 0x20n;
+	});
+}
+
+function setDiscordSession(sessionObject, user, guilds) {
+	sessionObject.user = {
+		id: user.id, username: user.username, discriminator: user.discriminator,
+		global_name: user.global_name || user.username, avatar: user.avatar,
+	};
+	sessionObject.discordUser = sessionObject.user;
+	sessionObject.allGuilds = guilds.map(g => ({ id: g.id, name: g.name, icon: g.icon, permissions: g.permissions }));
+	sessionObject.adminGuilds = manageableGuilds(guilds).map(g => ({
+		id: g.id, name: g.name, icon: g.icon, banner: g.banner, splash: g.splash,
+		owner: g.owner, permissions: g.permissions,
+	}));
+}
+
+async function restoreDiscordConnection(userId, sessionObject) {
+	const stored = await core.oauthCredentials.get(userId, 'discord');
+	if (!stored?.credential) {
+		sessionObject.discordReconnectRequired = true;
+		return;
+	}
+	// Three Discord calls live below (refresh, profile, guild list). Running
+	// them while blocked adds traffic and ends in the same place anyway, and
+	// the failure would be reported to the user as "reconnect your Discord" —
+	// an invitation to click, which is another round trip into the block.
+	if (discordBlock.blocked()) {
+		sessionObject.discordReconnectRequired = true;
+		return;
+	}
+	try {
+		let token = stored.credential;
+		if (!stored.expiresAt || new Date(stored.expiresAt).getTime() <= Date.now() + 60_000) {
+			const refreshed = await discordOAuth.refreshToken(token.refreshToken);
+			token = { accessToken: refreshed.access_token, refreshToken: refreshed.refresh_token || token.refreshToken };
+			await core.oauthCredentials.save(userId, 'discord', token, new Date(Date.now() + Number(refreshed.expires_in || 0) * 1000));
+		}
+		const [user, guilds] = await Promise.all([
+			discordOAuth.fetchMe(token.accessToken),
+			discordOAuth.fetchMyGuilds(token.accessToken),
+		]);
+		setDiscordSession(sessionObject, user, guilds);
+		sessionObject.discordReconnectRequired = false;
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `Linked Discord credential needs reconnection: ${error.message}`);
+		// This catch used to swallow a Cloudflare block whole: the guard never
+		// saw it, so the next sign-in went straight back to Discord.
+		discordBlock.record(error);
+		sessionObject.discordReconnectRequired = true;
+	}
+}
+
+function beginOAuth(provider, intent) {
+	return (req, res) => {
+		if (intent === 'link' && !req.session?.meguUserId) return res.redirect('/activities');
+		if (provider === 'discord' && discordBlock.blocked()) return sendBlockedPage(res);
+		if (provider === 'google' && (!googleOAuth.clientId() || !googleOAuth.clientSecret())) {
+			return res.status(503).send('Google sign-in is not configured.');
+		}
+		const state = crypto.randomBytes(24).toString('hex');
+		req.session.oauth2Request = {
+			provider, intent, state,
+			linkingUserId: intent === 'link' ? req.session.meguUserId : null,
+			createdAt: Date.now(),
+		};
+		req.session.save(error => {
+			if (error) return res.status(500).send('Could not start sign-in.');
+			res.redirect(provider === 'google'
+				? googleOAuth.authorizeUrl({ state })
+				: discordOAuth.authorizeUrl({ state, port: process.env.NEXT_PORT || 3000 }));
+		});
+	};
+}
+
+app.get(['/api/auth/login', '/api/auth/discord'], beginOAuth('discord', 'login'));
+app.get('/api/auth/discord/link', beginOAuth('discord', 'link'));
+app.get('/api/auth/google', beginOAuth('google', 'login'));
+app.get('/api/auth/google/link', beginOAuth('google', 'link'));
+
+async function finishOAuth(req, res, provider) {
+	const request = req.session?.oauth2Request;
+	const { code, state } = req.query;
+	if (!request || request.provider !== provider || !state || state !== request.state || Date.now() - request.createdAt > 10 * 60 * 1000) {
+		return res.status(403).send('This sign-in request expired. Start again from Megu.');
+	}
+	delete req.session.oauth2Request;
+	if (!code) return res.status(400).send('Missing authorization code.');
+	if (request.intent === 'link' && request.linkingUserId !== req.session.meguUserId) {
+		return res.status(403).send('The signed-in account changed while linking.');
+	}
+
+	try {
+		let identityProfile;
+		let discordData = null;
+		let tokenData;
+		if (provider === 'google') {
+			tokenData = await googleOAuth.exchangeCode(code);
+			identityProfile = googleOAuth.toIdentityProfile(await googleOAuth.verifyIdToken(tokenData.id_token));
+			if (!identityProfile.emailVerified) return res.status(403).send('Google did not provide a verified email address.');
+		}
+		else {
+			if (discordBlock.blocked()) return sendBlockedPage(res);
+			tokenData = await discordOAuth.exchangeCode(code, process.env.NEXT_PORT || 3000);
+			const user = await discordOAuth.fetchMe(tokenData.access_token);
+			const guilds = await discordOAuth.fetchMyGuilds(tokenData.access_token);
+			identityProfile = discordOAuth.toIdentityProfile(user);
+			discordData = { user, guilds };
+		}
+
+		let account;
+		if (request.intent === 'link') {
+			const result = await core.users.linkIdentity(request.linkingUserId, identityProfile);
+			if (['claimed-by-another-user', 'provider-already-linked'].includes(result.reason)) return res.redirect(`/account?link=conflict&provider=${provider}`);
+			account = await core.users.getUser(request.linkingUserId);
+		}
+		else {
+			account = (await core.users.loginWithIdentity(identityProfile)).user;
+			await core.users.claimParticipants(account.id);
+		}
+
+		if (provider === 'discord' && tokenData.refresh_token) {
+			const stored = await core.oauthCredentials.save(account.id, 'discord', {
+				accessToken: tokenData.access_token,
+				refreshToken: tokenData.refresh_token,
+			}, new Date(Date.now() + Number(tokenData.expires_in || 0) * 1000));
+			if (!stored.stored) BotLogs('SYSTEM', 'Discord refresh credential was not stored because MEGU_OAUTH_CREDENTIAL_KEY is missing.');
+		}
+
+		const establish = async () => {
+			req.session.meguUserId = account.id;
+			req.session.account = { id: account.id, displayName: account.displayName, avatarUrl: account.avatarUrl, loginProvider: provider };
+			req.session.identity = identityProfile;
+			if (discordData) setDiscordSession(req.session, discordData.user, discordData.guilds);
+			else if (provider === 'google') await restoreDiscordConnection(account.id, req.session);
+			req.session.userAgent = req.headers['user-agent'] || '';
+			req.session.loginTimestamp = req.session.loginTimestamp || Date.now();
+			req.session.lastActivity = Date.now();
+			req.session.save(() => res.redirect(request.intent === 'link' ? `/account?link=success&provider=${provider}` : '/activities'));
+		};
+
+		if (request.intent === 'login') {
+			return req.session.regenerate(error => {
+				if (error) return res.status(500).send('Could not create a secure session.');
+				establish().catch(nextError => res.status(500).send(nextError.message));
+			});
+		}
+		return establish();
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${provider} OAuth callback error: ${error.message}`);
+		if (provider === 'discord' && discordBlock.record(error)) return sendBlockedPage(res);
+		return res.status(500).send(`Could not complete ${provider} sign-in.`);
+	}
+}
+
+app.get(['/api/auth/callback', '/api/auth/discord/callback'], (req, res) => finishOAuth(req, res, 'discord'));
+app.get('/api/auth/google/callback', (req, res) => finishOAuth(req, res, 'google'));
+
+// Kept temporarily for old bookmarks while the provider-neutral routes above
+// become the only entry points.
+app.get('/api/auth/legacy/discord', (req, res) => {
 	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 	const redirectUri = OAUTH_REDIRECT_URI;
 
@@ -445,7 +711,7 @@ app.get('/api/auth/login', (req, res) => {
 	});
 });
 
-app.get('/api/auth/callback', async (req, res) => {
+app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 	const { code, state } = req.query;
 
 	if (!state || (req.session.oauth2State && state !== req.session.oauth2State)) {
@@ -620,19 +886,11 @@ app.get('/api/auth/callback', async (req, res) => {
 	}
 });
 
-app.get('/api/auth/me', (req, res) => {
-	if (req.session && req.session.user) {
-		res.json({
-			loggedIn: true,
-			user: req.session.user,
-		});
-	}
-	else {
-		res.json({
-			loggedIn: false,
-			user: null,
-		});
-	}
+app.get('/api/auth/me', async (req, res) => {
+	if (!req.session?.meguUserId) return res.json({ loggedIn: false, user: null });
+	const user = await core.users.getUser(req.session.meguUserId);
+	if (!user) return res.json({ loggedIn: false, user: null });
+	res.json({ loggedIn: true, user });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -1253,7 +1511,7 @@ app.get('/api/guilds/:guildId/audit-logs', requireAdminGuild, async (req, res) =
 	try {
 		const parsedLimit = Math.min(parseInt(limit || '50', 10), 100);
 		const logs = await database.getGuildAuditLogs(guildId, parsedLimit, filter || 'ALL');
-		res.json({ success: true, logs });
+		res.json({ success: true, logs: splitInstanceStamp(logs) });
 	}
 	catch (error) {
 		BotLogs('SYSTEM', `Error fetching audit logs for guild ${guildId}: ${error.toString()}`);
@@ -1560,7 +1818,7 @@ app.get('/api/developer/audit-logs', requireDeveloper, async (req, res) => {
 	try {
 		const parsedLimit = Math.min(parseInt(limit || '100', 10), 200);
 		const logs = await database.getGlobalAuditLogs(parsedLimit, filter || 'ALL', search || '');
-		res.json({ success: true, logs });
+		res.json({ success: true, logs: splitInstanceStamp(logs) });
 	}
 	catch (error) {
 		res.status(500).json({ error: 'Failed to fetch global audit logs.' });

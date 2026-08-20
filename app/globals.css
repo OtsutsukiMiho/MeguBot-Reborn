@@ -421,6 +421,41 @@ input, textarea, select, button {
 	text-decoration: none;
 }
 
+.btn-google {
+	background: var(--surface-raised);
+	color: var(--text-primary);
+	border: 1px solid var(--border-strong);
+}
+
+.btn-google:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+.provider-letter { width: 1.35rem; height: 1.35rem; display: inline-grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.16); font-weight: 800; font-size: .8rem; }
+.btn-google .provider-letter { background: #fff; color: #4285f4; border: 1px solid #ddd; }
+.login-options { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; }
+.login-options-compact { gap: .4rem; }
+
+.account-page { max-width: 840px; margin: 0 auto; }
+.account-signin { text-align: center; }
+.account-profile { display: flex; align-items: center; gap: 1rem; }
+.account-profile h2, .account-page h2 { margin: 0 0 .25rem; }
+.account-avatar { width: 58px; height: 58px; border-radius: 18px; object-fit: cover; }
+.account-notice { padding: .9rem 1rem; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface-raised); }
+.identity-list { display: grid; gap: .7rem; }
+.identity-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .9rem; border: 1px solid var(--border); border-radius: 12px; }
+.identity-row > div { display: grid; gap: .2rem; min-width: 0; }
+.identity-row span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.notification-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+.notification-choice { appearance: none; text-align: left; display: grid; gap: .3rem; padding: 1rem; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-raised); color: var(--text-primary); cursor: pointer; }
+.notification-choice span { color: var(--text-secondary); line-height: 1.45; }
+.notification-choice.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
+.notification-choice:disabled { opacity: .52; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+	.notification-grid { grid-template-columns: 1fr; }
+	.login-options { width: min(100%, 360px); }
+	.login-options .btn { width: 100%; }
+	.identity-row { align-items: flex-start; }
+}
+
 .btn-danger {
 	color: var(--due);
 	background: var(--due-soft);
@@ -3083,6 +3118,47 @@ textarea.form-control {
 	align-items: center;
 	gap: .4rem;
 	margin-top: .5rem;
+}
+
+/* Activity-level methods sit beside the account-level PromptPay setting, but
+   remain visibly their own saved list. This matters when an organizer uses a
+   different bank or payment link for one group without changing their global
+   account. */
+.payment-options-setup {
+	display: flex;
+	flex-direction: column;
+	gap: .55rem;
+	padding: .9rem 0 1rem;
+	margin-bottom: .3rem;
+	border-bottom: 1px solid var(--line);
+}
+
+.payment-options-setup > .field-label,
+.payment-options-setup > .field-hint {
+	margin: 0;
+}
+
+.payment-option-list {
+	display: flex;
+	flex-direction: column;
+	gap: .45rem;
+	padding: .65rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--sunk);
+}
+
+.payment-option-list .pay-copy-row {
+	min-height: 42px;
+}
+
+.payment-option-form {
+	gap: .7rem;
+	padding-top: .25rem;
+}
+
+.payment-option-form textarea {
+	min-height: 5.5rem;
 }
 
 /* ------------------------------------------------------ reading a slip */

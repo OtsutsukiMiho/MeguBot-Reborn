@@ -6,7 +6,7 @@ const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
-const { activities, users, access, tokens, money, voice, promptpay } = core;
+const { activities, users, access, tokens, money, format, voice, promptpay, notifications } = core;
 
 // A slip photographed on a phone is a few hundred kilobytes once the browser
 // has shrunk it. The ceiling is generous enough that nobody meets it by
@@ -34,6 +34,16 @@ function decodeDataImage(dataUrl, { maxBytes = SLIP_MAX_BYTES } = {}) {
  */
 function fail(res, status, code, message) {
 	return res.status(status).json({ error: message || code, code });
+}
+
+// Amounts are stored as integer minor units for every currently supported
+// currency. `amountBaht` remains accepted so old clients do not break, while
+// new clients use the currency-neutral `amount` name.
+function requestAmountMinor(body = {}) {
+	if (body.amountSatang != null) return Number(body.amountSatang);
+	if (body.amount != null) return money.toSatang(body.amount);
+	if (body.amountBaht != null) return money.toSatang(body.amountBaht);
+	return undefined;
 }
 
 const DEVICE_COOKIE = 'megu_pt';
@@ -140,7 +150,7 @@ function attachActor(req, res, next) {
 
 	req.actor = {
 		userId: req.session?.meguUserId || null,
-		discordUid: req.session?.user?.id || null,
+		discordUid: req.session?.discordUser?.id || req.session?.user?.id || null,
 		deviceToken,
 		// Which language to answer in. It travels with the caller rather than
 		// as a separate argument because Megu's own sentences are built on the
@@ -168,6 +178,11 @@ function discordProfileFromSession(sessionUser) {
 	};
 }
 
+function identityProfileFromSession(session) {
+	if (session?.identity?.provider && session.identity.providerUid) return session.identity;
+	return discordProfileFromSession(session?.discordUser || session?.user);
+}
+
 /**
  * Turn a Discord login session into a live Megu account.
  *
@@ -183,7 +198,7 @@ async function ensureAccount(req) {
 		if (current) return current;
 	}
 
-	const profile = discordProfileFromSession(req.session?.user);
+	const profile = identityProfileFromSession(req.session);
 	if (!profile) {
 		if (req.session) req.session.meguUserId = null;
 		if (req.actor) req.actor.userId = null;
@@ -313,6 +328,7 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		? payment.amountSatang
 		: payment.allocations?.filter(allocation => allocation.periodId === scope)
 			.reduce((subtotal, allocation) => subtotal + allocation.amountSatang, 0) || payment.amountSatang;
+	const paymentOptions = availablePaymentOptions(activity);
 
 	return {
 		code: activity.code,
@@ -390,6 +406,7 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				expectedSatang: p.expectedSatang,
 				status: p.status,
 				method: p.method,
+				paymentDestination: p.paymentDestination,
 				// Whether a slip exists, never the slip. The image is served by
 				// the one route that checks who is asking.
 				hasSlip: p.hasSlip,
@@ -425,6 +442,7 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		// Both are gated on `showAmounts`, so someone holding a forwarded link
 		// who is not on the roster gets neither — the same rule that already
 		// hides what everyone owes.
+		paymentOptions: showAmounts ? paymentOptions : [],
 		payTo: showAmounts && activity.payee
 			? {
 				participantId: activity.payee.participantId,
@@ -432,11 +450,32 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				accountName: activity.payee.promptpayName || null,
 				masked: activity.payee.promptpayId ? promptpay.maskTarget(activity.payee.promptpayId) : null,
 				number: activity.payee.promptpayId || null,
-				ready: Boolean(activity.payee.promptpayId),
+				ready: paymentOptions.length > 0,
 				isMe: Boolean(me && me.id === activity.payee.participantId),
 			}
 			: null,
 	};
+}
+
+function availablePaymentOptions(activity) {
+	const options = [];
+	if (activity.currency === 'THB' && activity.payee?.promptpayId) {
+		options.push({
+			id: `profile-promptpay-${activity.payee.participantId}`,
+			type: 'promptpay',
+			label: 'PromptPay',
+			destination: activity.payee.promptpayId,
+			masked: promptpay.maskTarget(activity.payee.promptpayId),
+			accountName: activity.payee.promptpayName || null,
+			instructions: null,
+			url: null,
+			source: 'profile',
+		});
+	}
+	for (const option of activity.paymentOptions || []) {
+		options.push({ ...option, source: 'activity' });
+	}
+	return options;
 }
 
 /**
@@ -468,6 +507,7 @@ function router(deps = {}) {
 		if (!account) return res.json({ loggedIn: false, user: null, servers: [] });
 
 		const user = await users.getUserWithIdentities(account.id);
+		const notificationPreferences = await users.getNotificationPreferences(account.id);
 		const myGuilds = req.session?.allGuilds || [];
 
 		let botGuildIds = [];
@@ -475,7 +515,7 @@ function router(deps = {}) {
 			botGuildIds = await deps.botPresence(myGuilds.map(g => g.id)).catch(() => []);
 		}
 
-		res.json({ loggedIn: true, user, servers: access.visibleServers(myGuilds, botGuildIds) });
+		res.json({ loggedIn: true, user, notificationPreferences, servers: access.visibleServers(myGuilds, botGuildIds) });
 	});
 
 	// Where this person wants to be paid. Their own account, their own bank —
@@ -483,14 +523,32 @@ function router(deps = {}) {
 	// the transfer.
 	api.patch('/me', requireAccount, async (req, res, next) => {
 		try {
-			const user = await users.setPromptPay(req.actor.userId, {
-				promptpayId: req.body?.promptpayId,
-				promptpayName: req.body?.promptpayName,
-			});
-			res.json({ user });
+			const body = req.body || {};
+			let user;
+			if (Object.prototype.hasOwnProperty.call(body, 'displayName')) {
+				user = await users.setDisplayName(req.actor.userId, body.displayName);
+			}
+			if (Object.prototype.hasOwnProperty.call(body, 'promptpayId')) {
+				user = await users.setPromptPay(req.actor.userId, {
+					promptpayId: body.promptpayId,
+					promptpayName: body.promptpayName,
+				});
+			}
+			let notificationPreferences;
+			if (Object.prototype.hasOwnProperty.call(body, 'notificationMode') || Object.prototype.hasOwnProperty.call(body, 'notificationLocale')) {
+				const current = await users.getNotificationPreferences(req.actor.userId);
+				notificationPreferences = await users.setNotificationPreferences(req.actor.userId, {
+					mode: body.notificationMode || current.mode,
+					locale: body.notificationLocale || current.locale,
+				});
+			}
+			if (!user) user = await users.getUser(req.actor.userId);
+			res.json({ user, notificationPreferences });
 		}
 		catch (error) {
-			if (error.message === 'promptpay_unrecognised' || error.message === 'promptpay_missing') {
+			if (['promptpay_unrecognised', 'promptpay_missing', 'display_name_required', 'display_name_too_long',
+				'notification_mode_invalid', 'notification_locale_invalid', 'notification_discord_unavailable',
+				'notification_email_unavailable'].includes(error.message)) {
 				return fail(res, 400, error.message);
 			}
 			next(error);
@@ -506,16 +564,28 @@ function router(deps = {}) {
 
 	api.post('/activities', requireAccount, async (req, res, next) => {
 		try {
-			const { title, kind = 'event', location, startsAt, guildId, channelId, participants } = req.body || {};
+			const {
+				title, kind = 'event', location, startsAt, guildId, channelId, participants,
+				ownerParticipation = true, ownerDisplayName, saveOwnerDisplayName = false,
+				currency = 'THB', initialPayerPosition = 0,
+			} = req.body || {};
 			if (!title || !String(title).trim()) {
-				return res.status(400).json({ error: 'ต้องมีชื่อกิจกรรม' });
+				return fail(res, 400, 'title_required');
 			}
 
-			const roster = Array.isArray(participants) ? participants.slice(0, 50) : [];
+			const incoming = Array.isArray(participants) ? participants.slice(0, 50) : [];
 			const owner = await users.getUser(req.actor.userId);
-			if (!roster.some(p => p.userId === req.actor.userId)) {
-				roster.unshift({ displayName: owner?.displayName || 'ฉัน', userId: req.actor.userId });
+			const suppliedOwner = incoming.find(p => p?.userId === req.actor.userId);
+			const joins = ownerParticipation !== false;
+			const roster = incoming
+				.filter(p => p?.userId !== req.actor.userId)
+				.map(p => ({ displayName: p?.displayName, discordUid: p?.discordUid || null }));
+			if (joins) {
+				const chosenName = ownerDisplayName || suppliedOwner?.displayName || owner?.displayName;
+				roster.unshift({ displayName: chosenName, userId: req.actor.userId });
+				if (saveOwnerDisplayName) await users.setDisplayName(req.actor.userId, chosenName);
 			}
+			if (roster.length === 0) return fail(res, 400, 'participant_required');
 
 			const recurring = kind === 'recurring';
 			const activity = await activities.createActivity({
@@ -524,6 +594,7 @@ function router(deps = {}) {
 				kind,
 				location: location || null,
 				startsAt: startsAt ? new Date(startsAt) : null,
+				currency,
 				guildId: guildId || null,
 				channelId: channelId || null,
 				recurrence: recurring ? 'monthly' : null,
@@ -535,16 +606,18 @@ function router(deps = {}) {
 			// when an amount was given, split it straight away.
 			if (recurring) {
 				const { period } = await activities.ensurePeriod(activity.id);
-				const amountBaht = Number(req.body.amountBaht);
-				if (amountBaht > 0) {
+				const amountMinor = requestAmountMinor(req.body);
+				if (amountMinor > 0) {
 					const full = await activities.getActivity(activity.id);
-					const payer = full.participants.find(p => p.userId === req.actor.userId) || full.participants[0];
+					const position = Number(initialPayerPosition);
+					const payer = full.participants[Number.isInteger(position) ? position : 0] || full.participants[0];
 					await activities.addExpense(activity.id, {
 						label: title,
-						amountSatang: money.toSatang(amountBaht),
+						amountSatang: amountMinor,
 						paidBy: payer.id,
 						periodId: period.id,
 					});
+					await activities.setPayee(activity.id, payer.id);
 				}
 			}
 
@@ -552,14 +625,44 @@ function router(deps = {}) {
 			res.status(201).json({ activity: serializeActivity(full, req.actor) });
 		}
 		catch (error) {
+			if (['display_name_required', 'display_name_too_long', 'currency_not_supported'].includes(error.code || error.message)) {
+				return fail(res, 400, error.code || error.message);
+			}
 			next(error);
 		}
+	});
+
+	api.delete('/me/identities/:provider', requireAccount, async (req, res, next) => {
+		try {
+			const result = await users.unlinkIdentity(req.actor.userId, req.params.provider);
+			if (!result.unlinked) return fail(res, 409, result.reason === 'last-identity' ? 'last_identity' : 'identity_not_linked');
+			const identities = await users.getIdentities(req.actor.userId);
+			const current = await users.getNotificationPreferences(req.actor.userId);
+			const hasDiscord = identities.some(identity => identity.provider === 'discord');
+			const hasEmail = identities.some(identity => identity.provider === 'google' && identity.emailVerified && identity.email);
+			if ((['discord', 'both'].includes(current.mode) && !hasDiscord) || (['email', 'both'].includes(current.mode) && !hasEmail)) {
+				await users.setNotificationPreferences(req.actor.userId, {
+					mode: hasDiscord ? 'discord' : hasEmail ? 'email' : 'off',
+					locale: current.locale,
+				});
+			}
+			if (req.params.provider === 'discord') {
+				await core.oauthCredentials.remove(req.actor.userId, 'discord');
+				delete req.session.user;
+				delete req.session.discordUser;
+				req.session.allGuilds = [];
+				req.session.adminGuilds = [];
+			}
+			req.session.identity = identities[0] || null;
+			res.json({ identities });
+		}
+		catch (error) { next(error); }
 	});
 
 	api.get('/a/:code', async (req, res, next) => {
 		try {
 			const activity = await activities.getActivityByCode(req.params.code);
-			if (!activity) return res.status(404).json({ error: 'ไม่พบกิจกรรมนี้' });
+			if (!activity) return fail(res, 404, 'notFound');
 			res.json({ activity: serializeActivity(activity, req.actor, { periodId: req.query.period }) });
 		}
 		catch (error) {
@@ -571,17 +674,17 @@ function router(deps = {}) {
 	api.post('/a/:code/claim', async (req, res, next) => {
 		try {
 			const activity = await activities.getActivityByCode(req.params.code);
-			if (!activity) return res.status(404).json({ error: 'ไม่พบกิจกรรมนี้' });
+			if (!activity) return fail(res, 404, 'notFound');
 
 			const target = activity.participants.find(p => p.id === req.body?.participantId);
-			if (!target) return res.status(400).json({ error: 'ไม่พบชื่อนี้ในกิจกรรม' });
+			if (!target) return fail(res, 400, 'participant_not_in_activity');
 
 			const alreadyMine = access.matchParticipant(req.actor, activity.participants);
 			if (alreadyMine && alreadyMine.id !== target.id) {
-				return res.status(409).json({ error: `เครื่องนี้ถูกใช้เป็น "${alreadyMine.displayName}" ไปแล้ว` });
+				return fail(res, 409, 'device_already_claimed');
 			}
 			if (target.claimedAt && !access.matchParticipant(req.actor, [target])) {
-				return res.status(409).json({ error: `"${target.displayName}" ถูกเลือกไปแล้ว ถ้าเป็นคุณจริง ให้เจ้าของกิจกรรมรีเซ็ตให้` });
+				return fail(res, 409, 'participant_already_claimed');
 			}
 
 			await activities.claimParticipant(target.id, req.actor);
@@ -596,10 +699,10 @@ function router(deps = {}) {
 	api.post('/a/:code/rsvp', async (req, res, next) => {
 		try {
 			const activity = await activities.getActivityByCode(req.params.code);
-			if (!activity) return res.status(404).json({ error: 'ไม่พบกิจกรรมนี้' });
+			if (!activity) return fail(res, 404, 'notFound');
 
 			const me = access.matchParticipant(req.actor, activity.participants);
-			if (!me) return res.status(403).json({ error: 'เลือกชื่อตัวเองก่อนถึงจะตอบได้' });
+			if (!me) return fail(res, 403, 'claim_your_name_first');
 
 			await activities.setRsvp(me.id, req.body?.rsvp);
 			const full = await activities.getActivity(activity.id);
@@ -665,14 +768,16 @@ function router(deps = {}) {
 			const ctx = await payContext(req, res);
 			if (!ctx) return;
 
-			const payee = ctx.activity.payee;
-			if (!payee?.promptpayId) return fail(res, 404, 'promptpay_missing');
+			const methods = availablePaymentOptions(ctx.activity);
+			const selected = methods.find(option => option.id === req.query.method)
+				|| methods.find(option => option.type === 'promptpay');
+			if (!selected || selected.type !== 'promptpay') return fail(res, 404, 'promptpay_missing');
 
 			const requested = Number(req.query.amount);
 			const amount = Number.isInteger(requested) && requested > 0 ? requested : ctx.outstanding;
 			if (amount <= 0) return fail(res, 400, 'nothing_outstanding');
 
-			const payload = promptpay.buildPayload(payee.promptpayId, amount);
+			const payload = promptpay.buildPayload(selected.destination, amount);
 			const png = await QRCode.toBuffer(payload, {
 				type: 'png',
 				errorCorrectionLevel: 'M',
@@ -724,17 +829,32 @@ function router(deps = {}) {
 
 			const amount = allocations.reduce((sum, allocation) => sum + allocation.amountSatang, 0);
 			if (amount <= 0) return fail(res, 400, 'nothing_outstanding');
+			const methods = availablePaymentOptions(ctx.activity);
+			const requestedMethod = req.body?.paymentMethodId;
+			const selected = requestedMethod
+				? methods.find(option => option.id === requestedMethod) || null
+				: methods[0] || null;
+			if (requestedMethod && !selected) return fail(res, 400, 'payment_option_invalid');
 
 			const payment = await activities.recordPayment(ctx.activity.id, ctx.me.id, {
 				amountSatang: amount,
-				method: ctx.activity.payee?.promptpayId ? 'bank_transfer' : 'manual',
+				method: selected?.type || 'manual',
 				periodId: allocations.length === 1 ? allocations[0].periodId : null,
 				allocations,
 				// What was asked for, and where we sent them. Kept on the row so
 				// the record still explains itself after the expense is corrected
 				// or the owner changes their number.
 				expectedSatang: amount,
-				promptpayTarget: ctx.activity.payee?.promptpayId || null,
+				promptpayTarget: selected?.type === 'promptpay' ? selected.destination : null,
+				paymentDestination: selected ? {
+					id: selected.id,
+					type: selected.type,
+					label: selected.label,
+					destination: selected.destination || null,
+					accountName: selected.accountName || null,
+					url: selected.url || null,
+					instructions: selected.instructions || null,
+				} : null,
 			});
 
 			const full = await activities.getActivity(ctx.activity.id);
@@ -783,12 +903,28 @@ function router(deps = {}) {
 			});
 
 			const full = await activities.getActivity(activity.id);
-			if (deps.notifyPayment) {
+			if (participant.userId) {
+				const recorded = [...full.payments].reverse().find(item => item.participantId === participant.id && item.method === 'cash' && item.amountSatang === amountSatang);
+				await notifications.enqueue({
+					userId: participant.userId,
+					eventType: 'payment_recorded',
+					dedupeKey: `payment-recorded:${recorded?.id || `${activity.id}:${participant.id}:${amountSatang}`}`,
+					payload: {
+						activityTitle: activity.title,
+						subjectEn: `Payment recorded · ${activity.title}`,
+						subjectTh: `บันทึกรับเงินแล้ว · ${activity.title}`,
+						bodyEn: `The organizer recorded an offline payment of ${format.formatMoney(amountSatang, activity.currency)}.`,
+						bodyTh: `เจ้าของบันทึกว่าได้รับเงินนอกระบบ ${format.formatMoney(amountSatang, activity.currency)} แล้ว`,
+						ctaUrl: `${req.actor.shareOrigin}/a/${activity.code}`,
+					},
+				}).catch(() => undefined);
+			}
+			else if (deps.notifyPayment) {
 				const payerDiscordUid = await discordUidForParticipant(participant);
 				if (payerDiscordUid) {
 					await deps.notifyPayment({
 						recipients: [payerDiscordUid],
-						message: `💵 **${activity.title}** · ฿${(amountSatang / 100).toFixed(2)}\nเจ้าของบันทึกว่าได้รับเงินนอกระบบแล้ว\n${req.actor.shareOrigin}/a/${activity.code}`,
+						message: `💵 **${activity.title}** · ${format.formatMoney(amountSatang, activity.currency)}\nเจ้าของบันทึกว่าได้รับเงินนอกระบบแล้ว\n${req.actor.shareOrigin}/a/${activity.code}`,
 					}).catch(() => undefined);
 				}
 			}
@@ -854,17 +990,34 @@ function router(deps = {}) {
 				receiverName: receiver?.name ? String(receiver.name).slice(0, 160) : null,
 				senderAccountTail: sender?.accountTail || null,
 				receiverAccountTail: receiver?.accountTail || null,
-				expectedReceiverName: activity.payee?.promptpayName || null,
+				expectedReceiverName: payment.paymentDestination?.accountName || activity.payee?.promptpayName || null,
 			});
 
 			const full = await activities.getActivity(activity.id);
-			if (deps.notifyPayment) {
+			const paymentParticipant = activity.participants.find(participant => participant.id === payment.participantId);
+			if (activity.ownerUserId && paymentParticipant?.userId !== activity.ownerUserId) {
+				const amount = format.formatMoney(payment.amountSatang, activity.currency);
+				await notifications.enqueue({
+					userId: activity.ownerUserId,
+					eventType: result.autoConfirmed ? 'payment_auto_confirmed' : 'payment_submitted',
+					dedupeKey: `payment-slip:${payment.id}:${result.status}`,
+					payload: {
+						activityTitle: activity.title,
+						subjectEn: `Payment update · ${activity.title}`,
+						subjectTh: `อัปเดตการจ่ายเงิน · ${activity.title}`,
+						bodyEn: `${amount} was submitted.${result.autoConfirmed ? ' Megu matched and confirmed the slip automatically.' : ' It is waiting for your review.'}`,
+						bodyTh: `มีคนแจ้งจ่าย ${amount}${result.autoConfirmed ? ' ระบบจับคู่และลงยอดให้อัตโนมัติแล้ว' : ' กำลังรอคุณตรวจสอบ'}`,
+						ctaUrl: `${req.actor.shareOrigin}/a/${activity.code}`,
+					},
+				}).catch(() => undefined);
+			}
+			else if (deps.notifyPayment) {
 				const ownerDiscordUid = await discordUidForUser(activity.ownerUserId);
 				const payerDiscordUid = await discordUidForParticipant(
 					activity.participants.find(participant => participant.id === payment.participantId),
 				);
 				if (ownerDiscordUid && ownerDiscordUid !== payerDiscordUid) {
-					const amount = `฿${(payment.amountSatang / 100).toFixed(2)}`;
+					const amount = format.formatMoney(payment.amountSatang, activity.currency);
 					const link = `${req.actor.shareOrigin}/a/${activity.code}`;
 					const decision = result.autoConfirmed
 						? 'Megu จับคู่สลิปและลงยอดให้อัตโนมัติแล้ว หากเงินไม่เข้าจริงให้ย้อนผลในเว็บพร้อมเหตุผล'
@@ -943,14 +1096,30 @@ function router(deps = {}) {
 		}
 	});
 
+	api.put('/a/:code/payment-options', requireAccount, async (req, res, next) => {
+		try {
+			const activity = await ownerOnly(req, res);
+			if (!activity) return;
+			await activities.updateActivity(activity.id, { paymentOptions: req.body?.paymentOptions || [] });
+			const full = await activities.getActivity(activity.id);
+			res.json({ activity: serializeActivity(full, req.actor) });
+		}
+		catch (error) {
+			if (['payment_option_invalid', 'payment_link_invalid', 'payment_destination_required'].includes(error.code || error.message)) {
+				return fail(res, 400, error.code || error.message);
+			}
+			next(error);
+		}
+	});
+
 	async function ownerOnly(req, res, nextFn) {
 		const activity = await activities.getActivityByCode(req.params.code);
 		if (!activity) {
-			res.status(404).json({ error: 'ไม่พบกิจกรรมนี้' });
+			fail(res, 404, 'notFound');
 			return null;
 		}
 		if (access.activityRole(req.actor, activity) !== 'owner') {
-			res.status(403).json({ error: 'เฉพาะเจ้าของกิจกรรมเท่านั้น' });
+			fail(res, 403, 'owner_only');
 			return null;
 		}
 		if (nextFn) nextFn();
@@ -1000,7 +1169,7 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 			const target = activity.participants.find(p => p.id === req.params.participantId);
-			if (!target) return res.status(404).json({ error: 'ไม่พบคนนี้ในกิจกรรม' });
+			if (!target) return fail(res, 404, 'participant_not_in_activity');
 
 			if (req.body?.displayName) await activities.renameParticipant(target.id, req.body.displayName);
 			if (req.body?.resetClaim) await activities.resetClaim(target.id);
@@ -1020,7 +1189,7 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 			if (!activity.participants.some(p => p.id === req.params.participantId)) {
-				return res.status(404).json({ error: 'ไม่พบคนนี้ในกิจกรรม' });
+				return fail(res, 404, 'participant_not_in_activity');
 			}
 			await activities.removeParticipant(req.params.participantId);
 			const full = await activities.getActivity(activity.id);
@@ -1036,11 +1205,9 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 			const expense = activity.expenses.find(e => e.id === req.params.expenseId);
-			if (!expense) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+			if (!expense) return fail(res, 404, 'expense_not_found');
 
-			const amountSatang = req.body?.amountSatang != null
-				? Number(req.body.amountSatang)
-				: req.body?.amountBaht != null ? money.toSatang(req.body.amountBaht) : undefined;
+			const amountSatang = requestAmountMinor(req.body);
 
 			await activities.updateExpense(expense.id, {
 				label: req.body?.label,
@@ -1061,7 +1228,7 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 			const expense = activity.expenses.find(e => e.id === req.params.expenseId);
-			if (!expense) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+			if (!expense) return fail(res, 404, 'expense_not_found');
 			await activities.removeExpense(expense.id);
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: expense.periodId }) });
@@ -1076,7 +1243,7 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 			const payment = activity.payments.find(p => p.id === req.params.paymentId);
-			if (!payment) return res.status(404).json({ error: 'ไม่พบรายการจ่ายนี้' });
+			if (!payment) return fail(res, 404, 'payment_not_found');
 			await activities.removePayment(payment.id, req.actor.userId, req.body?.reason || 'owner_removed_claim');
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: payment.periodId }) });
@@ -1091,9 +1258,7 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 
-			const amountSatang = req.body?.amountSatang != null
-				? Number(req.body.amountSatang)
-				: money.toSatang(req.body?.amountBaht);
+			const amountSatang = requestAmountMinor(req.body);
 
 			const period = activity.kind === 'recurring'
 				? (activity.periods.find(p => p.id === req.body?.periodId) || activities.currentPeriod(activity))
@@ -1118,10 +1283,10 @@ function router(deps = {}) {
 	api.post('/a/:code/slots/vote', async (req, res, next) => {
 		try {
 			const activity = await activities.getActivityByCode(req.params.code);
-			if (!activity) return res.status(404).json({ error: 'ไม่พบกิจกรรมนี้' });
+			if (!activity) return fail(res, 404, 'notFound');
 
 			const me = access.matchParticipant(req.actor, activity.participants);
-			if (!me) return res.status(403).json({ error: 'เลือกชื่อตัวเองก่อนถึงจะโหวตได้' });
+			if (!me) return fail(res, 403, 'claim_your_name_first');
 
 			for (const [slotId, answer] of Object.entries(req.body?.votes || {})) {
 				if (!activity.slots.some(s => s.id === slotId)) continue;
@@ -1181,17 +1346,17 @@ function router(deps = {}) {
 			const activity = await ownerOnly(req, res);
 			if (!activity) return;
 			if (activity.kind !== 'recurring') {
-				return res.status(400).json({ error: 'กิจกรรมนี้ไม่ใช่แบบรายเดือน' });
+				return fail(res, 400, 'recurring_only');
 			}
 
 			const { period, created } = await activities.ensurePeriod(activity.id, req.body?.date ? new Date(req.body.date) : new Date());
 
-			const amountBaht = Number(req.body?.amountBaht);
-			if (created && amountBaht > 0) {
+			const amountMinor = requestAmountMinor(req.body);
+			if (created && amountMinor > 0) {
 				const payer = activity.participants.find(p => p.userId === req.actor.userId) || activity.participants[0];
 				await activities.addExpense(activity.id, {
 					label: activity.title,
-					amountSatang: money.toSatang(amountBaht),
+					amountSatang: amountMinor,
 					paidBy: payer.id,
 					periodId: period.id,
 				});
@@ -1240,7 +1405,7 @@ function router(deps = {}) {
 
 			const { paymentId, decision } = req.params;
 			if (!activity.payments.some(p => p.id === paymentId)) {
-				return res.status(404).json({ error: 'ไม่พบรายการจ่ายนี้' });
+				return fail(res, 404, 'payment_not_found');
 			}
 
 			const payment = activity.payments.find(item => item.id === paymentId);
@@ -1260,19 +1425,40 @@ function router(deps = {}) {
 				await activities.reversePayment(paymentId, req.actor.userId, reason);
 			}
 			else {
-				return res.status(400).json({ error: 'decision ต้องเป็น confirm, reject หรือ undo' });
+				return fail(res, 400, 'decision_invalid');
 			}
 
 			// Nothing to close: the money axis settles itself the moment the
 			// last outstanding row reaches zero.
 			const full = await activities.getActivity(activity.id);
 			const periodId = full.payments.find(p => p.id === paymentId)?.periodId || undefined;
-			if (deps.notifyPayment) {
+			const payer = activity.participants.find(participant => participant.id === payment.participantId);
+			if (payer?.userId) {
+				const amount = format.formatMoney(payment.amountSatang, activity.currency);
+				const bodyEn = decision === 'confirm'
+					? `The organizer confirmed your ${amount} payment.`
+					: decision === 'reject' ? `Your ${amount} payment was rejected: ${reason}` : `Your ${amount} payment confirmation was reversed: ${reason}`;
+				const bodyTh = decision === 'confirm'
+					? `เจ้าของยืนยันการจ่าย ${amount} ของคุณแล้ว`
+					: decision === 'reject' ? `การจ่าย ${amount} ของคุณถูกปฏิเสธ: ${reason}` : `ผลยืนยันการจ่าย ${amount} ถูกยกเลิก: ${reason}`;
+				await notifications.enqueue({
+					userId: payer.userId,
+					eventType: `payment_${decision}`,
+					dedupeKey: `payment-decision:${paymentId}:${decision}:${full.payments.find(p => p.id === paymentId)?.status}`,
+					payload: {
+						activityTitle: activity.title,
+						subjectEn: `Payment update · ${activity.title}`,
+						subjectTh: `อัปเดตการจ่ายเงิน · ${activity.title}`,
+						bodyEn, bodyTh, ctaUrl: `${req.actor.shareOrigin}/a/${activity.code}`,
+					},
+				}).catch(() => undefined);
+			}
+			else if (deps.notifyPayment) {
 				const payerDiscordUid = await discordUidForParticipant(
 					activity.participants.find(participant => participant.id === payment.participantId),
 				);
 				if (payerDiscordUid) {
-					const amount = `฿${(payment.amountSatang / 100).toFixed(2)}`;
+					const amount = format.formatMoney(payment.amountSatang, activity.currency);
 					const action = decision === 'confirm'
 						? 'เจ้าของยืนยันว่าได้รับเงินแล้ว'
 						: decision === 'reject' ? `การชำระถูกปฏิเสธ: ${reason}` : `ผลการชำระถูกยกเลิก: ${reason}`;
@@ -1300,7 +1486,8 @@ function router(deps = {}) {
 		}
 		// `code` is what the browser translates; `error` is the sentence it
 		// falls back to when the code is one it has no words for yet.
-		res.status(400).json({ error: err.message || 'failed', code: err.code || null });
+		const code = err.code || (/^[a-z0-9_]+$/.test(String(err.message || '')) ? err.message : null);
+		res.status(400).json({ error: err.message || 'failed', code });
 	});
 
 	return api;

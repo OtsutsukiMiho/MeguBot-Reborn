@@ -5,10 +5,10 @@ import { LangProvider } from './components/LangProvider';
 
 export const metadata = {
 	title: {
-		default: 'Megu — ผู้จัดการกิจกรรมของกลุ่มคุณ',
+		default: 'Megu — Group activity manager',
 		template: '%s · Megu',
 	},
-	description: 'Megu พาเรื่องที่พวกคุณนัดกันไว้ ตั้งแต่ "เอาไงดี" จนถึง "ทุกคนจ่ายครบ"',
+	description: 'Plan together, collect responses, split expenses, and settle up in one shared activity.',
 	applicationName: 'Megu',
 	authors: [{ name: 'Megux Corp' }],
 	creator: 'Megux Corp',
@@ -30,7 +30,7 @@ export default function RootLayout({ children }) {
 	return (
 		// The theme script stamps data-theme before React hydrates, so the
 		// server HTML and the client tree differ on <html> by design.
-		<html lang="th" suppressHydrationWarning>
+		<html lang="en" suppressHydrationWarning>
 			<head>
 				<link rel="icon" type="image/svg+xml" href="/icon.svg" />
 				<link rel="preconnect" href="https://fonts.googleapis.com" />
