@@ -43,19 +43,30 @@ const AUDIO_STATUS_OPTIONS = [
 function getAudioStatusBadgeStyle(status) {
 	switch (status) {
 	case 'PLAYING':
-		return { background: 'color-mix(in srgb, var(--gold) 15%, transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 40%, transparent)' };
+		return { background: 'color-mix(in srgb, var(--gold) var(--cat-tint), transparent)', color: 'var(--gold)', border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)' };
 	case 'COMPLETED':
-		return { background: 'color-mix(in srgb, var(--settled) 15%, transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 40%, transparent)' };
+		return { background: 'color-mix(in srgb, var(--settled) var(--cat-tint), transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 30%, transparent)' };
 	case 'ENQUEUED':
-		return { background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)' };
+		return { background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)' };
 	case 'SKIPPED':
-		return { background: 'color-mix(in srgb, var(--cat-orange) 15%, transparent)', color: 'var(--cat-orange)', border: '1px solid color-mix(in srgb, var(--cat-orange) 40%, transparent)' };
+		return { background: 'color-mix(in srgb, var(--cat-orange) var(--cat-tint), transparent)', color: 'var(--cat-orange)', border: '1px solid color-mix(in srgb, var(--cat-orange) 30%, transparent)' };
 	case 'REMOVED':
 	case 'ERROR':
-		return { background: 'color-mix(in srgb, var(--due) 15%, transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 40%, transparent)' };
+		return { background: 'color-mix(in srgb, var(--due) var(--cat-tint), transparent)', color: 'var(--due)', border: '1px solid color-mix(in srgb, var(--due) 30%, transparent)' };
 	case 'CLEARED':
 	default:
-		return { background: 'color-mix(in srgb, var(--cat-neutral) 15%, transparent)', color: 'var(--muted)', border: '1px solid color-mix(in srgb, var(--cat-neutral) 40%, transparent)' };
+		return { background: 'color-mix(in srgb, var(--cat-neutral) var(--cat-tint), transparent)', color: 'var(--muted)', border: '1px solid color-mix(in srgb, var(--cat-neutral) 30%, transparent)' };
+	}
+}
+
+function formatTimestamp(isoStr) {
+	if (!isoStr) return '-';
+	try {
+		const d = new Date(isoStr);
+		return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
+	}
+	catch {
+		return isoStr;
 	}
 }
 
@@ -478,57 +489,59 @@ export default function AudioQueueTab({ guildId, showToast }) {
 
 				{/* Audio Logs Table */}
 				{audioLogs.length === 0 ? (
-					<div style={{ background: 'var(--sunk)', borderRadius: '10px', padding: '1.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+					<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
 						No playback events found matching current criteria.
 					</div>
 				) : (
-					<div style={{ background: 'var(--sunk)', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-						<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-							<thead>
-								<tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border-color)', color: 'var(--muted)' }}>
-									<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Timestamp</th>
-									<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Speaker</th>
-									<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Status</th>
-									<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Engine / Type</th>
-									<th style={{ padding: '0.65rem 1rem', fontWeight: 600 }}>Sound / Spoken Content</th>
-								</tr>
-							</thead>
-							<tbody>
-								{paginatedAudioLogs.map((log, idx) => {
-									const statusBadge = getAudioStatusBadgeStyle(log.status);
-									const timeStr = log.created_at ? new Date(log.created_at).toLocaleTimeString() : '';
-									return (
-										<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--line)' }}>
-											<td style={{ padding: '0.65rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-												{timeStr}
-											</td>
-											<td style={{ padding: '0.65rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-												{log.user_name || 'System'}
-											</td>
-											<td style={{ padding: '0.65rem 1rem', whiteSpace: 'nowrap' }}>
-												<span style={{ ...statusBadge, padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
-													{log.status}
-												</span>
-											</td>
-											<td style={{ padding: '0.65rem 1rem', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
-												{log.engine === 'AUDIO_MP3' ? 'SOUND MP3' : log.engine === 'EDGE_TTS' ? `${log.voice?.split('-')?.[2]?.replace('Neural', '') || 'Neural'}` : 'Google Standard'}
-											</td>
-											<td style={{ padding: '0.65rem 1rem', color: 'var(--ink)', maxWidth: '350px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-												&ldquo;{log.text}&rdquo;
-												{log.error_message && (
-													<span style={{ color: 'var(--due)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
-														({log.error_message})
+					<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+						<div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+							<table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+								<thead>
+									<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+										<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '180px', whiteSpace: 'nowrap' }}>Timestamp</th>
+										<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '150px', whiteSpace: 'nowrap' }}>Speaker</th>
+										<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '130px', whiteSpace: 'nowrap' }}>Status</th>
+										<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '160px', whiteSpace: 'nowrap' }}>Engine / Type</th>
+										<th style={{ padding: '0.85rem 1rem', fontWeight: 600, minWidth: '220px' }}>Sound / Spoken Content</th>
+									</tr>
+								</thead>
+								<tbody>
+									{paginatedAudioLogs.map((log, idx) => {
+										const statusBadge = getAudioStatusBadgeStyle(log.status);
+										const timeStr = formatTimestamp(log.created_at);
+										return (
+											<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--sunk)' }}>
+												<td style={{ padding: '0.85rem 1rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+													{timeStr}
+												</td>
+												<td style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+													{log.user_name || 'System'}
+												</td>
+												<td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
+													<span style={{ ...statusBadge, padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600 }}>
+														{log.status}
 													</span>
-												)}
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
+												</td>
+												<td style={{ padding: '0.85rem 1rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
+													{log.engine === 'AUDIO_MP3' ? 'SOUND MP3' : log.engine === 'EDGE_TTS' ? `${log.voice?.split('-')?.[2]?.replace('Neural', '') || 'Neural'}` : 'Google Standard'}
+												</td>
+												<td style={{ padding: '0.85rem 1rem', color: 'var(--ink)', wordBreak: 'break-word' }}>
+													&ldquo;{log.text}&rdquo;
+													{log.error_message && (
+														<span style={{ color: 'var(--due)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+															({log.error_message})
+														</span>
+													)}
+												</td>
+											</tr>
+										);
+									})}
+								</tbody>
+							</table>
+						</div>
 
 						{/* 10-Item Pagination Bar */}
-						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 1rem', background: 'var(--surface)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
+						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--surface)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
 							<div>
 								Showing {(currentAudioPage - 1) * audioPageSize + 1} - {Math.min(currentAudioPage * audioPageSize, audioLogs.length)} of {audioLogs.length} entries
 							</div>

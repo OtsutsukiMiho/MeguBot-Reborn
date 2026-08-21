@@ -235,6 +235,51 @@ async function fetchGuildRoster(guildId, query = '') {
 	return members;
 }
 
+/**
+ * The dashboard's shape of a member list, read out of the gateway cache.
+ *
+ * discord.js already holds these — they arrived over the websocket under the
+ * GuildMembers intent and cost Discord nothing to read again. `fetchGuildRoster`
+ * above is the same answer bought with `GET /guilds/{id}/members?limit=1000`,
+ * the most expensive request this bot makes, so both roster screens now ask
+ * here first and fall back to one capped `members.fetch` only when the cache is
+ * genuinely empty — a fresh boot, or a guild large enough that the gateway did
+ * not send everyone.
+ *
+ * That leaves `fetchGuildRoster` with no callers. It is kept rather than
+ * deleted because its one-minute cache and serve-the-last-good-roster-while-
+ * blocked behaviour are the answer if the gateway cache ever proves too thin
+ * here — but nothing reaches it today, and anything that calls it again is
+ * choosing the expensive route on purpose.
+ *
+ * `query` filters in memory. A search box that goes to Discord per search is a
+ * request per keystroke on a per-guild bucket, and the answer was usually
+ * already local.
+ */
+function mapGuildMembers(guild, query = '') {
+	const needle = String(query || '').trim().toLowerCase();
+	return Array.from(guild.members.cache.values())
+		.filter((m) => {
+			if (!needle) return true;
+			const u = m.user || {};
+			return (m.displayName || '').toLowerCase().includes(needle)
+				|| (u.username || '').toLowerCase().includes(needle)
+				|| (u.globalName || '').toLowerCase().includes(needle)
+				|| m.id.includes(needle);
+		})
+		.map((m) => {
+			const u = m.user || {};
+			return {
+				id: m.id,
+				username: u.username || 'Unknown',
+				displayName: m.displayName || u.globalName || u.username || 'Unknown',
+				avatar: (u.avatarURL && u.avatarURL({ size: 64 })) || u.defaultAvatarURL || null,
+				isBot: Boolean(u.bot),
+				roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
+			};
+		});
+}
+
 // The online-ping status message. Boot-time Discord work has to be cheap enough
 // to survive a restart loop, and this used to be four calls every single boot:
 // fetch the channel, fetch ten messages, `bulkDelete` them, post a new one.
@@ -660,6 +705,9 @@ client.on(Events.ClientReady, async () => {
 	try {
 		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 		if (config.online_ping) {
+			// The same five-minute liveness stamp, with every call to Discord
+			// routed through the block guard and the interval skipping itself
+			// while blocked. See startOnlinePing.
 			startOnlinePing().catch(() => undefined);
 		}
 	}
@@ -1340,31 +1388,133 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
 	try {
 		const welcomeChannelId = await database.getGuildVar(guildId, 'welcome_channel_id');
+		const welcomeMode = (await database.getGuildVar(guildId, 'welcome_mode')) || 'text';
+		const rawWelcomeEmbed = await database.getGuildVar(guildId, 'welcome_embed');
 		const template = await database.getGuildVar(guildId, 'welcome_message_template');
-		if (welcomeChannelId && template) {
-			const channel = member.guild.channels.cache.get(welcomeChannelId);
-			if (channel) {
-				const formattedMessage = template
-					.replace(/{member}/g, `<@${member.id}>`)
-					.replace(/{server}/g, member.guild.name);
 
-				await channel.send(formattedMessage);
-				BotLogs(member.guild.name, `${COLOR.green}Welcome message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user.tag}`);
+		if (welcomeChannelId) {
+			const channel = member.guild.channels.cache.get(welcomeChannelId);
+			if (channel && channel.isTextBased()) {
+				if (welcomeMode === 'embed' && rawWelcomeEmbed) {
+					try {
+						const embedConfig = typeof rawWelcomeEmbed === 'string' ? JSON.parse(rawWelcomeEmbed) : rawWelcomeEmbed;
+						const embed = buildWelcomeLeaveEmbed(embedConfig, member, member.guild);
+						if (embed) {
+							await channel.send({ embeds: [embed] });
+							BotLogs(member.guild.name, `${COLOR.green}Welcome embed sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+						}
+					} catch (e) {
+						BotLogs(member.guild.name, `${COLOR.red}Error parsing welcome embed config: ${e.message}`);
+					}
+				} else if (template) {
+					const formattedMessage = renderMemberTemplate(template, member, member.guild);
+					await channel.send(formattedMessage);
+					BotLogs(member.guild.name, `${COLOR.green}Welcome message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+				}
 			}
 		}
 	}
 	catch (error) {
-		BotLogs(member.guild.name, `${COLOR.red}Error executing welcome message for ${member.user.tag}: ${error.toString()}`);
+		BotLogs(member.guild.name, `${COLOR.red}Error executing welcome message for ${member.user ? member.user.tag : member.id}: ${error.toString()}`);
 	}
 });
+
+function renderMemberTemplate(str, member, guild) {
+	if (!str || typeof str !== 'string') return '';
+	const user = member?.user || {};
+	const username = user.username || member?.id || 'Unknown';
+	const displayName = member?.displayName || user.globalName || user.username || username;
+	const nickname = member?.nickname || displayName;
+	const avatarUrl = (typeof user.displayAvatarURL === 'function' ? user.displayAvatarURL({ size: 256 }) : '') || '';
+
+	return str
+		.replace(/\{member\}/g, `<@${member.id}>`)
+		.replace(/\{user\}/g, `<@${member.id}>`)
+		.replace(/\{username\}/g, username)
+		.replace(/\{displayname\}/g, displayName)
+		.replace(/\{displayName\}/g, displayName)
+		.replace(/\{nickname\}/g, nickname)
+		.replace(/\{server\}/g, guild?.name || '')
+		.replace(/\{servername\}/g, guild?.name || '')
+		.replace(/\{membercount\}/g, String(guild?.memberCount || ''))
+		.replace(/\{avatar\}/g, avatarUrl)
+		.replace(/\{avatarUrl\}/g, avatarUrl);
+}
+
+function buildWelcomeLeaveEmbed(embedConfig, member, guild) {
+	if (!embedConfig || typeof embedConfig !== 'object') return null;
+	const embed = new EmbedBuilder();
+	let hasContent = false;
+
+	if (embedConfig.title) {
+		embed.setTitle(renderMemberTemplate(embedConfig.title, member, guild));
+		hasContent = true;
+	}
+	if (embedConfig.titleUrl || embedConfig.url) {
+		embed.setURL(renderMemberTemplate(embedConfig.titleUrl || embedConfig.url, member, guild));
+	}
+	if (embedConfig.description) {
+		embed.setDescription(renderMemberTemplate(embedConfig.description, member, guild));
+		hasContent = true;
+	}
+	if (embedConfig.color) {
+		embed.setColor(embedConfig.color);
+	}
+	if (embedConfig.thumbnailUrl) {
+		const thumb = renderMemberTemplate(embedConfig.thumbnailUrl, member, guild);
+		if (thumb.startsWith('http://') || thumb.startsWith('https://')) {
+			embed.setThumbnail(thumb);
+			hasContent = true;
+		}
+	}
+	if (embedConfig.imageUrl) {
+		const img = renderMemberTemplate(embedConfig.imageUrl, member, guild);
+		if (img.startsWith('http://') || img.startsWith('https://')) {
+			embed.setImage(img);
+			hasContent = true;
+		}
+	}
+	if (embedConfig.authorName) {
+		embed.setAuthor({
+			name: renderMemberTemplate(embedConfig.authorName, member, guild),
+			iconURL: embedConfig.authorIconUrl ? renderMemberTemplate(embedConfig.authorIconUrl, member, guild) : undefined,
+			url: embedConfig.authorUrl ? renderMemberTemplate(embedConfig.authorUrl, member, guild) : undefined,
+		});
+		hasContent = true;
+	}
+	if (embedConfig.footerText) {
+		embed.setFooter({
+			text: renderMemberTemplate(embedConfig.footerText, member, guild),
+			iconURL: embedConfig.footerIconUrl ? renderMemberTemplate(embedConfig.footerIconUrl, member, guild) : undefined,
+		});
+		hasContent = true;
+	}
+	if (embedConfig.includeTimestamp || embedConfig.timestamp) {
+		embed.setTimestamp();
+	}
+	if (Array.isArray(embedConfig.fields) && embedConfig.fields.length > 0) {
+		const fields = embedConfig.fields
+			.filter(f => f && (f.name || f.value))
+			.map(f => ({
+				name: renderMemberTemplate(f.name || '\u200b', member, guild),
+				value: renderMemberTemplate(f.value || '\u200b', member, guild),
+				inline: !!f.inline,
+			}));
+		if (fields.length > 0) {
+			embed.addFields(fields);
+			hasContent = true;
+		}
+	}
+
+	return hasContent ? embed : null;
+}
 
 client.on(Events.GuildMemberRemove, async (member) => {
 	const guildId = member.guild.id;
 
 	try {
-		// Check if user was kicked by a moderator
-		const kickLogs = await member.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick }).catch(() => null);
-		const entry = kickLogs?.entries?.first();
+		// Check if user was kicked by a moderator (rate-limited and permission-checked)
+		const entry = await fetchAuditLogSafe(member.guild, AuditLogEvent.MemberKick, 4000);
 		if (entry && entry.targetId === member.id && Date.now() - entry.createdTimestamp < 4000) {
 			const actor = entry.executor ? entry.executor.username : 'Moderator';
 			const actorId = entry.executor ? entry.executor.id : null;
@@ -1375,18 +1525,29 @@ client.on(Events.GuildMemberRemove, async (member) => {
 		}
 
 		const leaveChannelId = await database.getGuildVar(guildId, 'leave_channel_id');
+		const leaveMode = (await database.getGuildVar(guildId, 'leave_mode')) || 'text';
+		const rawLeaveEmbed = await database.getGuildVar(guildId, 'leave_embed');
 		const template = await database.getGuildVar(guildId, 'leave_message_template');
-		if (leaveChannelId && template) {
-			const channel = member.guild.channels.cache.get(leaveChannelId);
-			if (channel) {
-				const username = member.user ? member.user.username : member.id;
-				const formattedMessage = template
-					.replace(/{member}/g, `<@${member.id}>`)
-					.replace(/{username}/g, username)
-					.replace(/{server}/g, member.guild.name);
 
-				await channel.send(formattedMessage);
-				BotLogs(member.guild.name, `${COLOR.green}Leave message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+		if (leaveChannelId) {
+			const channel = member.guild.channels.cache.get(leaveChannelId);
+			if (channel && channel.isTextBased()) {
+				if (leaveMode === 'embed' && rawLeaveEmbed) {
+					try {
+						const embedConfig = typeof rawLeaveEmbed === 'string' ? JSON.parse(rawLeaveEmbed) : rawLeaveEmbed;
+						const embed = buildWelcomeLeaveEmbed(embedConfig, member, member.guild);
+						if (embed) {
+							await channel.send({ embeds: [embed] });
+							BotLogs(member.guild.name, `${COLOR.green}Leave embed sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+						}
+					} catch (e) {
+						BotLogs(member.guild.name, `${COLOR.red}Error parsing leave embed config: ${e.message}`);
+					}
+				} else if (template) {
+					const formattedMessage = renderMemberTemplate(template, member, member.guild);
+					await channel.send(formattedMessage);
+					BotLogs(member.guild.name, `${COLOR.green}Leave message sent to channel ${COLOR.white}#${channel.name}${COLOR.green} for user ${COLOR.white}${member.user ? member.user.tag : member.id}`);
+				}
 			}
 		}
 	}
@@ -1398,6 +1559,52 @@ client.on(Events.GuildMemberRemove, async (member) => {
 // =========================================================================
 // --- DISCORD NATIVE AUDIT & MODERATION LOGGING SUITE ---
 // =========================================================================
+
+const auditLogCooldownMap = new Map();
+
+/**
+ * Who did this, asked as rarely as possible and never while we are blocked.
+ *
+ * Nearly every moderation event wants the same answer, and a busy server fires
+ * several of them at once — a ban is a MemberBanAdd and a GuildMemberRemove,
+ * a purge is one MessageBulkDelete behind however many MessageDeletes. Asking
+ * per event turned one moderator action into a burst on a per-guild bucket.
+ *
+ * Three things keep that down, in the order that costs least:
+ *
+ *   1. No ViewAuditLog permission means the request would 403. Do not send it.
+ *   2. A 3.5s window per (guild, type) answers the burst from one reply. The
+ *      cached entry is only handed back if it is still inside the caller's
+ *      `maxAgeMs`, so a stale actor is never attributed to a new event.
+ *   3. `discordCall` skips the call outright while blocked and hands failures
+ *      to the guard.
+ *
+ * That last one is why the fetch is not written `.catch(() => null)`. A
+ * swallowed failure is a missing guard: it reads as "no audit entry, carry on"
+ * and the next event asks again, which is how a block gets extended rather
+ * than noticed. Discarding the *result* is fine; discarding the *refusal* is
+ * what DISCORD-RATE-LIMITS.md rule 3 is about.
+ */
+async function fetchAuditLogSafe(guild, type, maxAgeMs = 5000) {
+	if (!guild) return null;
+	const botMember = guild.members.me;
+	if (!botMember || !botMember.permissions.has(PermissionFlagsBits.ViewAuditLog)) {
+		return null;
+	}
+	const key = `${guild.id}:${type}`;
+	const now = Date.now();
+	const last = auditLogCooldownMap.get(key);
+	if (last && (now - last.timestamp < 3500)) {
+		return (last.entry && (now - (last.entry.createdTimestamp || last.timestamp) < maxAgeMs)) ? last.entry : null;
+	}
+
+	const auditLogs = await guardedAuditLogs(guild, { limit: 1, type });
+	const entry = auditLogs?.entries?.first() || null;
+	// Only remember a real answer. Caching the null a block produced would keep
+	// answering "nobody did this" for 3.5 seconds after the block clears.
+	if (auditLogs) auditLogCooldownMap.set(key, { timestamp: now, entry });
+	return entry;
+}
 
 // 1. Message Deleted
 client.on(Events.MessageDelete, async (message) => {
@@ -1416,8 +1623,7 @@ client.on(Events.MessageDelete, async (message) => {
 		let executorName = authorTag;
 		let executorId = authorId;
 
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.MessageDelete });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MessageDelete, 3500);
 		if (entry && entry.targetId === authorId && Date.now() - entry.createdTimestamp < 3500) {
 			executorName = entry.executor ? entry.executor.username : 'Moderator';
 			executorId = entry.executor ? entry.executor.id : null;
@@ -1438,8 +1644,7 @@ client.on(Events.MessageBulkDelete, async (messages, channel) => {
 	if (!channel.guild) return;
 	try {
 		const guild = channel.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.MessageBulkDelete });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MessageBulkDelete, 4000);
 		const actor = entry?.executor?.username || 'Moderator';
 		const actorId = entry?.executor?.id || null;
 
@@ -1504,8 +1709,7 @@ client.on(Events.InviteDelete, async (invite) => {
 client.on(Events.GuildBanAdd, async (ban) => {
 	try {
 		const guild = ban.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.MemberBanAdd });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberBanAdd, 4000);
 		const actor = (entry && entry.targetId === ban.user.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Moderator'
 			: 'Moderator';
@@ -1529,8 +1733,7 @@ client.on(Events.GuildBanAdd, async (ban) => {
 client.on(Events.GuildBanRemove, async (ban) => {
 	try {
 		const guild = ban.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.MemberBanRemove });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberBanRemove, 4000);
 		const actor = (entry && entry.targetId === ban.user.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Moderator'
 			: 'Moderator';
@@ -1556,8 +1759,7 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 
 		// A. Timeout Added
 		if (!oldMember.isCommunicationDisabled() && newMember.isCommunicationDisabled()) {
-			const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.MemberUpdate });
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberUpdate, 4000);
 			const actor = (entry && entry.targetId === newMember.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Moderator'
 				: 'Moderator';
@@ -1610,8 +1812,7 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 			if (addedRoles.size > 0) diffParts.push(`+Added: ${addedRoles.map(r => '@' + r.name).join(', ')}`);
 			if (removedRoles.size > 0) diffParts.push(`-Removed: ${removedRoles.map(r => '@' + r.name).join(', ')}`);
 
-			const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.MemberRoleUpdate });
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MemberRoleUpdate, 4000);
 			const actor = (entry && entry.targetId === newMember.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Administrator'
 				: 'Administrator';
@@ -1636,8 +1837,7 @@ client.on(Events.ChannelCreate, async (channel) => {
 	if (!channel.guild) return;
 	try {
 		const guild = channel.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.ChannelCreate });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.ChannelCreate, 4000);
 		const actor = (entry && entry.targetId === channel.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1662,8 +1862,7 @@ client.on(Events.ChannelDelete, async (channel) => {
 	if (!channel.guild) return;
 	try {
 		const guild = channel.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.ChannelDelete });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.ChannelDelete, 4000);
 		const actor = (entry && entry.targetId === channel.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1699,8 +1898,7 @@ client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
 		}
 
 		if (changes.length > 0) {
-			const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.ChannelUpdate });
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.ChannelUpdate, 4000);
 			const actor = (entry && entry.targetId === newChannel.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Administrator'
 				: 'Administrator';
@@ -1724,8 +1922,7 @@ client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
 client.on(Events.GuildRoleCreate, async (role) => {
 	try {
 		const guild = role.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.RoleCreate });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.RoleCreate, 4000);
 		const actor = (entry && entry.targetId === role.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1748,8 +1945,7 @@ client.on(Events.GuildRoleCreate, async (role) => {
 client.on(Events.GuildRoleDelete, async (role) => {
 	try {
 		const guild = role.guild;
-		const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.RoleDelete });
-		const entry = auditLogs?.entries?.first();
+		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.RoleDelete, 4000);
 		const actor = (entry && entry.targetId === role.id && Date.now() - entry.createdTimestamp < 4000)
 			? entry.executor?.username || 'Administrator'
 			: 'Administrator';
@@ -1787,8 +1983,7 @@ client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
 		}
 
 		if (changes.length > 0) {
-			const auditLogs = await guardedAuditLogs(guild, { limit: 1, type: AuditLogEvent.RoleUpdate });
-			const entry = auditLogs?.entries?.first();
+			const entry = await fetchAuditLogSafe(guild, AuditLogEvent.RoleUpdate, 4000);
 			const actor = (entry && entry.targetId === newRole.id && Date.now() - entry.createdTimestamp < 4000)
 				? entry.executor?.username || 'Administrator'
 				: 'Administrator';
@@ -1811,145 +2006,137 @@ client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
 
 
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
-	if (reaction.partial) {
-		try {
-			await reaction.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction partial: ${error.toString()}`);
-			return;
-		}
-	}
+	if (user.bot) return;
+	const guildId = reaction.message.guildId || reaction.message.guild?.id;
+	if (!guildId) return;
 
-	if (reaction.message && reaction.message.partial) {
-		try {
-			await reaction.message.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction message partial: ${error.toString()}`);
-			return;
-		}
-	}
-
-	if (user.bot || !reaction.message || !reaction.message.guild) return;
-
-	const guildId = reaction.message.guild.id;
 	const messageId = reaction.message.id;
 	const emojiKey = reaction.emoji.id || reaction.emoji.name;
 
 	try {
+		// 1. Fast check: Only query Discord REST if this message actually has reaction roles
 		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
 		const mappings = parseReactionRolesMap(rawMap);
 		const messageMappings = mappings[messageId];
-		if (messageMappings && messageMappings[emojiKey]) {
-			const mapEntry = messageMappings[emojiKey];
-			if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
-				return; // Ignore disabled reaction role mapping
-			}
-			const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
+		if (!messageMappings || !messageMappings[emojiKey]) return;
 
-			const guild = reaction.message.guild;
-			const role = guild.roles.cache.get(roleId);
-			if (role) {
-				const member = await discordCall('fetching a reaction member', () => guild.members.fetch(user.id));
-				if (member) {
-					const botMember = guild.members.me;
-					if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
-						await member.roles.add(role);
-						BotLogs(guild.name, `${COLOR.green}Reaction role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${user.tag} for emoji ${COLOR.white}${reaction.emoji.name}`);
-						
-						database.logAuditEvent(
-							guildId,
-							'REACTION_ROLE',
-							user.id,
-							user.tag || user.username,
-							`Added role @${role.name} via reaction ${reaction.emoji.name}`,
-							guild.name
-						).catch(() => undefined);
-					}
-					else {
-						BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to assign reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
-					}
+		const mapEntry = messageMappings[emojiKey];
+		if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
+			return; // Ignore disabled reaction role mapping
+		}
+		const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
+
+		// 2. Fetch partials only when confirmed valid
+		if (reaction.partial) {
+			await discordCall('resolving a partial reaction', () => reaction.fetch(), null);
+		}
+		if (reaction.message && reaction.message.partial) {
+			await discordCall('resolving a partial reaction message', () => reaction.message.fetch(), null);
+		}
+
+		const guild = reaction.message.guild || client.guilds.cache.get(guildId);
+		if (!guild) return;
+
+		const role = guild.roles.cache.get(roleId);
+		if (role) {
+			// Cache first, because a member already on the gateway costs nothing.
+			// The fetch behind it is a real request, so it goes through the guard
+			// rather than a .catch that would hide a refusal from it.
+			const member = guild.members.cache.get(user.id)
+				|| await discordCall('fetching a reaction member', () => guild.members.fetch(user.id), null);
+			if (member) {
+				const botMember = guild.members.me;
+				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+					await member.roles.add(role);
+					BotLogs(guild.name, `${COLOR.green}Reaction role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${user.tag || user.username} for emoji ${COLOR.white}${reaction.emoji.name}`);
+					
+					database.logAuditEvent(
+						guildId,
+						'REACTION_ROLE',
+						user.id,
+						user.tag || user.username,
+						`Added role @${role.name} via reaction ${reaction.emoji.name}`,
+						guild.name
+					).catch(() => undefined);
+				}
+				else {
+					BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to assign reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
 				}
 			}
 		}
 	}
 	catch (error) {
-		BotLogs(reaction.message.guild.name, `${COLOR.red}Error assigning reaction role: ${error.toString()}`);
+		BotLogs('SYSTEM', `Error assigning reaction role: ${error.toString()}`);
 	}
 });
 
 client.on(Events.MessageReactionRemove, async (reaction, user) => {
-	if (reaction.partial) {
-		try {
-			await reaction.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction partial: ${error.toString()}`);
-			return;
-		}
-	}
+	if (user.bot) return;
+	const guildId = reaction.message.guildId || reaction.message.guild?.id;
+	if (!guildId) return;
 
-	if (reaction.message && reaction.message.partial) {
-		try {
-			await reaction.message.fetch();
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Failed to fetch reaction message partial: ${error.toString()}`);
-			return;
-		}
-	}
-
-	if (user.bot || !reaction.message || !reaction.message.guild) return;
-
-	const guildId = reaction.message.guild.id;
 	const messageId = reaction.message.id;
 	const emojiKey = reaction.emoji.id || reaction.emoji.name;
 
 	try {
+		// 1. Fast check: Only query Discord REST if this message actually has reaction roles
 		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
 		const mappings = parseReactionRolesMap(rawMap);
 		const messageMappings = mappings[messageId];
-		if (messageMappings && messageMappings[emojiKey]) {
-			const mapEntry = messageMappings[emojiKey];
-			if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
-				return; // Ignore disabled reaction role mapping
-			}
-			const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
-			const mode = typeof mapEntry === 'object' ? (mapEntry.mode || 'toggle') : 'toggle';
+		if (!messageMappings || !messageMappings[emojiKey]) return;
 
-			if (mode === 'give_only') {
-				return; // Give-only mode preserves role when reaction is removed
-			}
+		const mapEntry = messageMappings[emojiKey];
+		if (typeof mapEntry === 'object' && mapEntry.enabled === false) {
+			return; // Ignore disabled reaction role mapping
+		}
+		const roleId = typeof mapEntry === 'object' ? mapEntry.roleId : mapEntry;
+		const mode = typeof mapEntry === 'object' ? (mapEntry.mode || 'toggle') : 'toggle';
 
-			const guild = reaction.message.guild;
-			const role = guild.roles.cache.get(roleId);
-			if (role) {
-				const member = await discordCall('fetching a reaction member', () => guild.members.fetch(user.id));
-				if (member) {
-					const botMember = guild.members.me;
-					if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
-						await member.roles.remove(role);
-						BotLogs(guild.name, `${COLOR.green}Reaction role removed: took ${COLOR.white}${role.name}${COLOR.green} from user ${COLOR.white}${user.tag} for emoji ${COLOR.white}${reaction.emoji.name}`);
-						
-						database.logAuditEvent(
-							guildId,
-							'REACTION_ROLE',
-							user.id,
-							user.tag || user.username,
-							`Removed role @${role.name} via reaction remove ${reaction.emoji.name}`,
-							guild.name
-						).catch(() => undefined);
-					}
-					else {
-						BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to remove reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
-					}
+		if (mode === 'give_only') {
+			return; // Give-only mode preserves role when reaction is removed
+		}
+
+		// 2. Fetch partials only when confirmed valid
+		if (reaction.partial) {
+			await discordCall('resolving a partial reaction', () => reaction.fetch(), null);
+		}
+		if (reaction.message && reaction.message.partial) {
+			await discordCall('resolving a partial reaction message', () => reaction.message.fetch(), null);
+		}
+
+		const guild = reaction.message.guild || client.guilds.cache.get(guildId);
+		if (!guild) return;
+
+		const role = guild.roles.cache.get(roleId);
+		if (role) {
+			// Cache first, because a member already on the gateway costs nothing.
+			// The fetch behind it is a real request, so it goes through the guard
+			// rather than a .catch that would hide a refusal from it.
+			const member = guild.members.cache.get(user.id)
+				|| await discordCall('fetching a reaction member', () => guild.members.fetch(user.id), null);
+			if (member) {
+				const botMember = guild.members.me;
+				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
+					await member.roles.remove(role);
+					BotLogs(guild.name, `${COLOR.green}Reaction role removed: took ${COLOR.white}${role.name}${COLOR.green} from user ${COLOR.white}${user.tag || user.username} for emoji ${COLOR.white}${reaction.emoji.name}`);
+					
+					database.logAuditEvent(
+						guildId,
+						'REACTION_ROLE',
+						user.id,
+						user.tag || user.username,
+						`Removed role @${role.name} via reaction remove ${reaction.emoji.name}`,
+						guild.name
+					).catch(() => undefined);
+				}
+				else {
+					BotLogs(guild.name, `${COLOR.yellow}Warning: Failed to remove reaction role ${COLOR.white}${role.name}${COLOR.yellow} (missing permissions)`);
 				}
 			}
 		}
 	}
 	catch (error) {
-		BotLogs(reaction.message.guild.name, `${COLOR.red}Error removing reaction role: ${error.toString()}`);
+		BotLogs('SYSTEM', `Error removing reaction role: ${error.toString()}`);
 	}
 });
 
@@ -2019,24 +2206,23 @@ process.on('message', async (msg) => {
 			return;
 		}
 
-		// Cached for a minute, and never fetched at all while Discord is
-		// refusing us — see fetchGuildRoster.
-		let members = (await fetchGuildRoster(msg.guildId)) || [];
+		// The gateway cache first, because it is already in memory and costs
+		// Discord nothing. `GET /guilds/{id}/members?limit=1000` is the most
+		// expensive thing this bot asks for, and this screen used to ask for it
+		// on every page load.
+		let members = mapGuildMembers(guild);
 
-		// Fallback to in-memory cache if REST is unavailable
+		// Only an empty cache — a fresh boot, before the gateway has filled it —
+		// is worth a request, and even then a capped one. It goes through the
+		// guard, so while Discord is refusing us this returns nothing and the
+		// dashboard renders an empty roster instead of holding the block open.
 		if (members.length === 0) {
-			members = Array.from(guild.members.cache.values()).map(m => {
-				const u = m.user || {};
-				const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
-				return {
-					id: m.id,
-					username: u.username || 'Unknown',
-					displayName: m.displayName || u.globalName || u.username || 'Unknown',
-					avatar: avatarUrl,
-					isBot: !!u.bot,
-					roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-				};
-			});
+			await discordCall(
+				'filling the member cache for the dashboard',
+				() => guild.members.fetch({ limit: 100, time: 3000 }),
+				null,
+			);
+			members = mapGuildMembers(guild);
 		}
 
 		members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
@@ -2260,32 +2446,24 @@ process.on('message', async (msg) => {
 			}
 
 			const queryText = (msg.query || '').trim();
-			let members = [];
 
-			// 1. Fetch via direct Discord REST API, cached for a minute
-			members = (await fetchGuildRoster(msg.guildId, queryText)) || [];
+			// Search what is already in memory first. Typing in the Member
+			// Manager search box used to mean a request per keystroke-ish
+			// refresh, on one of the tightest per-guild buckets there is.
+			let members = mapGuildMembers(guild, queryText);
 
-			// 2. Fallback to Discord.js guild cache if REST returned empty.
-			//    The gateway fetch below is a second way of asking Discord the
-			//    same expensive question, so it is skipped while blocked — what
-			//    is already in cache is served instead.
+			// Nothing matched in cache. One capped request, through the guard —
+			// so a search performed while Discord is refusing us returns empty
+			// rather than becoming more traffic against a live block.
 			if (members.length === 0) {
-				if (!discordBlock.blocked()) {
-					await discordCall('listing server members over the gateway', () => (queryText
-						? guild.members.fetch({ query: queryText, limit: 100, time: 3000 })
-						: guild.members.fetch({ limit: 1000, time: 3000 })
-					));
-				}
-
-				members = Array.from(guild.members.cache.values())
-					.map(m => ({
-						id: m.id,
-						username: m.user.username,
-						displayName: m.displayName || m.user.globalName || m.user.username,
-						avatar: m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL,
-						isBot: m.user.bot,
-						roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-					}));
+				await discordCall(
+					'searching server members over the gateway',
+					() => (queryText
+						? guild.members.fetch({ query: queryText, limit: 50, time: 3000 })
+						: guild.members.fetch({ limit: 100, time: 3000 })),
+					null,
+				);
+				members = mapGuildMembers(guild, queryText);
 			}
 
 			members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
@@ -2427,15 +2605,42 @@ process.on('message', async (msg) => {
 			const embed = new EmbedBuilder();
 
 			if (embedData.title) embed.setTitle(embedData.title);
+			if (embedData.titleUrl || embedData.url) embed.setURL(embedData.titleUrl || embedData.url);
 			if (embedData.description) embed.setDescription(embedData.description);
 			if (embedData.color) embed.setColor(embedData.color);
 			if (embedData.imageUrl) embed.setImage(embedData.imageUrl);
 			if (embedData.thumbnailUrl) embed.setThumbnail(embedData.thumbnailUrl);
-			if (embedData.footerText) embed.setFooter({ text: embedData.footerText });
-			if (embedData.authorName) embed.setAuthor({ name: embedData.authorName });
+			if (embedData.footerText) {
+				embed.setFooter({
+					text: embedData.footerText,
+					iconURL: embedData.footerIconUrl || undefined,
+				});
+			}
+			if (embedData.authorName) {
+				embed.setAuthor({
+					name: embedData.authorName,
+					iconURL: embedData.authorIconUrl || undefined,
+					url: embedData.authorUrl || undefined,
+				});
+			}
+			if (embedData.includeTimestamp || embedData.timestamp) {
+				embed.setTimestamp();
+			}
+			if (Array.isArray(embedData.fields) && embedData.fields.length > 0) {
+				const validFields = embedData.fields
+					.filter(f => f && f.name && f.value)
+					.map(f => ({
+						name: String(f.name).slice(0, 256),
+						value: String(f.value).slice(0, 1024),
+						inline: !!f.inline,
+					}));
+				if (validFields.length > 0) {
+					embed.addFields(validFields);
+				}
+			}
 
 			await channel.send({ embeds: [embed] });
-			BotLogs(guild.name, `${COLOR.green}Sent custom embed to channel #${channel.name} via Web Dashboard.`);
+			BotLogs(guild.name, `${COLOR.green}Sent rich custom embed to channel #${channel.name} via Web Dashboard.`);
 
 			if (process.send) process.send({ target: 'web', type: 'send_embed_response', reqId: msg.reqId, success: true });
 		}

@@ -67,6 +67,8 @@ export default function AuditLogsTab({ guildId }) {
 	const [loading, setLoading] = useState(true);
 	const [filter, setFilter] = useState('ALL');
 	const [search, setSearch] = useState('');
+	const [page, setPage] = useState(1);
+	const pageSize = 10;
 
 	const fetchLogs = () => {
 		setLoading(true);
@@ -85,6 +87,11 @@ export default function AuditLogsTab({ guildId }) {
 		fetchLogs();
 	}, [guildId, filter]);
 
+	// Reset page to 1 when filter or search changes
+	useEffect(() => {
+		setPage(1);
+	}, [filter, search]);
+
 	const filteredLogs = useMemo(() => {
 		return logs.filter(l => {
 			if (!search) return true;
@@ -95,6 +102,13 @@ export default function AuditLogsTab({ guildId }) {
 			return u.includes(query) || d.includes(query) || t.includes(query);
 		});
 	}, [logs, search]);
+
+	const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+	const currentPage = Math.min(page, totalPages);
+	const paginatedLogs = useMemo(() => {
+		const start = (currentPage - 1) * pageSize;
+		return filteredLogs.slice(start, start + pageSize);
+	}, [filteredLogs, currentPage, pageSize]);
 
 	return (
 		<div>
@@ -163,40 +177,70 @@ export default function AuditLogsTab({ guildId }) {
 				</div>
 			) : (
 				<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
-					<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-						<thead>
-							<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
-								<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '170px' }}>Timestamp</th>
-								<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '160px' }}>Actor</th>
-								<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '150px' }}>Event Category</th>
-								<th style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>Action Details</th>
-							</tr>
-						</thead>
-						<tbody>
-							{filteredLogs.map((log, idx) => {
-								const evtType = log.event_type || log.action_type || 'GENERAL';
-								const badgeStyle = getBadgeStyle(evtType);
-								return (
-									<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--sunk)' }}>
-										<td style={{ padding: '0.85rem 1rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
-											{formatDate(log.created_at)}
-										</td>
-										<td style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-											{log.username || log.user_name || 'System'}
-										</td>
-										<td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
-											<span style={{ ...badgeStyle, padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600 }}>
-												{evtType}
-											</span>
-										</td>
-										<td style={{ padding: '0.85rem 1rem', color: 'var(--ink)', wordBreak: 'break-word' }}>
-											{log.details || '-'}
-										</td>
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
+					<div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+						<table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+							<thead>
+								<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+									<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '180px', whiteSpace: 'nowrap' }}>Timestamp</th>
+									<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '160px', whiteSpace: 'nowrap' }}>Actor</th>
+									<th style={{ padding: '0.85rem 1rem', fontWeight: 600, width: '150px', whiteSpace: 'nowrap' }}>Event Category</th>
+									<th style={{ padding: '0.85rem 1rem', fontWeight: 600, minWidth: '220px' }}>Action Details</th>
+								</tr>
+							</thead>
+							<tbody>
+								{paginatedLogs.map((log, idx) => {
+									const evtType = log.event_type || log.action_type || 'GENERAL';
+									const badgeStyle = getBadgeStyle(evtType);
+									return (
+										<tr key={log.id || idx} style={{ borderBottom: '1px solid var(--sunk)' }}>
+											<td style={{ padding: '0.85rem 1rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+												{formatDate(log.created_at)}
+											</td>
+											<td style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+												{log.username || log.user_name || 'System'}
+											</td>
+											<td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
+												<span style={{ ...badgeStyle, padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600 }}>
+													{evtType}
+												</span>
+											</td>
+											<td style={{ padding: '0.85rem 1rem', color: 'var(--ink)', wordBreak: 'break-word' }}>
+												{log.details || '-'}
+											</td>
+										</tr>
+									);
+								})}
+							</tbody>
+						</table>
+					</div>
+
+					{/* 10-Item Pagination Bar */}
+					<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--surface)', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '0.5rem' }}>
+						<div>
+							Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredLogs.length)} of {filteredLogs.length} entries
+						</div>
+						<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+							<button
+								onClick={() => setPage(p => Math.max(1, p - 1))}
+								disabled={currentPage <= 1}
+								className="btn btn-secondary btn-sm"
+								style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+							>
+								Previous
+							</button>
+							<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
+								Page {currentPage} of {totalPages}
+							</span>
+							<button
+								onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+								disabled={currentPage >= totalPages}
+								className="btn btn-secondary btn-sm"
+								style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+							>
+								Next
+							</button>
+						</div>
+					</div>
 				</div>
 			)}
 		</div>
