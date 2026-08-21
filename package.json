@@ -24,6 +24,7 @@
     "db:seed:discord-payment": "node scripts/seed-discord-payment-test.js",
     "db:restore:discord-payment": "node scripts/restore-discord-payment-test.js",
     "db:audit": "node scripts/db-audit.js",
+    "merge:demo": "node scripts/merge-demo.js",
     "contrast": "node scripts/contrast-audit.js",
     "bot:instances": "node scripts/instance-audit.js"
   },

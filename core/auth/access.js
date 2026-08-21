@@ -55,14 +55,60 @@ function activityRole(actor, activity) {
 	return me ? 'participant' : 'none';
 }
 
-function matchParticipant(actor, participants) {
-	if (!actor) return null;
-	return participants.find(p => {
+/**
+ * Every roster row that belongs to this caller, not just the first.
+ *
+ * One person can legitimately hold two rows in one activity, and only since
+ * account merging can they hold both knowingly: merging two Megu accounts
+ * repoints both sets of `participants.user_id` at the survivor and leaves the
+ * rows themselves alone, because combining them would mean adding their
+ * `shares` together and rewriting a settled ledger.
+ *
+ * `matchParticipant` below still answers "am I on this roster", which is all a
+ * permission check needs — both rows give the same role. Anything that names a
+ * specific row instead, especially anything touching money, has to ask here or
+ * it will silently pick whichever row sorts first and deny the person access to
+ * their own other payment.
+ */
+function matchParticipants(actor, participants) {
+	if (!actor) return [];
+	return (participants || []).filter(p => {
 		if (actor.userId && p.userId && p.userId === actor.userId) return true;
 		if (actor.discordUid && p.discordUid && p.discordUid === actor.discordUid) return true;
 		if (actor.deviceToken && p.deviceToken && p.deviceToken === actor.deviceToken) return true;
 		return false;
-	}) || null;
+	});
+}
+
+function matchParticipant(actor, participants) {
+	return matchParticipants(actor, participants)[0] || null;
+}
+
+/**
+ * Which of the caller's rows a money action applies to.
+ *
+ * With one row this is that row. With several it is the one carrying a debt,
+ * because that is the only one anybody is trying to act on — and when more than
+ * one does, it returns nothing rather than guessing, so the caller can ask.
+ */
+function selectParticipant(actor, participants, { participantId = null, outstandingFor = null } = {}) {
+	const mine = matchParticipants(actor, participants);
+	if (mine.length === 0) return { participant: null, choices: [], reason: 'not-on-roster' };
+
+	if (participantId) {
+		const chosen = mine.find(p => p.id === participantId);
+		return chosen
+			? { participant: chosen, choices: mine, reason: null }
+			: { participant: null, choices: mine, reason: 'not-your-participant' };
+	}
+	if (mine.length === 1) return { participant: mine[0], choices: mine, reason: null };
+
+	const owing = typeof outstandingFor === 'function'
+		? mine.filter(p => Number(outstandingFor(p)) > 0)
+		: [];
+	if (owing.length === 1) return { participant: owing[0], choices: mine, reason: null };
+
+	return { participant: null, choices: mine, reason: 'ambiguous-participant' };
 }
 
 const CAPABILITIES = {
@@ -107,6 +153,8 @@ module.exports = {
 	visibleServers,
 	activityRole,
 	matchParticipant,
+	matchParticipants,
+	selectParticipant,
 	can,
 	CAPABILITIES,
 };

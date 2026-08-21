@@ -196,6 +196,20 @@ async function ensureAccount(req) {
 	if (req.actor?.userId) {
 		const current = await users.getUser(req.actor.userId);
 		if (current) return current;
+
+		// Missing is not always gone. A session held open on a second device
+		// while the account was merged elsewhere still names a real account —
+		// under its new id. Recreating from the identity instead would hand this
+		// person a third, empty account and leave their history behind.
+		const resolved = await core.accountMerge.resolveUserId(req.actor.userId);
+		if (resolved && resolved !== req.actor.userId) {
+			const survivor = await users.getUser(resolved);
+			if (survivor) {
+				if (req.session) req.session.meguUserId = survivor.id;
+				req.actor.userId = survivor.id;
+				return survivor;
+			}
+		}
 	}
 
 	const profile = identityProfileFromSession(req.session);
@@ -311,7 +325,13 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 	const lang = core.format.resolveLang(actor?.lang);
 	const role = access.activityRole(actor, activity);
 	const showAmounts = access.can(role, 'viewAmounts');
-	const me = access.matchParticipant(actor, activity.participants);
+	// All of them, because merging two Megu accounts can leave one person
+	// holding two roster rows here — their `shares` cannot be added together
+	// without rewriting a settled ledger, so both rows stay. `me` remains the
+	// first for everything that only needs a name; `mine` is what the client
+	// uses to notice the second one and say so.
+	const mine = access.matchParticipants(actor, activity.participants);
+	const me = mine[0] || null;
 
 	const period = activity.kind === 'recurring'
 		? (activity.periods.find(p => p.id === periodId) || activities.currentPeriod(activity))
@@ -346,6 +366,12 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		createdAt: activity.createdAt,
 		role,
 		me: me ? { id: me.id, displayName: me.displayName, rsvp: me.rsvp } : null,
+		mine: mine.map(p => ({
+			id: p.id,
+			displayName: p.displayName,
+			rsvp: p.rsvp,
+			outstanding: showAmounts ? (byParticipant[p.id]?.outstanding || 0) : null,
+		})),
 		megu: meguLineFor(activity, sum, period, lang),
 		// `key` travels and `label` does not: a month's name is rendered by
 		// the reader's browser in the reader's language, rather than frozen
@@ -525,8 +551,14 @@ function router(deps = {}) {
 		try {
 			const body = req.body || {};
 			let user;
+			// Order matters: `displayName` sets the source to `manual`, so an
+			// explicit `profileSource` in the same request has to be applied
+			// afterwards to win.
 			if (Object.prototype.hasOwnProperty.call(body, 'displayName')) {
 				user = await users.setDisplayName(req.actor.userId, body.displayName);
+			}
+			if (Object.prototype.hasOwnProperty.call(body, 'profileSource')) {
+				user = await users.setProfileSource(req.actor.userId, body.profileSource);
 			}
 			if (Object.prototype.hasOwnProperty.call(body, 'promptpayId')) {
 				user = await users.setPromptPay(req.actor.userId, {
@@ -548,7 +580,8 @@ function router(deps = {}) {
 		catch (error) {
 			if (['promptpay_unrecognised', 'promptpay_missing', 'display_name_required', 'display_name_too_long',
 				'notification_mode_invalid', 'notification_locale_invalid', 'notification_discord_unavailable',
-				'notification_email_unavailable'].includes(error.message)) {
+				'notification_email_unavailable', 'profile_source_invalid',
+				'profile_source_unavailable'].includes(error.message)) {
 				return fail(res, 400, error.message);
 			}
 			next(error);
@@ -733,13 +766,31 @@ function router(deps = {}) {
 			return null;
 		}
 
-		const me = access.matchParticipant(req.actor, activity.participants);
 		const period = activity.kind === 'recurring'
 			? (activity.periods.find(p => p.id === (req.body?.periodId || req.query?.period)) || activities.currentPeriod(activity))
 			: null;
 		const scope = period ? period.id : null;
 
 		const sum = activities.settlement(activity, scope);
+
+		// Which of the caller's roster rows this payment is for. One row and it
+		// is that row; two — which a merged account can have — and it is the one
+		// carrying the debt, because that is the only one anyone is trying to
+		// pay. Taking the first row instead would quietly show a QR for ฿0 while
+		// the money was owed under the other name.
+		const chosen = access.selectParticipant(req.actor, activity.participants, {
+			participantId: req.body?.participantId || req.query?.participantId || null,
+			outstandingFor: p => sum.rows.find(r => r.participantId === p.id)?.outstanding || 0,
+		});
+		if (chosen.reason === 'ambiguous-participant') {
+			fail(res, 409, 'choose_your_name', 'You are on this roster twice — choose which name to pay under');
+			return null;
+		}
+		if (chosen.reason === 'not-your-participant') {
+			fail(res, 403, 'not_your_participant');
+			return null;
+		}
+		const me = chosen.participant;
 		const row = me ? sum.rows.find(r => r.participantId === me.id) : null;
 
 		const outstanding = row?.outstanding || 0;
@@ -957,9 +1008,12 @@ function router(deps = {}) {
 			if (!payment) return fail(res, 404, 'payment_not_found');
 
 			// Only the person the claim belongs to, or the owner correcting it.
-			const me = access.matchParticipant(req.actor, activity.participants);
+			// Every row of theirs counts: a merged account can hold two on this
+			// roster, and checking only the first would refuse them their own
+			// payment.
+			const mine = access.matchParticipants(req.actor, activity.participants);
 			const isOwner = access.activityRole(req.actor, activity) === 'owner';
-			if (!isOwner && payment.participantId !== me?.id) return fail(res, 403, 'not_your_payment');
+			if (!isOwner && !mine.some(p => p.id === payment.participantId)) return fail(res, 403, 'not_your_payment');
 
 			const { dataUrl } = req.body || {};
 			const original = decodeDataImage(dataUrl);
@@ -1060,10 +1114,10 @@ function router(deps = {}) {
 			const payment = activity.payments.find(p => p.id === req.params.paymentId);
 			if (!payment) return fail(res, 404, 'payment_not_found');
 
-			const me = access.matchParticipant(req.actor, activity.participants);
+			const mine = access.matchParticipants(req.actor, activity.participants);
 			const isOwner = access.activityRole(req.actor, activity) === 'owner';
-			const isPayee = me && activity.payee && me.id === activity.payee.participantId;
-			if (!isOwner && !isPayee && payment.participantId !== me?.id) {
+			const isPayee = activity.payee && mine.some(p => p.id === activity.payee.participantId);
+			if (!isOwner && !isPayee && !mine.some(p => p.id === payment.participantId)) {
 				return fail(res, 403, 'not_your_slip');
 			}
 

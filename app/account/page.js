@@ -17,10 +17,12 @@ export default function AccountPage() {
 	});
 	useEffect(() => {
 		load().catch(() => setData({ loggedIn: false }));
-		const result = new URLSearchParams(window.location.search).get('link');
+		const params = new URLSearchParams(window.location.search);
+		const result = params.get('link');
 		if (result === 'conflict') setNotice(t.account.linkConflict);
 		if (result === 'success') setNotice(t.account.linkSuccess);
-	}, [t.account.linkConflict, t.account.linkSuccess]);
+		if (params.get('merge') === 'done') setNotice(t.account.merge.done);
+	}, [t.account.linkConflict, t.account.linkSuccess, t.account.merge.done]);
 	const providers = useMemo(() => new Set(data?.user?.identities?.map(identity => identity.provider) || []), [data]);
 	const hasDiscord = providers.has('discord');
 	const hasEmail = data?.user?.identities?.some(identity => identity.provider === 'google' && identity.emailVerified && identity.email);
@@ -37,6 +39,13 @@ export default function AccountPage() {
 		const result = await response.json();
 		setSaving(false); setNotice(response.ok ? t.account.saved : (t.errors[result.code] || t.errors.failed));
 	}
+	async function saveProfileSource(source) {
+		setNotice('');
+		const response = await fetch('/api/megu/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileSource: source }) });
+		const result = await response.json();
+		if (!response.ok) return setNotice(t.errors[result.code] || t.errors.failed);
+		await load(); setNotice(t.account.profileSourceSaved);
+	}
 	async function unlink(provider) {
 		if (!window.confirm(t.account.unlinkConfirm(provider))) return;
 		const response = await fetch(`/api/megu/me/identities/${provider}`, { method: 'DELETE' });
@@ -51,6 +60,9 @@ export default function AccountPage() {
 		<section className="panel stack-md"><div><h2>{t.account.connectedTitle}</h2><p className="quiet-note">{t.account.connectedHint}</p></div><div className="identity-list">
 			{['google', 'discord'].map(provider => { const identity = data.user.identities.find(item => item.provider === provider); return <div className="identity-row" key={provider}><div><strong>{t.account.providers[provider]}</strong><span>{identity ? (identity.email || identity.username || t.account.connected) : t.account.notConnected}</span></div>{identity ? <button className="btn btn-ghost btn-sm" onClick={() => unlink(provider)} disabled={data.user.identities.length === 1}>{t.account.unlink}</button> : <a className="btn btn-secondary btn-sm" href={`/api/auth/${provider}/link`}>{t.account.connect}</a>}</div>; })}
 		</div><p className="quiet-note">{t.account.noMergeNote}</p></section>
+		<section className="panel stack-md"><div><h2>{t.account.profileSourceTitle}</h2><p className="quiet-note">{t.account.profileSourceHint}</p></div><div className="notification-grid" role="radiogroup" aria-label={t.account.profileSourceTitle}>
+			{['google', 'discord', 'manual'].map(source => { const available = source === 'manual' || providers.has(source); return <button key={source} type="button" role="radio" aria-checked={data.user.profileSource === source} disabled={!available} className={`notification-choice ${data.user.profileSource === source ? 'selected' : ''}`} onClick={() => saveProfileSource(source)}><strong>{t.account.profileSources[source]}</strong><span>{available ? (data.user.identities.find(item => item.provider === source)?.displayName || t.account.profileHint) : t.account.connectFirst}</span></button>; })}
+		</div></section>
 		<section className="panel stack-md"><div><h2>{t.account.notificationsTitle}</h2><p className="quiet-note">{t.account.notificationsHint}</p></div><div className="notification-grid" role="radiogroup" aria-label={t.account.notificationsTitle}>
 			{choices.map(choice => <button key={choice.id} type="button" role="radio" aria-checked={mode === choice.id} disabled={!choice.available} className={`notification-choice ${mode === choice.id ? 'selected' : ''}`} onClick={() => setMode(choice.id)}><strong>{t.account.modes[choice.id]}</strong><span>{choice.available ? t.account.modeHints[choice.id] : t.account.connectFirst}</span></button>)}
 		</div><div><button className="btn btn-primary" onClick={savePreferences} disabled={saving}>{saving ? t.common.saving : t.common.save}</button></div></section>

@@ -449,8 +449,14 @@ input, textarea, select, button {
 .notification-choice.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 .notification-choice:disabled { opacity: .52; cursor: not-allowed; }
 
+/* The merge screen: a list of what is about to move, then one button. */
+.merge-counts { margin: 0; padding-left: 1.15rem; display: grid; gap: .35rem; }
+.merge-counts li { line-height: 1.5; overflow-wrap: anywhere; }
+.merge-actions { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; }
+
 @media (max-width: 640px) {
 	.notification-grid { grid-template-columns: 1fr; }
+	.merge-actions .btn { width: 100%; }
 	.login-options { width: min(100%, 360px); }
 	.login-options .btn { width: 100%; }
 	.identity-row { align-items: flex-start; }

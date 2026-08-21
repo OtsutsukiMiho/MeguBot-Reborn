@@ -99,6 +99,13 @@ const STATEMENTS = [
 	// they think they are paying.
 	'ALTER TABLE users ADD COLUMN IF NOT EXISTS promptpay_id TEXT;',
 	'ALTER TABLE users ADD COLUMN IF NOT EXISTS promptpay_name TEXT;',
+	"ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_source TEXT NOT NULL DEFAULT 'manual';",
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_profile_source_check') THEN
+			ALTER TABLE users ADD CONSTRAINT users_profile_source_check
+				CHECK (profile_source IN ('google', 'discord', 'manual'));
+		END IF;
+	END $$;`,
 
 	`CREATE TABLE IF NOT EXISTS identities (
 		id            TEXT PRIMARY KEY,
@@ -112,7 +119,36 @@ const STATEMENTS = [
 		UNIQUE (provider, provider_uid)
 	);`,
 	'ALTER TABLE identities ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;',
+	'ALTER TABLE identities ADD COLUMN IF NOT EXISTS display_name TEXT;',
+	`UPDATE identities i SET display_name = u.display_name
+	 FROM users u WHERE i.user_id = u.id AND i.display_name IS NULL;`,
 	'CREATE INDEX IF NOT EXISTS identities_user_idx ON identities (user_id);',
+	'CREATE UNIQUE INDEX IF NOT EXISTS identities_user_provider_key ON identities (user_id, provider);',
+
+	// A merged id can remain in old sessions, bookmarks and audit metadata long
+	// after its user row is gone. Resolve it to the living account rather than
+	// recreating a second account from the stale session identity.
+	`CREATE TABLE IF NOT EXISTS user_aliases (
+		old_user_id TEXT PRIMARY KEY,
+		user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		merged_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK (old_user_id <> user_id)
+	);`,
+	'CREATE INDEX IF NOT EXISTS user_aliases_user_idx ON user_aliases (user_id);',
+
+	// Financial rows remain append-only. This table records the account-level
+	// operation that moved their user references, including enough counts to
+	// explain the change without retaining OAuth tokens or authorization codes.
+	`CREATE TABLE IF NOT EXISTS account_merges (
+		id                        TEXT PRIMARY KEY,
+		survivor_user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		original_survivor_user_id TEXT NOT NULL,
+		merged_user_id            TEXT NOT NULL,
+		provider_proof            JSONB NOT NULL DEFAULT '{}'::jsonb,
+		moved_counts              JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS account_merges_survivor_idx ON account_merges (survivor_user_id, created_at DESC);',
 
 	// Delivery choices belong to the Megu account, not to an OAuth provider or
 	// an activity. A second provider can therefore be connected without silently
@@ -408,6 +444,26 @@ const STATEMENTS = [
 		metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
 		created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
+	// A database that predates this foreign key can hold `actor_user_id` values
+	// whose user row is long gone — with no constraint in place, nothing ever
+	// cleared them. Adding the constraint on top of those rows fails, and since
+	// the whole of `initCoreSchema` is one transaction, that failure takes the
+	// renames and every CREATE below with it: the process boots with activities
+	// switched off and a foreign-key error in the log.
+	//
+	// The orphans are set to NULL rather than deleted, which is what the
+	// constraint itself would have done to them (`ON DELETE SET NULL`) had it
+	// existed at the time. A payment event whose actor is unknown is still the
+	// record that the event happened.
+	`UPDATE payment_events SET actor_user_id = NULL
+	  WHERE actor_user_id IS NOT NULL
+	    AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = payment_events.actor_user_id);`,
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_events_actor_user_id_fkey') THEN
+			ALTER TABLE payment_events ADD CONSTRAINT payment_events_actor_user_id_fkey
+				FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL;
+		END IF;
+	END $$;`,
 	'CREATE INDEX IF NOT EXISTS payment_events_payment_idx ON payment_events (payment_id, created_at);',
 	'CREATE INDEX IF NOT EXISTS payment_events_activity_idx ON payment_events (activity_id, created_at);',
 

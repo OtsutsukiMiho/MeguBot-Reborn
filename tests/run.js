@@ -27,6 +27,7 @@ const SUITES = [
 	['rename.test.js', 'the megu_ rename, run against a database that already had data'],
 	['session-store.test.js', 'sessions on Postgres — a restart no longer signs everyone out'],
 	['notification-integration.test.js', 'linked accounts fan one event out to Discord and email without merging'],
+	['account-merge.test.js', 'two accounts, one person — every reference moved, not one satang changed'],
 	['e2e.test.js', 'core against Postgres — full badminton lifecycle'],
 	['recurring.test.js', 'monthly agreements, periods and DM reminders'],
 	['payment-lifecycle.test.js', 'multi-period transfers, private evidence, auto-confirmation and reversal'],

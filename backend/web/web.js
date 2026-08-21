@@ -639,7 +639,37 @@ async function finishOAuth(req, res, provider) {
 		let account;
 		if (request.intent === 'link') {
 			const result = await core.users.linkIdentity(request.linkingUserId, identityProfile);
-			if (['claimed-by-another-user', 'provider-already-linked'].includes(result.reason)) return res.redirect(`/account?link=conflict&provider=${provider}`);
+
+			// The identity belongs to a Megu account of their own. Both sides are
+			// already proven at this point — the session proves the first account,
+			// and the OAuth round trip that just finished proves the second — so
+			// the merge screen is a page with a button on it, not another trip to
+			// the provider. Sending them back through Discord to "confirm" would
+			// be a redirect into /api/auth/*, which is rule 4 of
+			// DISCORD-RATE-LIMITS.md and the thing that turned a rate limit into
+			// an afternoon.
+			if (result.reason === 'claimed-by-another-user') {
+				const other = await core.users.findByIdentity(provider, identityProfile.providerUid);
+				if (other && other.id !== request.linkingUserId) {
+					req.session.mergeTicket = {
+						signedInUserId: request.linkingUserId,
+						otherUserId: other.id,
+						provider,
+						providerUid: String(identityProfile.providerUid),
+						createdAt: Date.now(),
+					};
+					return req.session.save(error => (error
+						? res.redirect(`/account?link=conflict&provider=${provider}`)
+						: res.redirect(`/account/merge?provider=${provider}`)));
+				}
+			}
+
+			// A different account on the *same* provider is not a merge candidate:
+			// one Megu account holds at most one identity per provider, so there
+			// is nothing to combine. Unlink the one that is there first.
+			if (['claimed-by-another-user', 'provider-already-linked'].includes(result.reason)) {
+				return res.redirect(`/account?link=conflict&provider=${provider}`);
+			}
 			account = await core.users.getUser(request.linkingUserId);
 		}
 		else {
@@ -888,9 +918,114 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 
 app.get('/api/auth/me', async (req, res) => {
 	if (!req.session?.meguUserId) return res.json({ loggedIn: false, user: null });
-	const user = await core.users.getUser(req.session.meguUserId);
+	let user = await core.users.getUser(req.session.meguUserId);
+
+	// The row can be gone because this session was open on another device while
+	// the account was merged somewhere else. That is not an expired session —
+	// the account still exists, under the id that absorbed it.
+	if (!user) {
+		const resolved = await core.accountMerge.resolveUserId(req.session.meguUserId);
+		if (resolved && resolved !== req.session.meguUserId) {
+			user = await core.users.getUser(resolved);
+			if (user) {
+				req.session.meguUserId = user.id;
+				if (req.session.account) req.session.account.id = user.id;
+			}
+		}
+	}
 	if (!user) return res.json({ loggedIn: false, user: null });
 	res.json({ loggedIn: true, user });
+});
+
+// How long a proven pair of identities stays mergeable. Short, because the
+// ticket is the standing proof that this browser controls both accounts, and
+// long enough to read a screen that lists what is about to move.
+const MERGE_TICKET_TTL_MS = 10 * 60 * 1000;
+
+function readMergeTicket(req) {
+	const ticket = req.session?.mergeTicket;
+	if (!ticket) return { ticket: null, reason: 'no_merge_pending' };
+	if (Date.now() - ticket.createdAt > MERGE_TICKET_TTL_MS) return { ticket: null, reason: 'merge_request_expired' };
+	// The proof is "this session, plus that OAuth round trip". If the session
+	// has since become a different account, the pair is no longer proven.
+	if (ticket.signedInUserId !== req.session.meguUserId) return { ticket: null, reason: 'account_changed' };
+	return { ticket, reason: null };
+}
+
+app.get('/api/account/merge', async (req, res) => {
+	const { ticket, reason } = readMergeTicket(req);
+	if (!ticket) return res.status(409).json({ error: reason });
+	try {
+		const plan = await core.accountMerge.planMerge(ticket.signedInUserId, ticket.otherUserId);
+		res.json({
+			// Which side is which, so the screen can say "keep the name you were
+			// already signed in as" rather than making the reader work it out.
+			provider: ticket.provider,
+			signedInUserId: ticket.signedInUserId,
+			otherUserId: ticket.otherUserId,
+			plan,
+		});
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `Merge plan failed: ${error.message}`);
+		// A ticket naming an account that has since been merged elsewhere is a
+		// stale request, not a server fault — the screen can say so and offer to
+		// start again.
+		const stale = error.message.startsWith('merge_');
+		res.status(stale ? 409 : 500).json({ error: error.message });
+	}
+});
+
+app.post('/api/account/merge', async (req, res) => {
+	const { ticket, reason } = readMergeTicket(req);
+	if (!ticket) return res.status(409).json({ error: reason });
+
+	const profileSource = ['google', 'discord', 'manual'].includes(req.body?.profileSource)
+		? req.body.profileSource
+		: null;
+
+	try {
+		const result = await core.accountMerge.mergeAccounts({
+			userIdA: ticket.signedInUserId,
+			userIdB: ticket.otherUserId,
+			profileSource,
+			// What proved each side, and nothing that could be replayed: no access
+			// token, no refresh token, no authorization code. This row outlives
+			// every one of them.
+			proof: {
+				signedInUserId: ticket.signedInUserId,
+				authenticatedProvider: ticket.provider,
+				authenticatedProviderUid: ticket.providerUid,
+				at: new Date(ticket.createdAt).toISOString(),
+			},
+		});
+
+		delete req.session.mergeTicket;
+		req.session.meguUserId = result.survivorId;
+		if (req.session.account) req.session.account.id = result.survivorId;
+
+		await core.users.claimParticipants(result.survivorId).catch(() => undefined);
+		const user = await core.users.getUser(result.survivorId);
+		if (user && req.session.account) req.session.account.displayName = user.displayName;
+
+		req.session.save(() => res.json({
+			ok: true,
+			user,
+			mergeId: result.mergeId,
+			notificationMode: result.notificationMode,
+			notified: result.notified,
+			duplicateParticipants: result.duplicateParticipants,
+		}));
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `Account merge failed: ${error.message}`);
+		res.status(409).json({ error: error.message });
+	}
+});
+
+app.post('/api/account/merge/cancel', (req, res) => {
+	if (req.session) delete req.session.mergeTicket;
+	res.json({ ok: true });
 });
 
 app.post('/api/auth/logout', (req, res) => {

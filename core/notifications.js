@@ -8,7 +8,16 @@ function channelsFor(mode, { hasDiscord, hasEmail }) {
 	return channels;
 }
 
-async function enqueue({ userId, eventType, payload, dedupeKey }) {
+/**
+ * Queue one semantic event for delivery.
+ *
+ * `channels` overrides the account's delivery preference, and exists for the
+ * short list of messages that are not product notifications at all: "your
+ * account was merged" is a security notice, and a security notice that obeys a
+ * mute setting is a security notice the one person who needed it never sees.
+ * It is still filtered by which channels the account actually has.
+ */
+async function enqueue({ userId, eventType, payload, dedupeKey, channels = null }) {
 	if (!userId || !eventType || !dedupeKey) throw new Error('notification_event_invalid');
 	return transaction(async (client) => {
 		const identities = await client.query(
@@ -27,7 +36,12 @@ async function enqueue({ userId, eventType, payload, dedupeKey }) {
 			 RETURNING id`,
 			[newId('nev'), userId, eventType, { ...payload, locale }, dedupeKey],
 		);
-		for (const channel of channelsFor(mode, { hasDiscord: Boolean(discord), hasEmail: Boolean(email) })) {
+		const available = { hasDiscord: Boolean(discord), hasEmail: Boolean(email) };
+		const selected = channels
+			? channels.filter(channel => (channel === 'discord' && available.hasDiscord)
+				|| (channel === 'email' && available.hasEmail))
+			: channelsFor(mode, available);
+		for (const channel of selected) {
 			await client.query(
 				`INSERT INTO notification_deliveries (id, event_id, channel)
 				 VALUES ($1, $2, $3) ON CONFLICT (event_id, channel) DO NOTHING`,

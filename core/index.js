@@ -12,6 +12,7 @@ const receipt = require('./receipt.js');
 const paymentEvidence = require('./payment-evidence.js');
 const { initCoreSchema } = require('./schema.js');
 const users = require('./users.js');
+const accountMerge = require('./account-merge.js');
 const oauthCredentials = require('./oauth-credentials.js');
 const activities = require('./activities.js');
 const reminders = require('./reminders.js');
@@ -32,6 +33,7 @@ module.exports = {
 	receipt,
 	paymentEvidence,
 	users,
+	accountMerge,
 	oauthCredentials,
 	activities,
 	reminders,
