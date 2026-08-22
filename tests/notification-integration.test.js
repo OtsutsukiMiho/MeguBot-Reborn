@@ -5,8 +5,28 @@ const { createDispatcher } = require('../adapters/notifications/dispatcher.js');
 
 const created = [];
 
+/**
+ * Empty the delivery queue before asserting on what a drain produces.
+ *
+ * This is the one suite that measures `dispatcher.drain()` itself, and a drain
+ * is global: `claimPending` takes the twenty oldest deliveries that are due,
+ * across every account. Suites that enqueue without draining — the payment
+ * ones do, and so does anyone running `npm run merge:demo` — leave `failed`
+ * rows behind that stay due forever, because nothing is retrying them hard
+ * enough to reach the eighth attempt that would mark them `skipped`.
+ *
+ * Twenty of those in front of this suite's two rows and the drain never
+ * reaches them, so the assertion below fails with `0 !== 2` and points at the
+ * dispatcher, which is working perfectly. Start from a known queue instead.
+ */
+async function emptyTheQueue() {
+	await core.db.query('DELETE FROM notification_deliveries');
+	await core.db.query('DELETE FROM notification_events');
+}
+
 async function main() {
 	await core.initCoreSchema();
+	await emptyTheQueue();
 	const discord = await core.users.loginWithIdentity({
 		provider: 'discord', providerUid: '__notify_discord__', username: 'notify-discord', displayName: 'Notify Test',
 	});
