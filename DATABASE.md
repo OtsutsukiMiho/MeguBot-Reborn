@@ -117,20 +117,28 @@ codebase should be able to do that.
 
 ## What gets created
 
-Eleven tables and fourteen indexes:
+Nineteen tables and twenty-five indexes:
 
 ```
-users               accounts
-identities          Discord ID -> Megu user
-activities          the root entity
-participants        who is in an activity
-slots               candidate times
-slot_votes          availability answers
-periods             one row per month, for recurring agreements
-expenses            what was spent
-shares              who owes what part of an expense
-payments            claims and confirmations
-payment_reminders   which nag was sent, and when
+users                     accounts
+identities                a provider login -> Megu user, one per provider
+user_aliases              a merged account's old id -> the account that absorbed it
+account_merges            who merged which two accounts, and what moved
+notification_preferences  where this person wants to be told
+oauth_credentials         sealed Discord refresh tokens
+notification_events       one thing worth telling somebody about
+notification_deliveries   one row per channel, with its own retries
+activities                the root entity
+participants              who is in an activity
+slots                     candidate times
+slot_votes                availability answers
+periods                   one row per month, for recurring agreements
+expenses                  what was spent
+shares                    who owes what part of an expense
+payments                  claims and confirmations
+payment_allocations       one transfer split across several months
+payment_events            the append-only history of a payment
+payment_reminders         which nag was sent, and when
 ```
 
 Created by `core/schema.js`, which runs on boot from both `backend/bot/bot.js`

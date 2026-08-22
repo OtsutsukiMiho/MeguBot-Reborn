@@ -24,6 +24,7 @@
     "db:seed:discord-payment": "node scripts/seed-discord-payment-test.js",
     "db:restore:discord-payment": "node scripts/restore-discord-payment-test.js",
     "db:audit": "node scripts/db-audit.js",
+    "merge:demo": "node scripts/merge-demo.js",
     "contrast": "node scripts/contrast-audit.js",
     "bot:instances": "node scripts/instance-audit.js"
   },
@@ -35,6 +36,7 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "ffmpeg-static": "^5.3.0",
+    "google-auth-library": "^10.9.1",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.29.0",
     "next": "^16.3.0",

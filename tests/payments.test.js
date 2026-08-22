@@ -247,8 +247,16 @@ async function main() {
 	assert.strictEqual(r.status, 200);
 	assert.strictEqual(r.body.verdict, 'matched');
 	assert.strictEqual(r.body.autoConfirmed, true);
-	assert.strictEqual(notices.length, 1);
-	assert.ok(notices[0].message.includes('ลงยอดให้อัตโนมัติแล้ว'));
+	const queuedOwnerNotice = await core.db.query(
+		`SELECT e.event_type, e.payload, d.channel, d.status
+		 FROM notification_events e JOIN notification_deliveries d ON d.event_id = e.id
+		 WHERE e.user_id = $1 AND e.event_type = 'payment_auto_confirmed'`,
+		[megu.user.id],
+	);
+	assert.strictEqual(queuedOwnerNotice.rows.length, 1);
+	assert.strictEqual(queuedOwnerNotice.rows[0].channel, 'discord');
+	assert.strictEqual(queuedOwnerNotice.rows[0].status, 'pending');
+	assert.ok(queuedOwnerNotice.rows[0].payload.bodyTh.includes('ระบบจับคู่และลงยอดให้อัตโนมัติแล้ว'));
 	pass('server ignored forged browser fields, re-read the uploaded pixels, and auto-confirmed the real values');
 
 	r = await ohm('GET', `/api/megu/a/${code}`);

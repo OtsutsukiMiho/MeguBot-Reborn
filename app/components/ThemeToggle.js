@@ -1,14 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useCopy } from '../copy';
 
 const ORDER = ['system', 'light', 'dark'];
-
-const LABEL = {
-	system: 'ตามเครื่อง',
-	light: 'กลางวัน',
-	dark: 'กลางคืน',
-};
 
 // Sun, moon, and a half-filled disc for "follow the device".
 const ICON = {
@@ -34,6 +29,7 @@ export function applyTheme(mode) {
 }
 
 export default function ThemeToggle() {
+	const { t } = useCopy();
 	const [mode, setMode] = useState('system');
 	const [ready, setReady] = useState(false);
 
@@ -55,8 +51,8 @@ export default function ThemeToggle() {
 			type="button"
 			className="theme-toggle"
 			onClick={cycle}
-			title={`ธีม: ${LABEL[mode]}`}
-			aria-label={`เปลี่ยนธีม — ตอนนี้${LABEL[mode]}`}
+			title={t.theme.title(t.theme.modes[mode])}
+			aria-label={t.theme.change(t.theme.modes[mode])}
 			// Rendered before hydration reads localStorage; hide the icon rather
 			// than flash the wrong one.
 			style={{ opacity: ready ? 1 : 0 }}

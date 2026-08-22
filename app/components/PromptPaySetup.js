@@ -150,7 +150,7 @@ export default function PromptPaySetup({ payTo, participants, busy, call, onSave
 
 					{/* Whoever fronted the money is the one owed it, and that is
 					    not always the person who opened the activity. */}
-					{participants.length > 1 && (
+					{participants.length > 0 && (
 						<div>
 							<label className="field-label" htmlFor="pp-payee">{t.promptpay.payeeField}</label>
 							<select
@@ -160,6 +160,9 @@ export default function PromptPaySetup({ payTo, participants, busy, call, onSave
 								disabled={busy}
 								onChange={e => call('POST', '/payee', { participantId: e.target.value || null })}
 							>
+								{!participants.some(participant => participant.isMe) && (
+									<option value="">{t.promptpay.organizerOption(payTo?.displayName || '')}</option>
+								)}
 								{participants.map(p => <option key={p.id} value={p.id}>{p.displayName}</option>)}
 							</select>
 						</div>

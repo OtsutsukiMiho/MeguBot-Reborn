@@ -90,13 +90,29 @@ function bangkokParts(date = new Date()) {
  * one day, and the group would end up with two spellings of the same amount
  * depending on who was looking.
  */
-function formatMoney(satang) {
-	if (satang == null) return '—';
-	const sign = satang < 0 ? '-' : '';
-	const abs = Math.abs(satang);
-	const baht = Math.floor(abs / 100);
-	const rest = String(abs % 100).padStart(2, '0');
-	return `${sign}฿${baht.toLocaleString('en-US')}.${rest}`;
+function formatMoney(minorUnits, currency = 'THB', lang = DEFAULT_LANG) {
+	if (minorUnits == null) return '—';
+	// Backward compatibility for the former formatMoney(value, lang) API.
+	// Currency was added later; callers that only choose a language still mean
+	// Thai baht, not a fictional currency code named "EN" or "TH".
+	if (LANGS.includes(String(currency).toLowerCase())) {
+		lang = currency;
+		currency = 'THB';
+	}
+	const code = String(currency || 'THB').toUpperCase();
+	const locale = resolveLang(lang) === 'th' ? 'th-TH' : 'en-US';
+	try {
+		return new Intl.NumberFormat(locale, {
+			style: 'currency',
+			currency: code,
+			currencyDisplay: 'narrowSymbol',
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2,
+		}).format(Number(minorUnits) / 100);
+	}
+	catch {
+		return `${code} ${(Number(minorUnits) / 100).toFixed(2)}`;
+	}
 }
 
 /**

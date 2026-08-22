@@ -163,6 +163,10 @@ assert.strictEqual(format.formatMoney(123405), '฿1,234.05');
 assert.strictEqual(format.formatMoney(null), '—');
 ok('satang render as baht, negatives and thousands included');
 
+assert.strictEqual(format.formatMoney(123405, 'USD', 'en'), '$1,234.05');
+assert.ok(format.formatMoney(123405, 'EUR', 'en').includes('1,234.05'));
+ok('the activity currency, rather than the interface language, decides the money symbol');
+
 // Baht is baht in both languages: switching to English does not change the
 // currency, so the two must agree exactly.
 assert.strictEqual(format.formatMoney(6000, 'en'), format.formatMoney(6000, 'th'));

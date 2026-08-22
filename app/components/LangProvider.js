@@ -5,8 +5,8 @@ import { createContext, useContext, useEffect, useState } from 'react';
 const LangContext = createContext({ lang: 'en', setLang: () => {} });
 
 export const LANGS = [
-	{ code: 'th', label: 'ไทย' },
 	{ code: 'en', label: 'EN' },
+	{ code: 'th', label: 'ไทย' },
 ];
 
 const STORAGE_KEY = 'megu-lang';

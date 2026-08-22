@@ -135,6 +135,55 @@ async function main() {
 	pass('GET /me returns the Megu account and visible servers');
 
 	r = await figClient('POST', '/api/megu/activities', {
+		title: 'Friends only',
+		currency: 'USD',
+		ownerParticipation: false,
+		participants: [{ displayName: 'ต้น' }, { displayName: 'ひかり' }],
+	});
+	assert.strictEqual(r.status, 201);
+	const friendsOnlyCode = r.body.activity.code;
+	created.activities.push(friendsOnlyCode);
+	assert.strictEqual(r.body.activity.currency, 'USD');
+	assert.deepStrictEqual(r.body.activity.participants.map(p => p.displayName), ['ต้น', 'ひかり']);
+	assert.ok(!r.body.activity.participants.some(p => p.isMe));
+	assert.strictEqual(r.body.activity.role, 'owner');
+	assert.strictEqual(r.body.activity.payTo.participantId, null);
+	assert.strictEqual(r.body.activity.payTo.displayName, 'ฟิก');
+	pass('the organizer can create for friends in another currency without becoming a participant');
+
+	r = await figClient('PUT', `/api/megu/a/${friendsOnlyCode}/payment-options`, {
+		paymentOptions: [{
+			type: 'bank_transfer', label: '日本の銀行', destination: 'Example Bank 123', accountName: '雲',
+		}],
+	});
+	assert.strictEqual(r.status, 200);
+	assert.strictEqual(r.body.activity.paymentOptions.length, 1);
+	assert.strictEqual(r.body.activity.paymentOptions[0].label, '日本の銀行');
+	assert.strictEqual(r.body.activity.paymentOptions[0].source, 'activity');
+	pass('the organizer can add a currency-neutral payment destination to that activity');
+
+	r = await figClient('POST', '/api/megu/activities', {
+		title: 'Unicode names',
+		ownerParticipation: true,
+		ownerDisplayName: '雲',
+		saveOwnerDisplayName: true,
+		participants: [{ displayName: 'กีวี่' }],
+	});
+	assert.strictEqual(r.status, 201);
+	created.activities.push(r.body.activity.code);
+	assert.deepStrictEqual(r.body.activity.participants.map(p => p.displayName), ['雲', 'กีวี่']);
+	r = await figClient('GET', '/api/megu/me');
+	assert.strictEqual(r.body.user.displayName, '雲');
+	pass('an organizer chooses any Unicode event name and may save it as their account default');
+
+	r = await figClient('POST', '/api/megu/activities', {
+		title: 'Nobody', ownerParticipation: false, participants: [],
+	});
+	assert.strictEqual(r.status, 400);
+	assert.strictEqual(r.body.code, 'participant_required');
+	pass('an activity cannot be created with neither the organizer nor a guest on its roster');
+
+	r = await figClient('POST', '/api/megu/activities', {
 		title: 'ตีแบด',
 		location: 'คอร์ท 3',
 		startsAt: '2026-08-22T17:00:00+07:00',

@@ -35,7 +35,68 @@ const client = new Client({
 		GatewayIntentBits.MessageContent,
 	],
 	partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+
+	// discord.js's REST defaults are tuned for a bot with an IP to itself. This
+	// one shares an egress IP on a cloud tier, and Cloudflare polices datacenter
+	// ranges by IP, so the defaults are the wrong end of every trade-off here.
+	//
+	// `rejectOnRateLimit` is the one that matters, and it is not a tuning knob —
+	// it is the difference between a bot that stops when it is refused and one
+	// that cannot. Read what @discordjs/rest does with an unexpected 429
+	// (RequestManager, `runRequest`):
+	//
+	//     await sleep(retryAfter);
+	//     return this.runRequest(routeId, url, options, requestData, retries);
+	//
+	// `retries` is passed through unchanged, not incremented. There is no cap on
+	// that path: as long as Discord keeps answering 429, that call sleeps and
+	// sends again, forever. A Cloudflare block answers 429 to everything, so
+	// every in-flight request in this process turns into a permanent retry loop
+	// against an IP that is banned *because of traffic* — and the promise never
+	// settles, so no `.catch()` anywhere above it ever runs. That is why the
+	// block kept renewing itself and why nothing in the logs explained it.
+	//
+	// Rejecting instead hands the failure back to the caller, which is what lets
+	// the guard below see it and shut the process up.
+	//
+	// The other two are ordinary caution: `retries: 3` makes one failed request
+	// into three, and 50 requests a second is the ceiling for a bot alone on its
+	// address, which this one is not.
+	rest: {
+		retries: 1,
+		globalRequestsPerSecond: 25,
+		rejectOnRateLimit: (data) => shouldStopForRateLimit(data),
+	},
 });
+
+// Which rate limits get waited out and which have to fail is decided by
+// isSevereRateLimit — see adapters/discord/rate-limit.js for why the default
+// behaviour cannot be used here. This end is the policy that follows from it:
+// say so in the logs, and treat a run of them as the block arriving.
+const SEVERE_429_WINDOW_MS = 60 * 1000;
+const SEVERE_429_LIMIT = 3;
+let severeRateLimits = [];
+
+function shouldStopForRateLimit(data) {
+	if (!isSevereRateLimit(data)) return false;
+
+	const isGlobal = Boolean(data.global) || data.scope === 'global';
+	BotLogs('SYSTEM', `${COLOR.yellow}[Discord Rate Limit] ${data.method} ${data.route} — ${data.timeToReset}ms${isGlobal ? ' (GLOBAL)' : ''}. Failing the call rather than retrying into it.`);
+
+	// One of these can be a coincidence. Three inside a minute is a pattern, and
+	// stopping voluntarily for fifteen minutes is enormously cheaper than being
+	// stopped involuntarily for an hour.
+	const now = Date.now();
+	severeRateLimits = severeRateLimits.filter(at => now - at < SEVERE_429_WINDOW_MS);
+	severeRateLimits.push(now);
+	if (severeRateLimits.length >= SEVERE_429_LIMIT && !discordBlock.blocked()) {
+		BotLogs('SYSTEM', `${COLOR.red}${severeRateLimits.length} severe rate limits in the last minute. Backing off before Discord does it for us.`);
+		severeRateLimits = [];
+		discordBlock.trip();
+	}
+
+	return true;
+}
 
 let customReadyTimestamp = Date.now();
 const restartFlagPath = path.join(__dirname, '../database/data/restart_flag.json');
@@ -55,7 +116,229 @@ client.customReadyTimestamp = customReadyTimestamp;
 
 const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_functions.js');
 const database = require('../database/database.js');
-const { isGlobalBlock, BLOCK_EXIT_CODE } = require('../../adapters/discord/rate-limit.js');
+const { isGlobalBlock, isSevereRateLimit, createBlockGuard, BLOCK_EXIT_CODE } = require('../../adapters/discord/rate-limit.js');
+
+// The web process has had this guard since the outage. The bot never did, and
+// the bot is the process that talks to Discord constantly — so while the site
+// was correctly showing "we are blocked, do not retry", this half of the deploy
+// was still editing a heartbeat message, pulling audit logs on every event and
+// fetching member rosters, straight into a ban that lengthens under traffic.
+// Every one of those calls was wrapped in `.catch(() => undefined)`, so nothing
+// was logged and nothing ever noticed.
+//
+// Everything below exists to make that impossible: ask before calling, and hand
+// every failure to the guard instead of swallowing it.
+const discordBlock = createBlockGuard({
+	onTrip: (seconds) => {
+		BotLogs('SYSTEM', `${COLOR.red}Discord has blocked this server's IP. Pausing every Discord call for ${Math.round(seconds / 60)} minutes — see DISCORD-RATE-LIMITS.md.`);
+		if (process.send) {
+			try { process.send({ type: 'discord_block', untilMs: discordBlock.blockedUntil() }); }
+			catch {}
+		}
+	},
+});
+
+// A child that starts mid-block comes up believing nothing is wrong. The
+// supervisor is the only thing here that outlives a restart, so ask it.
+if (process.send) {
+	try { process.send({ type: 'discord_block_query' }); }
+	catch {}
+}
+
+/**
+ * The one way this process is allowed to call Discord.
+ *
+ * Skips the call outright while blocked, and feeds anything that fails to the
+ * guard so the first refusal shuts the rest of the process up rather than being
+ * swallowed by a `.catch(() => undefined)` and repeated by the next caller.
+ *
+ * Returns `fallback` in both cases, so callers keep the shape they had when
+ * they were catching failures themselves.
+ */
+async function discordCall(label, run, fallback = undefined) {
+	if (discordBlock.blocked()) return fallback;
+	try {
+		return await run();
+	}
+	catch (error) {
+		if (discordBlock.record(error)) {
+			BotLogs('SYSTEM', `${COLOR.red}Blocked by Discord while ${label}. Everything else is paused too.`);
+		}
+		return fallback;
+	}
+}
+
+/** Audit-log reads happen on nearly every moderation event, so they get a name. */
+function guardedAuditLogs(guild, options) {
+	return discordCall('reading audit logs', () => guild.fetchAuditLogs(options), null);
+}
+
+/**
+ * Append this process's identity to an audit line, so `npm run bot:instances`
+ * can tell one copy of the bot from another.
+ *
+ * Only slash commands carried the stamp at first, and slash commands turned out
+ * to be far too rare to answer with — thirty days of them was twenty-one rows,
+ * and a whole day could pass with none, which reads in the audit as "nothing is
+ * running" when the bot is up and busy. TTS is the opposite: it fires twenty-odd
+ * times a day on ordinary use, so stamping it is what makes the question
+ * answerable at all.
+ *
+ * Anything written often enough to be a useful sample should go through here.
+ */
+function stamp(details) {
+	return `${details} [${INSTANCE}]`;
+}
+
+// `GET /guilds/{id}/members?limit=1000` is the single most expensive thing this
+// bot asks Discord for, and the dashboard used to ask for it twice on every page
+// load: once to render the server overview, once more when the Member Manager
+// tab opened. Three refreshes was six full roster pulls, uncached, on one of the
+// tightest per-guild buckets there is.
+//
+// A minute of staleness is invisible in a settings dashboard and turns a burst
+// of refreshes into one request. On failure — including while blocked — the last
+// good roster is served rather than nothing, because a stale member list is a
+// far better answer than an empty one.
+const ROSTER_TTL_MS = 60 * 1000;
+const rosterCache = new Map();
+
+function mapRawMember(m) {
+	const u = m.user || {};
+	return {
+		id: u.id,
+		username: u.username || 'Unknown',
+		displayName: m.nick || u.global_name || u.username || 'Unknown',
+		avatar: u.avatar
+			? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64`
+			: `https://cdn.discordapp.com/embed/avatars/${Number(u.discriminator || 0) % 5}.png`,
+		isBot: !!u.bot,
+		roles: Array.isArray(m.roles) ? m.roles : [],
+	};
+}
+
+async function fetchGuildRoster(guildId, query = '') {
+	const key = `${guildId}:${query}`;
+	const cached = rosterCache.get(key);
+	if (cached && Date.now() - cached.at < ROSTER_TTL_MS) return cached.members;
+
+	const raw = await discordCall('listing server members', () => (query
+		? client.rest.get(Routes.guildMembersSearch(guildId), { query: new URLSearchParams({ query, limit: '100' }) })
+		: client.rest.get(Routes.guildMembers(guildId), { query: new URLSearchParams({ limit: '1000' }) })
+	), null);
+
+	if (!Array.isArray(raw) || raw.length === 0) return cached ? cached.members : null;
+
+	const members = raw.map(mapRawMember);
+	if (rosterCache.size > 50) rosterCache.clear();
+	rosterCache.set(key, { at: Date.now(), members });
+	return members;
+}
+
+/**
+ * The dashboard's shape of a member list, read out of the gateway cache.
+ *
+ * discord.js already holds these — they arrived over the websocket under the
+ * GuildMembers intent and cost Discord nothing to read again. `fetchGuildRoster`
+ * above is the same answer bought with `GET /guilds/{id}/members?limit=1000`,
+ * the most expensive request this bot makes, so both roster screens now ask
+ * here first and fall back to one capped `members.fetch` only when the cache is
+ * genuinely empty — a fresh boot, or a guild large enough that the gateway did
+ * not send everyone.
+ *
+ * That leaves `fetchGuildRoster` with no callers. It is kept rather than
+ * deleted because its one-minute cache and serve-the-last-good-roster-while-
+ * blocked behaviour are the answer if the gateway cache ever proves too thin
+ * here — but nothing reaches it today, and anything that calls it again is
+ * choosing the expensive route on purpose.
+ *
+ * `query` filters in memory. A search box that goes to Discord per search is a
+ * request per keystroke on a per-guild bucket, and the answer was usually
+ * already local.
+ */
+function mapGuildMembers(guild, query = '') {
+	const needle = String(query || '').trim().toLowerCase();
+	return Array.from(guild.members.cache.values())
+		.filter((m) => {
+			if (!needle) return true;
+			const u = m.user || {};
+			return (m.displayName || '').toLowerCase().includes(needle)
+				|| (u.username || '').toLowerCase().includes(needle)
+				|| (u.globalName || '').toLowerCase().includes(needle)
+				|| m.id.includes(needle);
+		})
+		.map((m) => {
+			const u = m.user || {};
+			return {
+				id: m.id,
+				username: u.username || 'Unknown',
+				displayName: m.displayName || u.globalName || u.username || 'Unknown',
+				avatar: (u.avatarURL && u.avatarURL({ size: 64 })) || u.defaultAvatarURL || null,
+				isBot: Boolean(u.bot),
+				roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
+			};
+		});
+}
+
+// The online-ping status message. Boot-time Discord work has to be cheap enough
+// to survive a restart loop, and this used to be four calls every single boot:
+// fetch the channel, fetch ten messages, `bulkDelete` them, post a new one.
+// bulkDelete is one of the most tightly limited routes there is, and on a host
+// that restarts on deploy, on crash and on wake from idle, "every boot" is a lot
+// of boots.
+//
+// Now it looks for the message it left last time and edits that. Two calls, no
+// deletes, and nothing accumulates in the channel — which is why it recognises
+// its own message rather than remembering an id: a cloud filesystem does not
+// survive the restart either, so anything written down would be gone exactly
+// when it was needed.
+const ONLINE_PING_CHANNEL_ID = '1225208114941399110';
+const HEARTBEAT_MS = 5 * 60 * 1000;
+
+function onlinePingText() {
+	return `🟢 **Megu is Online!**\nLast Checked: ${new Date().toLocaleTimeString()}\nPing: ${client.ws.ping}ms`;
+}
+
+async function startOnlinePing() {
+	const channel = await discordCall('fetching the status channel', () => client.channels.fetch(ONLINE_PING_CHANNEL_ID), null);
+	if (!channel) return;
+
+	const recent = await discordCall('looking for the last status message', () => channel.messages.fetch({ limit: 5 }), null);
+	let statusMessage = recent ? recent.find(m => m.author?.id === client.user.id) : null;
+
+	if (statusMessage) {
+		await discordCall('updating the status message', () => statusMessage.edit(onlinePingText()));
+	}
+	else {
+		statusMessage = await discordCall('posting the status message', () => channel.send(onlinePingText()), null);
+		if (!statusMessage) return;
+	}
+
+	// Every 5 minutes, not every 3–9 seconds. The old loop edited this one
+	// message roughly 10,000 times a day for no reader's benefit, which is
+	// exactly the sustained traffic that gets an IP blocked. A liveness stamp is
+	// still a liveness stamp at five-minute resolution.
+	//
+	// It also stops itself: if the edit fails twice in a row the channel is
+	// gone, the message was deleted, or Discord is refusing us — and in all
+	// three cases retrying forever is the wrong answer.
+	let consecutiveFailures = 0;
+	const heartbeat = setInterval(async () => {
+		if (discordBlock.blocked()) return;
+		const edited = await discordCall('updating the status message', () => statusMessage.edit(onlinePingText()), null);
+		if (edited) {
+			consecutiveFailures = 0;
+			return;
+		}
+		consecutiveFailures += 1;
+		BotLogs('SYSTEM', `${COLOR.red}Online-ping heartbeat failed (${consecutiveFailures}/2).`);
+		if (consecutiveFailures >= 2) {
+			clearInterval(heartbeat);
+			BotLogs('SYSTEM', `${COLOR.yellow}Online-ping heartbeat stopped. Restart the bot to bring it back.`);
+		}
+	}, HEARTBEAT_MS);
+	heartbeat.unref();
+}
 
 client.honeypots = new Map();
 client.ttsChannels = new Map();
@@ -133,6 +416,11 @@ client.once(Events.ClientReady, async (readyClient) => {
 		reminderSender.start(client, {
 			baseUrl: process.env.FRONTEND_URL || '',
 			intervalMs: Number(process.env.MEGU_REMINDER_INTERVAL_MS) || undefined,
+			// A sweep is one DM per person in a loop. It is the largest burst
+			// this bot ever produces, so it asks before starting and stops the
+			// moment Discord refuses one.
+			isBlocked: () => discordBlock.blocked(),
+			recordFailure: (error) => discordBlock.record(error),
 		});
 		BotLogs('Megu', `${COLOR.green}Reminder loop armed on ${COLOR.white}${core.db.describe()}`);
 	}
@@ -195,6 +483,13 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 	setInterval(async () => {
 		try {
+			// Polling the database on a timer is fine; the rule is about Discord.
+			// But the row is deleted before the message is sent, so running this
+			// while blocked would drop the reminder on the floor as well as add
+			// traffic. Skipping the whole tick leaves everything due, and it goes
+			// out on the first tick after the block clears.
+			if (discordBlock.blocked()) return;
+
 			const now = Date.now();
 			const activeReminders = await database.getActiveReminders();
 			for (const r of activeReminders) {
@@ -212,10 +507,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 					const channel = guild.channels.cache.get(r.channel_id);
 					if (channel) {
-						await channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`).catch(() => undefined);
+						await discordCall('sending a reminder', () => channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`));
 					}
 
-					const member = await guild.members.fetch(r.user_id).catch(() => undefined);
+					const member = await discordCall('fetching a reminder recipient', () => guild.members.fetch(r.user_id));
 					const botMember = guild.members.me;
 
 					if (member && member.voice && member.voice.channel && botMember && botMember.voice && botMember.voice.channel && member.voice.channel.id === botMember.voice.channel.id) {
@@ -297,7 +592,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 					'COMMAND_EXEC',
 					interaction.user.id,
 					interaction.user.username,
-					`Executed /${interaction.commandName} ${optsStr}`.trim() + ` [${INSTANCE}]`,
+					stamp(`Executed /${interaction.commandName} ${optsStr}`.trim()),
 					interaction.guild.name
 				).catch(() => undefined);
 			}
@@ -410,40 +705,10 @@ client.on(Events.ClientReady, async () => {
 	try {
 		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 		if (config.online_ping) {
-			const channelId = '1225208114941399110';
-
-			client.channels.fetch(channelId).then(async channel => {
-				if (!channel || !channel.isTextBased()) return;
-				const fetched = await channel.messages.fetch({ limit: 5 }).catch(() => null);
-				let statusMessage = fetched?.find(m => m.author?.id === client.user.id);
-
-				const content = `🟢 **Megu is Online!**\nLast Checked: ${new Date().toLocaleTimeString()} (Ping: ${client.ws.ping || 0}ms)`;
-				if (statusMessage) {
-					await statusMessage.edit(content).catch(() => null);
-				} else {
-					statusMessage = await channel.send(content).catch(() => null);
-				}
-
-				if (!statusMessage) return;
-
-				const HEARTBEAT_MS = 5 * 60 * 1000;
-				let consecutiveFailures = 0;
-
-				const heartbeat = setInterval(() => {
-					statusMessage.edit(`🟢 **Megu is Online!**\nLast Checked: ${new Date().toLocaleTimeString()}\nPing: ${client.ws.ping}ms`)
-						.then(() => {
-							consecutiveFailures = 0;
-						})
-						.catch(err => {
-							consecutiveFailures += 1;
-							BotLogs('SYSTEM', `${COLOR.red}Online-ping heartbeat failed (${consecutiveFailures}/2): ${COLOR.white}${err.message}`);
-							if (consecutiveFailures >= 2) {
-								clearInterval(heartbeat);
-								BotLogs('SYSTEM', `${COLOR.yellow}Online-ping heartbeat stopped.`);
-							}
-						});
-				}, HEARTBEAT_MS);
-			}).catch(() => undefined);
+			// The same five-minute liveness stamp, with every call to Discord
+			// routed through the block guard and the interval skipping itself
+			// while blocked. See startOnlinePing.
+			startOnlinePing().catch(() => undefined);
 		}
 	}
 	catch (error) {
@@ -544,7 +809,7 @@ function toBool(val, defaultVal = true) {
 			'VOICE_TTS',
 			newState.member.id,
 			newState.member.user.username,
-			`AFK Bringback: Moved ${newState.member.user.username} from AFK to <#${oldState.channel.id}>`,
+			stamp(`AFK Bringback: Moved ${newState.member.user.username} from AFK to <#${oldState.channel.id}>`),
 			guild.name
 		).catch(() => undefined);
 		return;
@@ -581,7 +846,7 @@ function toBool(val, defaultVal = true) {
 	const vcWelcomeTemplate = (await database.getGuildVar(guild.id, 'tts_vc_welcome_template')) || '{username} เข้าดิสมา';
 
 	if (vcWelcomeEnabled && newState.channelId === currentChannel.id && oldState.channelId !== currentChannel.id && oldState.channelId !== guild.afkChannelId) {
-		const member = newState.member || (await guild.members.fetch(newState.id).catch(() => null));
+		const member = newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(newState.id), null));
 		if (member && member.id !== client.user.id) {
 			const dbNick = await getUserNick(guild.id, member.id);
 			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
@@ -614,7 +879,7 @@ function toBool(val, defaultVal = true) {
 				'VOICE_TTS',
 				member.id,
 				userTag,
-				`VC Join Greeting spoken: "${formattedWelcome}"`,
+				stamp(`VC Join Greeting spoken: "${formattedWelcome}"`),
 				guild.name
 			).catch(() => undefined);
 			addToQueue(guild.id, queue_constructor);
@@ -625,7 +890,7 @@ function toBool(val, defaultVal = true) {
 	const vcLeaveTemplate = (await database.getGuildVar(guild.id, 'tts_vc_leave_template')) || '{username} ออกจากดิสแล้ว';
 
 	if (vcLeaveEnabled && oldState.channelId === currentChannel.id && newState.channelId !== currentChannel.id) {
-		const member = oldState.member || newState.member || (await guild.members.fetch(oldState.id).catch(() => null));
+		const member = oldState.member || newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(oldState.id), null));
 		if (member && member.id !== client.user.id) {
 			const dbNick = await getUserNick(guild.id, member.id);
 			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
@@ -658,7 +923,7 @@ function toBool(val, defaultVal = true) {
 				'VOICE_TTS',
 				member.id,
 				userTag,
-				`VC Leave Goodbye spoken: "${formattedLeave}"`,
+				stamp(`VC Leave Goodbye spoken: "${formattedLeave}"`),
 				guild.name
 			).catch(() => undefined);
 			addToQueue(guild.id, queue_constructor);
@@ -1297,6 +1562,29 @@ client.on(Events.GuildMemberRemove, async (member) => {
 
 const auditLogCooldownMap = new Map();
 
+/**
+ * Who did this, asked as rarely as possible and never while we are blocked.
+ *
+ * Nearly every moderation event wants the same answer, and a busy server fires
+ * several of them at once — a ban is a MemberBanAdd and a GuildMemberRemove,
+ * a purge is one MessageBulkDelete behind however many MessageDeletes. Asking
+ * per event turned one moderator action into a burst on a per-guild bucket.
+ *
+ * Three things keep that down, in the order that costs least:
+ *
+ *   1. No ViewAuditLog permission means the request would 403. Do not send it.
+ *   2. A 3.5s window per (guild, type) answers the burst from one reply. The
+ *      cached entry is only handed back if it is still inside the caller's
+ *      `maxAgeMs`, so a stale actor is never attributed to a new event.
+ *   3. `discordCall` skips the call outright while blocked and hands failures
+ *      to the guard.
+ *
+ * That last one is why the fetch is not written `.catch(() => null)`. A
+ * swallowed failure is a missing guard: it reads as "no audit entry, carry on"
+ * and the next event asks again, which is how a block gets extended rather
+ * than noticed. Discarding the *result* is fine; discarding the *refusal* is
+ * what DISCORD-RATE-LIMITS.md rule 3 is about.
+ */
 async function fetchAuditLogSafe(guild, type, maxAgeMs = 5000) {
 	if (!guild) return null;
 	const botMember = guild.members.me;
@@ -1310,15 +1598,12 @@ async function fetchAuditLogSafe(guild, type, maxAgeMs = 5000) {
 		return (last.entry && (now - (last.entry.createdTimestamp || last.timestamp) < maxAgeMs)) ? last.entry : null;
 	}
 
-	try {
-		const auditLogs = await guild.fetchAuditLogs({ limit: 1, type }).catch(() => null);
-		const entry = auditLogs?.entries?.first() || null;
-		auditLogCooldownMap.set(key, { timestamp: now, entry });
-		return entry;
-	}
-	catch {
-		return null;
-	}
+	const auditLogs = await guardedAuditLogs(guild, { limit: 1, type });
+	const entry = auditLogs?.entries?.first() || null;
+	// Only remember a real answer. Caching the null a block produced would keep
+	// answering "nobody did this" for 3.5 seconds after the block clears.
+	if (auditLogs) auditLogCooldownMap.set(key, { timestamp: now, entry });
+	return entry;
 }
 
 // 1. Message Deleted
@@ -1743,10 +2028,10 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
 		// 2. Fetch partials only when confirmed valid
 		if (reaction.partial) {
-			await reaction.fetch().catch(() => null);
+			await discordCall('resolving a partial reaction', () => reaction.fetch(), null);
 		}
 		if (reaction.message && reaction.message.partial) {
-			await reaction.message.fetch().catch(() => null);
+			await discordCall('resolving a partial reaction message', () => reaction.message.fetch(), null);
 		}
 
 		const guild = reaction.message.guild || client.guilds.cache.get(guildId);
@@ -1754,7 +2039,11 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
 		const role = guild.roles.cache.get(roleId);
 		if (role) {
-			const member = guild.members.cache.get(user.id) || (await guild.members.fetch(user.id).catch(() => undefined));
+			// Cache first, because a member already on the gateway costs nothing.
+			// The fetch behind it is a real request, so it goes through the guard
+			// rather than a .catch that would hide a refusal from it.
+			const member = guild.members.cache.get(user.id)
+				|| await discordCall('fetching a reaction member', () => guild.members.fetch(user.id), null);
 			if (member) {
 				const botMember = guild.members.me;
 				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
@@ -1809,10 +2098,10 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 
 		// 2. Fetch partials only when confirmed valid
 		if (reaction.partial) {
-			await reaction.fetch().catch(() => null);
+			await discordCall('resolving a partial reaction', () => reaction.fetch(), null);
 		}
 		if (reaction.message && reaction.message.partial) {
-			await reaction.message.fetch().catch(() => null);
+			await discordCall('resolving a partial reaction message', () => reaction.message.fetch(), null);
 		}
 
 		const guild = reaction.message.guild || client.guilds.cache.get(guildId);
@@ -1820,7 +2109,11 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 
 		const role = guild.roles.cache.get(roleId);
 		if (role) {
-			const member = guild.members.cache.get(user.id) || (await guild.members.fetch(user.id).catch(() => undefined));
+			// Cache first, because a member already on the gateway costs nothing.
+			// The fetch behind it is a real request, so it goes through the guard
+			// rather than a .catch that would hide a refusal from it.
+			const member = guild.members.cache.get(user.id)
+				|| await discordCall('fetching a reaction member', () => guild.members.fetch(user.id), null);
 			if (member) {
 				const botMember = guild.members.me;
 				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
@@ -1850,6 +2143,15 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 process.on('message', async (msg) => {
 	if (!msg) return;
 
+	if (msg.type === 'discord_block') {
+		// Another process on this box was refused. The ban is on the IP, so it
+		// is ours too — stop now rather than finding out the same way it did.
+		if (discordBlock.adopt(msg.untilMs)) {
+			BotLogs('SYSTEM', `${COLOR.yellow}Discord is blocking this server's IP (reported elsewhere). Pausing Discord calls for ${Math.round(discordBlock.retryAfterSeconds() / 60)} minutes.`);
+		}
+		return;
+	}
+
 	if (msg.type === 'ping') {
 		BotLogs('SYSTEM', `${COLOR.green}Received Ping IPC from Web Server! Bot is alive and responsive! (Ready: ${client.isReady()})`);
 	}
@@ -1878,13 +2180,21 @@ process.on('message', async (msg) => {
 		let delivered = 0;
 		const recipients = Array.isArray(msg.recipients) ? [...new Set(msg.recipients)] : [];
 		const message = String(msg.message || '').slice(0, 1900);
+		// Re-checked on every recipient, not once at the top: the first refused
+		// DM is how a block announces itself, and the rest of the list must not
+		// follow it into the wall.
 		for (const discordUid of recipients) {
+			if (discordBlock.blocked()) break;
 			if (!/^\d{17,20}$/.test(String(discordUid)) || !message) continue;
-			const user = await client.users.fetch(String(discordUid)).catch(() => null);
-			if (user && await user.send(message).then(() => true).catch(() => false)) delivered++;
+			const user = await discordCall('opening a DM', () => client.users.fetch(String(discordUid)), null);
+			if (user && await discordCall('sending a DM', () => user.send(message).then(() => true), false)) delivered++;
 		}
 		if (process.send) {
-			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, delivered });
+			// `blocked` is read after the loop, so a block that arrives partway
+			// through is still reported. The dispatcher leaves the delivery
+			// pending on it and retries with backoff, which is the right shape:
+			// the notification still goes out, just after the ban.
+			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, delivered, blocked: discordBlock.blocked() });
 		}
 	}
 	else if (msg.type === 'get_guild_details') {
@@ -1896,37 +2206,23 @@ process.on('message', async (msg) => {
 			return;
 		}
 
-		// 1. Fast retrieval directly from Gateway member cache
-		let members = Array.from(guild.members.cache.values()).map(m => {
-			const u = m.user || {};
-			const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
-			return {
-				id: m.id,
-				username: u.username || 'Unknown',
-				displayName: m.displayName || u.globalName || u.username || 'Unknown',
-				avatar: avatarUrl,
-				isBot: !!u.bot,
-				roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-			};
-		});
+		// The gateway cache first, because it is already in memory and costs
+		// Discord nothing. `GET /guilds/{id}/members?limit=1000` is the most
+		// expensive thing this bot asks for, and this screen used to ask for it
+		// on every page load.
+		let members = mapGuildMembers(guild);
 
-		// Fallback: If cache is completely empty on fresh boot, fetch with limit
+		// Only an empty cache — a fresh boot, before the gateway has filled it —
+		// is worth a request, and even then a capped one. It goes through the
+		// guard, so while Discord is refusing us this returns nothing and the
+		// dashboard renders an empty roster instead of holding the block open.
 		if (members.length === 0) {
-			try {
-				await guild.members.fetch({ limit: 100, time: 3000 }).catch(() => undefined);
-				members = Array.from(guild.members.cache.values()).map(m => {
-					const u = m.user || {};
-					const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
-					return {
-						id: m.id,
-						username: u.username || 'Unknown',
-						displayName: m.displayName || u.globalName || u.username || 'Unknown',
-						avatar: avatarUrl,
-						isBot: !!u.bot,
-						roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-					};
-				});
-			} catch {}
+			await discordCall(
+				'filling the member cache for the dashboard',
+				() => guild.members.fetch({ limit: 100, time: 3000 }),
+				null,
+			);
+			members = mapGuildMembers(guild);
 		}
 
 		members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
@@ -2150,51 +2446,24 @@ process.on('message', async (msg) => {
 			}
 
 			const queryText = (msg.query || '').trim();
-			let members = [];
 
-			// 1. Search directly in Discord.js Gateway Cache first
-			let cachedMembers = Array.from(guild.members.cache.values());
-			if (queryText) {
-				const q = queryText.toLowerCase();
-				cachedMembers = cachedMembers.filter(m => 
-					(m.displayName || '').toLowerCase().includes(q) ||
-					(m.user?.username || '').toLowerCase().includes(q) ||
-					(m.user?.globalName || '').toLowerCase().includes(q) ||
-					m.id.includes(q)
+			// Search what is already in memory first. Typing in the Member
+			// Manager search box used to mean a request per keystroke-ish
+			// refresh, on one of the tightest per-guild buckets there is.
+			let members = mapGuildMembers(guild, queryText);
+
+			// Nothing matched in cache. One capped request, through the guard —
+			// so a search performed while Discord is refusing us returns empty
+			// rather than becoming more traffic against a live block.
+			if (members.length === 0) {
+				await discordCall(
+					'searching server members over the gateway',
+					() => (queryText
+						? guild.members.fetch({ query: queryText, limit: 50, time: 3000 })
+						: guild.members.fetch({ limit: 100, time: 3000 })),
+					null,
 				);
-			}
-
-			if (cachedMembers.length > 0) {
-				members = cachedMembers.map(m => {
-					const u = m.user || {};
-					const avatarUrl = m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL;
-					return {
-						id: m.id,
-						username: u.username || 'Unknown',
-						displayName: m.displayName || u.globalName || u.username || 'Unknown',
-						avatar: avatarUrl,
-						isBot: !!u.bot,
-						roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-					};
-				});
-			} else {
-				// Only fetch if cache has no matches and user performed a search
-				try {
-					if (queryText) {
-						await guild.members.fetch({ query: queryText, limit: 50, time: 3000 }).catch(() => undefined);
-					} else {
-						await guild.members.fetch({ limit: 100, time: 3000 }).catch(() => undefined);
-					}
-					members = Array.from(guild.members.cache.values())
-						.map(m => ({
-							id: m.id,
-							username: m.user.username,
-							displayName: m.displayName || m.user.globalName || m.user.username,
-							avatar: m.user.avatarURL({ size: 64 }) || m.user.defaultAvatarURL,
-							isBot: m.user.bot,
-							roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
-						}));
-				} catch {}
+				members = mapGuildMembers(guild, queryText);
 			}
 
 			members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
@@ -2223,7 +2492,7 @@ process.on('message', async (msg) => {
 				return;
 			}
 
-			const member = await guild.members.fetch(msg.memberId).catch(() => null);
+			const member = await discordCall('fetching a member', () => guild.members.fetch(msg.memberId), null);
 			if (!member) {
 				if (process.send) process.send({ target: 'web', type: 'modify_member_role_response', reqId: msg.reqId, success: false, error: 'Member not found in server.' });
 				return;
@@ -2276,7 +2545,7 @@ process.on('message', async (msg) => {
 				return;
 			}
 
-			const member = await guild.members.fetch(msg.memberId).catch(() => null);
+			const member = await discordCall('fetching a member', () => guild.members.fetch(msg.memberId), null);
 			if (!member) {
 				if (process.send) process.send({ target: 'web', type: 'set_member_roles_response', reqId: msg.reqId, success: false, error: 'Member not found in server.' });
 				return;
@@ -2627,22 +2896,35 @@ process.on('message', async (msg) => {
 			try {
 				let channel = channelId ? guild.channels.cache.get(channelId) : null;
 				if (!channel) {
-					// Search all text channels for the message if channelId was not specified
-					const textChannels = guild.channels.cache.filter(c => c.type === 0);
-					for (const [, ch] of textChannels) {
-						try {
-							const targetMsg = await ch.messages.fetch(messageId).catch(() => undefined);
-							if (targetMsg) {
-								channel = ch;
-								break;
-							}
-						} catch {}
+					// No channel id, so the message has to be hunted for — one
+					// request per text channel, as fast as the loop can issue
+					// them. On a large server that is a burst of a hundred
+					// requests for a single reaction-role setup, which is the
+					// exact shape that earns a 429 and then a block.
+					//
+					// The cap bounds the burst, and stopping the moment we are
+					// refused stops it being a burst into a closed door. Pasting
+					// the full message link on the web side supplies the channel
+					// id and skips all of this.
+					const SEARCH_LIMIT = 25;
+					const textChannels = [...guild.channels.cache.filter(c => c.type === 0).values()];
+					if (textChannels.length > SEARCH_LIMIT) {
+						BotLogs(guild.name, `${COLOR.yellow}Searching only the first ${SEARCH_LIMIT} of ${textChannels.length} text channels for message ${messageId}. Paste the message link to name the channel directly.`);
+					}
+
+					for (const ch of textChannels.slice(0, SEARCH_LIMIT)) {
+						if (discordBlock.blocked()) break;
+						const targetMsg = await discordCall('fetching a reaction-role message', () => ch.messages.fetch(messageId));
+						if (targetMsg) {
+							channel = ch;
+							break;
+						}
 					}
 				}
 				if (channel) {
-					const targetMsg = await channel.messages.fetch(messageId).catch(() => undefined);
+					const targetMsg = await discordCall('fetching a reaction-role message', () => channel.messages.fetch(messageId));
 					if (targetMsg) {
-						await targetMsg.react(emoji).catch(() => undefined);
+						await discordCall('adding a reaction-role reaction', () => targetMsg.react(emoji));
 						BotLogs(guild.name, `${COLOR.green}Auto-reacted ${emoji} to target message ${messageId} in #${channel.name}`);
 					}
 				}
@@ -2660,6 +2942,13 @@ client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `${COLOR.red}[Disc
 // Ordinary 429s never reached the logs before, so the only evidence of a rate
 // limit problem was the eventual block. Now every one of them names the route
 // that caused it, which is where you start looking when the numbers climb.
+//
+// This fires on the pre-emptive wait — our own bucket accounting saying "you
+// have spent this route's budget, hold on". It is not the same event as a 429
+// coming back from Discord, which @discordjs/rest handles without emitting
+// anything; that one is caught by shouldStopForRateLimit above. Both are worth
+// seeing, because these are the early warning and the block is what happens
+// after they are ignored.
 client.rest.on('rateLimited', (info) => {
 	BotLogs('SYSTEM', `${COLOR.yellow}[Discord Rate Limit] ${info.method} ${info.route} — waiting ${info.timeToReset}ms${info.global ? ' (GLOBAL)' : ''}`);
 });

@@ -64,12 +64,12 @@ async function main() {
 
 	await assert.rejects(
 		() => activities.removeParticipant(P['โอม']),
-		/มีรายการเงินอยู่/,
+		error => error.code === 'participant_has_money',
 		'removing someone mid-settlement would silently change what everyone else owes',
 	);
 	ok('refuses to remove someone who has money attached, instead of quietly rewriting the split');
 
-	await assert.rejects(() => activities.removeParticipant(P['ฟิก']), /ออกเงินให้กลุ่ม/);
+	await assert.rejects(() => activities.removeParticipant(P['ฟิก']), error => error.code === 'participant_paid_out');
 	ok('refuses to remove the person who fronted the money');
 
 	console.log('\nthe wrong amount');
@@ -158,7 +158,7 @@ async function main() {
 	});
 	await assert.rejects(
 		() => activities.updateExpense(exp2.id, { shareParticipantIds: [P['โอม'], 'par_someone_else'] }),
-		/is not in this activity/,
+		error => error.code === 'participant_not_in_activity',
 	);
 	ok('an id from another activity is caught with a readable message, not a foreign key error');
 }

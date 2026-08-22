@@ -40,10 +40,8 @@ export default function Navbar() {
 		window.location.href = '/';
 	};
 
-	// Animated avatars are a_-prefixed and only exist as .gif; asking for .png
-	// on those returns a 404, which is why some users saw a broken image.
-	const avatarUrl = user?.avatar
-		? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.${user.avatar.startsWith('a_') ? 'gif' : 'png'}?size=64`
+	const avatarUrl = user?.avatarUrl
+		? user.avatarUrl
 		: 'https://cdn.discordapp.com/embed/avatars/0.png';
 
 	return (
@@ -64,6 +62,7 @@ export default function Navbar() {
 					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
 						{t.nav.servers}
 					</Link>
+					{user && <Link href="/account" className={`tab-btn ${pathname.startsWith('/account') ? 'active' : ''}`}>{t.nav.account}</Link>}
 					{isDev && (
 						<Link href="/developer" className={`tab-btn ${pathname.startsWith('/developer') ? 'active' : ''}`}>
 							Developer
@@ -89,15 +88,15 @@ export default function Navbar() {
 					{user ? (
 						<div className="user-profile-badge">
 							<img src={avatarUrl} className="user-avatar" alt="" width={28} height={28} />
-							<span className="user-name">{user.global_name || user.username}</span>
+							<Link href="/account" className="user-name">{user.displayName}</Link>
 							<button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ marginLeft: '0.25rem' }}>
 								{t.nav.signOut}
 							</button>
 						</div>
 					) : (
-						<a href="/api/auth/login" className="btn btn-discord btn-sm">
+						<Link href="/account" className="btn btn-primary btn-sm">
 							{t.nav.signIn}
-						</a>
+						</Link>
 					)}
 				</div>
 			</div>

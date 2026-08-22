@@ -54,11 +54,34 @@ async function exchangeCode(code, port) {
 	return res.json();
 }
 
+async function refreshToken(refreshToken) {
+	const res = await fetch(`${API}/oauth2/token`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
+			client_id: clientId(),
+			client_secret: clientSecret(),
+			grant_type: 'refresh_token',
+			refresh_token: String(refreshToken),
+		}),
+	});
+	if (!res.ok) throw new Error(`Discord token refresh failed: ${await res.text()}`);
+	return res.json();
+}
+
+// The body is the only place a Cloudflare block identifies itself — it arrives
+// as an ordinary failed response carrying
+// {"code":0,"message":"You are being blocked from accessing our API ..."}.
+// Throwing a tidy summary instead threw that sentence away, so the caller's
+// block guard could not recognise it, the user got a generic error, and the
+// obvious response to a generic error is to click sign in again. Every one of
+// those clicks is another request into a block that lengthens under traffic.
+// Keep the body: rate-limit.js reads it, and the guard exists to be tripped.
 async function fetchMe(accessToken) {
 	const res = await fetch(`${API}/users/@me`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
-	if (!res.ok) throw new Error('Failed to read Discord profile.');
+	if (!res.ok) throw new Error(`Failed to read Discord profile: ${await res.text()}`);
 	return res.json();
 }
 
@@ -66,7 +89,7 @@ async function fetchMyGuilds(accessToken) {
 	const res = await fetch(`${API}/users/@me/guilds`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
-	if (!res.ok) throw new Error('Failed to read Discord servers.');
+	if (!res.ok) throw new Error(`Failed to read Discord servers: ${await res.text()}`);
 	const data = await res.json();
 	return Array.isArray(data) ? data : [];
 }
@@ -99,6 +122,7 @@ module.exports = {
 	API,
 	authorizeUrl,
 	exchangeCode,
+	refreshToken,
 	fetchMe,
 	fetchMyGuilds,
 	avatarUrl,

@@ -99,6 +99,13 @@ const STATEMENTS = [
 	// they think they are paying.
 	'ALTER TABLE users ADD COLUMN IF NOT EXISTS promptpay_id TEXT;',
 	'ALTER TABLE users ADD COLUMN IF NOT EXISTS promptpay_name TEXT;',
+	"ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_source TEXT NOT NULL DEFAULT 'manual';",
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_profile_source_check') THEN
+			ALTER TABLE users ADD CONSTRAINT users_profile_source_check
+				CHECK (profile_source IN ('google', 'discord', 'manual'));
+		END IF;
+	END $$;`,
 
 	`CREATE TABLE IF NOT EXISTS identities (
 		id            TEXT PRIMARY KEY,
@@ -111,7 +118,86 @@ const STATEMENTS = [
 		created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
 		UNIQUE (provider, provider_uid)
 	);`,
+	'ALTER TABLE identities ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;',
+	'ALTER TABLE identities ADD COLUMN IF NOT EXISTS display_name TEXT;',
+	`UPDATE identities i SET display_name = u.display_name
+	 FROM users u WHERE i.user_id = u.id AND i.display_name IS NULL;`,
 	'CREATE INDEX IF NOT EXISTS identities_user_idx ON identities (user_id);',
+	'CREATE UNIQUE INDEX IF NOT EXISTS identities_user_provider_key ON identities (user_id, provider);',
+
+	// A merged id can remain in old sessions, bookmarks and audit metadata long
+	// after its user row is gone. Resolve it to the living account rather than
+	// recreating a second account from the stale session identity.
+	`CREATE TABLE IF NOT EXISTS user_aliases (
+		old_user_id TEXT PRIMARY KEY,
+		user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		merged_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK (old_user_id <> user_id)
+	);`,
+	'CREATE INDEX IF NOT EXISTS user_aliases_user_idx ON user_aliases (user_id);',
+
+	// Financial rows remain append-only. This table records the account-level
+	// operation that moved their user references, including enough counts to
+	// explain the change without retaining OAuth tokens or authorization codes.
+	`CREATE TABLE IF NOT EXISTS account_merges (
+		id                        TEXT PRIMARY KEY,
+		survivor_user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		original_survivor_user_id TEXT NOT NULL,
+		merged_user_id            TEXT NOT NULL,
+		provider_proof            JSONB NOT NULL DEFAULT '{}'::jsonb,
+		moved_counts              JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS account_merges_survivor_idx ON account_merges (survivor_user_id, created_at DESC);',
+
+	// Delivery choices belong to the Megu account, not to an OAuth provider or
+	// an activity. A second provider can therefore be connected without silently
+	// changing an existing choice from Discord to Both (or vice versa).
+	`CREATE TABLE IF NOT EXISTS notification_preferences (
+		user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		mode       TEXT NOT NULL CHECK (mode IN ('discord', 'email', 'both', 'off')),
+		locale     TEXT NOT NULL DEFAULT 'en' CHECK (locale IN ('en', 'th')),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+
+	// Discord refresh credentials are needed when somebody signs in through a
+	// linked Google identity and then opens the server dashboard. Tokens are
+	// sealed before they reach this table; plaintext OAuth credentials never do.
+	`CREATE TABLE IF NOT EXISTS oauth_credentials (
+		user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		provider         TEXT NOT NULL,
+		credential_json  JSONB NOT NULL,
+		expires_at       TIMESTAMPTZ,
+		updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+		PRIMARY KEY (user_id, provider)
+	);`,
+
+	// One semantic event can fan out to Discord, email and later app push. Each
+	// delivery has its own status and retry schedule so one broken channel does
+	// not make a successful channel look failed or send twice.
+	`CREATE TABLE IF NOT EXISTS notification_events (
+		id          TEXT PRIMARY KEY,
+		user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		event_type  TEXT NOT NULL,
+		payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+		dedupe_key  TEXT NOT NULL UNIQUE,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`CREATE TABLE IF NOT EXISTS notification_deliveries (
+		id              TEXT PRIMARY KEY,
+		event_id        TEXT NOT NULL REFERENCES notification_events(id) ON DELETE CASCADE,
+		channel         TEXT NOT NULL CHECK (channel IN ('discord', 'email', 'push')),
+		status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'skipped')),
+		attempts        INTEGER NOT NULL DEFAULT 0,
+		next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		sent_at         TIMESTAMPTZ,
+		last_error      TEXT,
+		locked_at       TIMESTAMPTZ,
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (event_id, channel)
+	);`,
+	'ALTER TABLE notification_deliveries ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;',
+	'CREATE INDEX IF NOT EXISTS notification_deliveries_pending_idx ON notification_deliveries (next_attempt_at) WHERE status IN (\'pending\', \'failed\');',
 
 	// Two independent axes, not one pipeline.
 	//
@@ -143,6 +229,9 @@ const STATEMENTS = [
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS plan_state TEXT NOT NULL DEFAULT \'open\';',
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurrence TEXT;',
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS due_day INTEGER;',
+	// Portable settlement instructions live on the activity. PromptPay stays a
+	// profile default on `users`; these options cover the rest of the world.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_options JSONB NOT NULL DEFAULT \'[]\'::jsonb;',
 	'CREATE INDEX IF NOT EXISTS activities_owner_idx ON activities (owner_user_id);',
 	'CREATE INDEX IF NOT EXISTS activities_guild_idx ON activities (guild_id);',
 
@@ -260,6 +349,9 @@ const STATEMENTS = [
 	// upstream of it is edited.
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS expected_satang BIGINT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS promptpay_target TEXT;',
+	// A historical payment must keep the destination it was shown even after
+	// the organizer edits the activity's payment settings.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_destination JSONB;',
 
 	// The slip.
 	//
@@ -352,6 +444,26 @@ const STATEMENTS = [
 		metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
 		created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
+	// A database that predates this foreign key can hold `actor_user_id` values
+	// whose user row is long gone — with no constraint in place, nothing ever
+	// cleared them. Adding the constraint on top of those rows fails, and since
+	// the whole of `initCoreSchema` is one transaction, that failure takes the
+	// renames and every CREATE below with it: the process boots with activities
+	// switched off and a foreign-key error in the log.
+	//
+	// The orphans are set to NULL rather than deleted, which is what the
+	// constraint itself would have done to them (`ON DELETE SET NULL`) had it
+	// existed at the time. A payment event whose actor is unknown is still the
+	// record that the event happened.
+	`UPDATE payment_events SET actor_user_id = NULL
+	  WHERE actor_user_id IS NOT NULL
+	    AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = payment_events.actor_user_id);`,
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_events_actor_user_id_fkey') THEN
+			ALTER TABLE payment_events ADD CONSTRAINT payment_events_actor_user_id_fkey
+				FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL;
+		END IF;
+	END $$;`,
 	'CREATE INDEX IF NOT EXISTS payment_events_payment_idx ON payment_events (payment_id, created_at);',
 	'CREATE INDEX IF NOT EXISTS payment_events_activity_idx ON payment_events (activity_id, created_at);',
 
