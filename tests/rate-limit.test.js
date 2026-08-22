@@ -173,8 +173,79 @@ function main() {
 			// 8. EX_TEMPFAIL. index.js reads this to mean "held down deliberately".
 			assert.strictEqual(BLOCK_EXIT_CODE, 75, 'the block exit code is EX_TEMPFAIL');
 			ok('the supervisor still has an exit code that means "do not restart me yet"');
+
+			everyRestClientRefusesToRetryForever();
 		});
 	}
+}
+
+/**
+ * The checklist item, as a test.
+ *
+ * "Any new `Client` or `REST` sets `rejectOnRateLimit`. The default retries an
+ * unexpected 429 forever." — DISCORD-RATE-LIMITS.md
+ *
+ * That item was checked by reading, and reading missed one: `deploy-commands.js`
+ * constructed a bare `new REST()` and ran as the first thing in `npm run boot`,
+ * which is the moment a deploy is most likely to be walking into a block it
+ * caused a minute ago. The uncapped retry path never settles its promise, so
+ * the script's own `catch` could not have reported it either.
+ *
+ * Scanning the source is crude, and it is the only check that fires on a file
+ * nobody thought to test. A construction site that is genuinely fine can name
+ * the option and pass.
+ */
+/** The text of a call, from its opening paren to the one that closes it. */
+function balancedCall(source, openIndex) {
+	let depth = 0;
+	for (let i = openIndex; i < source.length; i++) {
+		if (source[i] === '(') {
+			depth++;
+		}
+		else if (source[i] === ')') {
+			depth--;
+			if (depth === 0) return source.slice(openIndex, i + 1);
+		}
+	}
+	return source.slice(openIndex);
+}
+
+function everyRestClientRefusesToRetryForever() {
+	const fs = require('node:fs');
+	const path = require('node:path');
+	const root = path.join(__dirname, '..');
+
+	const files = [];
+	(function walk(dir) {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next') continue;
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) walk(full);
+			else if (entry.name.endsWith('.js')) files.push(full);
+		}
+	})(root);
+
+	const offenders = [];
+	for (const file of files) {
+		const source = fs.readFileSync(file, 'utf8');
+		for (const match of source.matchAll(/new (?:REST|Client)\s*\(/g)) {
+			// discord.js only. `pg`'s Client shares the name and has nothing to
+			// do with any of this.
+			if (!/require\(['"](discord\.js|@discordjs\/rest)['"]\)/.test(source)) continue;
+			// Read to the matching close paren rather than a fixed window: the
+			// bot's Client carries a long comment between the brace and the
+			// `rest` block, and any window short enough to be safe elsewhere
+			// would cut it off and report a false offender.
+			const call = balancedCall(source, match.index + match[0].length - 1);
+			if (!call.includes('rejectOnRateLimit')) {
+				offenders.push(`${path.relative(root, file)}: ${call.split('\n')[0].trim()}`);
+			}
+		}
+	}
+
+	assert.deepStrictEqual(offenders, [],
+		`these construct a discord.js REST/Client without rejectOnRateLimit, which retries an unexpected 429 forever:\n  ${offenders.join('\n  ')}`);
+	ok(`every discord.js REST/Client sets rejectOnRateLimit (${files.length} files scanned)`);
 }
 
 Promise.resolve()
