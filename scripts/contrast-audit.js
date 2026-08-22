@@ -38,6 +38,18 @@ const PAIRS = [
 	['line-2', 'paper', 1.5, 'borders and control outlines'],
 	['line-2', 'surface', 1.5, 'borders on a panel'],
 
+	// The landing page's full-bleed bands. They carry their own ground in both
+	// themes, so their contrast has to be measured inside their own set — the
+	// page tokens say nothing about what is readable on top of a band.
+	['band-ink', 'band', AA_BODY, 'headings and copy on a band'],
+	['band-dim', 'band', AA_BODY, 'the lede and eyebrow on a band'],
+	['band-accent', 'band', AA_BODY, 'the one accented word in the headline'],
+	['band-ink', 'band-2', AA_BODY, 'copy on the second band'],
+	['band-dim', 'band-2', AA_BODY, 'the lede on the second band'],
+	// A filled control is not text: AA asks 3:1 of it against what it sits on.
+	['band-cta', 'band', AA_LARGE, 'the call to action against the band'],
+	['on-brand', 'band-cta', AA_BODY, 'its label'],
+
 	// Audit-log category badges. Measured against the panel they sit on rather
 	// than their own tint, because the tint is only ~12–18% of the same hue and
 	// the panel dominates what the eye actually sees behind the text.
