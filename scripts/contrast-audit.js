@@ -14,6 +14,8 @@ const CSS = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'u
 
 const AA_BODY = 4.5;
 const AA_LARGE = 3;
+// Non-text contrast: the boundary of a control, per WCAG 1.4.11.
+const AA_UI = 3;
 
 // foreground, background, minimum, what it is
 const PAIRS = [
@@ -35,8 +37,40 @@ const PAIRS = [
 	['settled', 'surface', AA_BODY, 'settled amounts on a panel'],
 	['settled', 'settled-soft', AA_BODY, 'settled text on its own tint'],
 	['on-brand', 'brand', AA_BODY, 'button text'],
-	['line-2', 'paper', 1.5, 'borders and control outlines'],
-	['line-2', 'surface', 1.5, 'borders on a panel'],
+	// A border a person operates is a non-text UI boundary, which WCAG 1.4.11
+	// puts at 3:1 — the same bar as an icon, not the courtesy 1.5 this used to
+	// ask for. What that floor deliberately does not cover is --ornament: the
+	// ghosted step numerals, the hairline that joins them and the bullets, none
+	// of which bound anything. Those are absent from this table on purpose.
+	['line-2', 'paper', AA_UI, 'borders and control outlines'],
+	['line-2', 'surface', AA_UI, 'borders on a panel'],
+	['line-2', 'band-light', AA_UI, 'borders on the light band'],
+
+	// The light band between the two dark ones carries the same body copy the
+	// page does, so it is measured like a page ground.
+	['ink', 'band-light', AA_BODY, 'body text on the light band'],
+	['muted', 'band-light', AA_BODY, 'meta on the light band'],
+	['faint', 'band-light', AA_LARGE, 'captions on the light band'],
+
+	// The landing page's full-bleed bands. They carry their own ground in both
+	// themes, so their contrast has to be measured inside their own set — the
+	// page tokens say nothing about what is readable on top of a band.
+	['band-ink', 'band', AA_BODY, 'headings and copy on a band'],
+	['band-dim', 'band', AA_BODY, 'the lede and eyebrow on a band'],
+	['band-accent', 'band', AA_BODY, 'the one accented word in the headline'],
+	['band-ink', 'band-2', AA_BODY, 'copy on the second band'],
+	['band-dim', 'band-2', AA_BODY, 'the lede on the second band'],
+	// A filled control is not text: AA asks 3:1 of it against what it sits on.
+	['band-cta', 'band', AA_UI, 'the call to action against the band'],
+	['on-brand', 'band-cta', AA_BODY, 'its label'],
+
+	// The closing plate is the one surface that commits to a colour, and it
+	// takes the whole set with it: the copy, and the inverted button that
+	// replaces --band-cta there because --band-cta cannot be seen on it.
+	['band-ink', 'band-plate', AA_BODY, 'the closing headline on its plate'],
+	['band-dim', 'band-plate', AA_BODY, 'the closing lede on its plate'],
+	['band-ink', 'band-plate', AA_UI, 'the inverted button against the plate'],
+	['band-plate', 'band-ink', AA_BODY, 'that button\'s label'],
 
 	// Audit-log category badges. Measured against the panel they sit on rather
 	// than their own tint, because the tint is only ~12–18% of the same hue and
