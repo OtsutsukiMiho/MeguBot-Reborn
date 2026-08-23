@@ -81,6 +81,17 @@ const en = {
 	servers: {
 		signedOutTitle: 'Your servers',
 		signedOutLede: 'Sign in to see the servers you manage and configure Megu for them.',
+
+		// This page is the Discord bot's console, not the activities half, so
+		// being signed in to Megu with Google is not enough on its own — it needs
+		// a Discord authorisation to know which servers you manage. Say which of
+		// those is missing rather than showing "Sign in" to somebody who is.
+		discordNeededTitle: 'This part needs Discord',
+		discordNeededLede: 'This is the console for Megu’s Discord bot, so it needs your Discord account to know which servers you manage. The account you are signed in with has not connected Discord yet.',
+		discordNeededAction: 'Connect Discord',
+		discordExpiredTitle: 'Connect Discord again',
+		discordExpiredLede: 'Your account has Discord connected, but Megu could not ask Discord for your server list — the permission has expired or been withdrawn. Connecting again puts it back.',
+		discordExpiredAction: 'Reconnect Discord',
 		title: 'Choose a server to configure',
 		activeCount: n => `${n} ${n === 1 ? 'server has' : 'servers have'} Megu`,
 		missingCount: n => `${n} ${n === 1 ? 'server has' : 'servers have'} not invited Megu yet`,
