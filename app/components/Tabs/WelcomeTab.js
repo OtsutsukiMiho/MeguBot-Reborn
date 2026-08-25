@@ -4,7 +4,7 @@ import CustomSelect from '../CustomSelect';
 
 const DEFAULT_WELCOME_EMBED = {
 	title: 'Welcome to {server}!',
-	description: 'Welcome {member} to our community! Please make sure to check the rules and enjoy your stay. 🎉',
+	description: 'Welcome {member} to our community! Please make sure to check the rules and enjoy your stay.',
 	color: '#5865f2',
 	thumbnailUrl: '{avatar}',
 	footerText: 'Member #{membercount} • {server}',
@@ -13,7 +13,7 @@ const DEFAULT_WELCOME_EMBED = {
 
 const DEFAULT_LEAVE_EMBED = {
 	title: 'Member Departed',
-	description: '**{username}** has left the server. Goodbye! 👋',
+	description: '**{username}** has left the server. Goodbye!',
 	color: '#ed4245',
 	thumbnailUrl: '{avatar}',
 	footerText: '{server}',
@@ -96,7 +96,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
 					<h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
-						👋 Welcome Message Settings
+						Welcome Message Settings
 					</h4>
 
 					{/* Mode Switch */}
@@ -116,7 +116,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 								transition: 'all 0.2s ease',
 							}}
 						>
-							💬 Text Message
+							Text Message
 						</button>
 						<button
 							type="button"
@@ -133,7 +133,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 								transition: 'all 0.2s ease',
 							}}
 						>
-							🎨 Rich Embed
+							Rich Embed
 						</button>
 					</div>
 				</div>
@@ -385,7 +385,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
 					<h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
-						🚪 Leave Notification Settings
+						Leave Notification Settings
 					</h4>
 
 					{/* Mode Switch */}
@@ -405,7 +405,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 								transition: 'all 0.2s ease',
 							}}
 						>
-							💬 Text Message
+							Text Message
 						</button>
 						<button
 							type="button"
@@ -422,7 +422,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 								transition: 'all 0.2s ease',
 							}}
 						>
-							🎨 Rich Embed
+							Rich Embed
 						</button>
 					</div>
 				</div>

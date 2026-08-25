@@ -377,6 +377,91 @@ async function setUserNick(guildId, userId, name) {
 	}
 }
 
+async function getAllGuildNicks(guildId) {
+	const nicks = {};
+	if (pool) {
+		try {
+			const res = await pool.query(
+				'SELECT user_id, nickname FROM user_nicks WHERE guild_id = $1',
+				[guildId],
+			);
+			for (const row of res.rows) {
+				if (row.user_id && row.nickname) {
+					nicks[row.user_id] = row.nickname;
+				}
+			}
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in getAllGuildNicks: ${error.message}`);
+		}
+	}
+	else {
+		if (!isValidSnowflake(guildId)) return {};
+		const dbPath = path.join(NICK_DIR, `${guildId}.json`);
+		if (fs.existsSync(dbPath)) {
+			try {
+				const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+				if (data.users && Array.isArray(data.users)) {
+					for (const u of data.users) {
+						if (u.id && u.name) {
+							nicks[u.id] = u.name;
+						}
+					}
+				}
+				else if (typeof data === 'object') {
+					for (const [uid, name] of Object.entries(data)) {
+						if (uid && name && typeof name === 'string') {
+							nicks[uid] = name;
+						}
+					}
+				}
+			}
+			catch {
+				// Ignore
+			}
+		}
+	}
+	return nicks;
+}
+
+async function deleteUserNick(guildId, userId) {
+	if (pool) {
+		try {
+			await pool.query(
+				'DELETE FROM user_nicks WHERE guild_id = $1 AND user_id = $2',
+				[guildId, userId],
+			);
+			return true;
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in deleteUserNick: ${error.message}`);
+			return false;
+		}
+	}
+	else {
+		if (!isValidSnowflake(guildId)) return false;
+		const dbPath = path.join(NICK_DIR, `${guildId}.json`);
+		if (fs.existsSync(dbPath)) {
+			try {
+				const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+				if (data.users && Array.isArray(data.users)) {
+					data.users = data.users.filter(u => u.id !== userId);
+				}
+				else if (data[userId]) {
+					delete data[userId];
+				}
+				fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+				return true;
+			}
+			catch (error) {
+				BotLogs('SYSTEM', `${COLOR.red}Error deleting user nick (local): ${error.message}`);
+				return false;
+			}
+		}
+		return false;
+	}
+}
+
 async function getAllHoneypots() {
 	const honeypots = new Map();
 	if (pool) {
@@ -727,6 +812,8 @@ async function getGuildAuditLogs(guildId, limit = 50, filterType = null) {
 					query += " AND (event_type LIKE 'AUTOMOD%' OR action_type LIKE 'AUTOMOD%')";
 				} else if (filterType === 'REACTION_ROLE') {
 					query += " AND (event_type LIKE 'REACTION_ROLE%' OR action_type LIKE 'REACTION_ROLE%')";
+				} else if (filterType === 'NICKNAME') {
+					query += " AND (event_type LIKE 'NICKNAME%' OR action_type LIKE 'NICKNAME%')";
 				} else {
 					query += ' AND (event_type = $2 OR action_type = $2)';
 					params.push(filterType);
@@ -924,6 +1011,8 @@ module.exports = {
 	deleteGuildVar,
 	getUserNick,
 	setUserNick,
+	getAllGuildNicks,
+	deleteUserNick,
 	getAllHoneypots,
 	getAllTtsChannels,
 	getAllAutoModConfigs,
