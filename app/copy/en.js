@@ -669,6 +669,29 @@ const en = {
 		readNote: 'Read from the picture, not from a bank. Worth a look before you confirm.',
 	},
 
+	// The record of one payment. Kept apart from `receipt`, which is about
+	// photographing a restaurant bill — two different things that English
+	// unhelpfully gives the same word.
+	receiptPage: {
+		title: 'Payment receipt',
+		fromTo: (from, to) => `${from} → ${to}`,
+		status: 'Status',
+		method: 'Payment method',
+		reference: 'Reference',
+		asked: 'Amount asked for',
+		reason: 'Reason',
+		export: 'Save as PDF',
+		viewSlip: 'View payment slip',
+		disclaimer: 'Recorded by Megu. This is a record of what the group agreed, not proof of a bank transfer.',
+		statuses: {
+			pending: 'Waiting for confirmation',
+			confirmed: 'Confirmed',
+			rejected: 'Rejected',
+			reversed: 'Confirmation cancelled',
+			voided: 'Withdrawn',
+		},
+	},
+
 	receipt: {
 		scan: 'Scan a receipt',
 		hint: 'Photograph the bill and Megu will read the lines off it. You check them before anything is added.',

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import SlipPicker from '../SlipPicker';
 import SlipReading from '../SlipReading';
 import { useCopy } from '../../copy';
@@ -281,13 +282,20 @@ export function PaymentHistory({ payments, code, nameOf, lang }) {
 							)}
 						</div>
 						<span className="row-figure fig-due">{fmt.money(p.amountSatang)}</span>
-						{p.hasSlip && (
-							<span className="row-tools">
+						<span className="row-tools">
+							{/* The record of what happened, for the two people at
+							    either end of it. Reachable from the row rather
+							    than only after paying, because the moment somebody
+							    wants it is the moment they are arguing about it. */}
+							<Link className="link-btn" href={`/a/${code}/receipt/${p.id}`}>
+								{t.receiptPage.title}
+							</Link>
+							{p.hasSlip && (
 								<a className="link-btn" href={`/api/megu/a/${code}/payments/${p.id}/slip?lang=${lang}`} target="_blank" rel="noreferrer">
 									{t.pay.viewSlip}
 								</a>
-							</span>
-						)}
+							)}
+						</span>
 					</div>
 				))}
 			</div>

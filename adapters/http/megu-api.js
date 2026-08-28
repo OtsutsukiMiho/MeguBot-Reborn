@@ -6,7 +6,7 @@ const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
-const { activities, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods } = core;
+const { activities, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
 
 // A slip photographed on a phone is a few hundred kilobytes once the browser
 // has shrunk it. The ceiling is generous enough that nobody meets it by
@@ -564,6 +564,9 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				// screen treats that as "applies to whoever you are looking at"
 				// rather than hiding the claim, which would read as lost money.
 				creditorParticipantId: p.creditorParticipantId,
+				// What the receipt prints and a dispute quotes. Derived from the
+				// id, so it needs no column and cannot drift from the row.
+				reference: ids.publicReference(p.id),
 				amountSatang: allocatedAmount(p),
 				transferAmountSatang: p.amountSatang,
 				allocations: p.allocations,
@@ -639,6 +642,26 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
  * payee collects, and offering them for anybody else would print one person's
  * bank details under another person's name.
  */
+/**
+ * May this caller look at this payment in detail — its slip, its receipt?
+ *
+ * Three people have standing: whoever sent the money, whoever it was sent to,
+ * and the organizer. Everybody else on the roster can see that a payment
+ * happened and for how much; the evidence behind it carries bank account names
+ * and belongs to the two ends of the transfer.
+ */
+function canSeePayment(actor, activity, payment) {
+	if (access.activityRole(actor, activity) === 'owner') return true;
+	const mine = access.matchParticipants(actor, activity.participants);
+	if (mine.some(p => p.id === payment.participantId)) return true;
+	if (payment.creditorParticipantId && mine.some(p => p.id === payment.creditorParticipantId)) return true;
+	// A payment written before creditors existed still points at the payee.
+	if (!payment.creditorParticipantId && activity.payee) {
+		return mine.some(p => p.id === activity.payee.participantId);
+	}
+	return false;
+}
+
 /**
  * Who a given viewer is paying on this activity, or why that cannot be decided.
  *
@@ -1546,10 +1569,14 @@ function router(deps = {}) {
 			const payment = activity.payments.find(p => p.id === req.params.paymentId);
 			if (!payment) return fail(res, 404, 'payment_not_found');
 
-			const mine = access.matchParticipants(req.actor, activity.participants);
-			const isOwner = access.activityRole(req.actor, activity) === 'owner';
-			const isPayee = activity.payee && mine.some(p => p.id === activity.payee.participantId);
-			if (!isOwner && !isPayee && !mine.some(p => p.id === payment.participantId)) {
+			// Whoever sent it, whoever it was sent to, and the organizer.
+			//
+			// "Whoever it was sent to" used to mean only the activity's payee,
+			// which was the same thing while one person collected. It stopped
+			// being the same thing when a payment gained a creditor: somebody
+			// who fronted the taxi could be shown a claim against them and then
+			// refused the slip proving it.
+			if (!canSeePayment(req.actor, activity, payment)) {
 				return fail(res, 403, 'not_your_slip');
 			}
 

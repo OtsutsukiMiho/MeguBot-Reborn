@@ -42,6 +42,7 @@ const SUITES = [
 	['creditor.test.js', 'the creditor column — two people collecting, and the rows written before it existed'],
 	['api.test.js', 'HTTP layer — roles, redaction, claim and payment flow'],
 	['pay-routing.test.js', 'where the money is sent — two creditors, one roster, and whose QR is printed'],
+	['receipt-access.test.js', 'one payment in detail — the payer, the creditor and the organizer, and nobody else'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
 

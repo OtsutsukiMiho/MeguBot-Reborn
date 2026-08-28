@@ -3646,6 +3646,143 @@ textarea.form-control {
 	font-weight: 600;
 }
 
+/* ------------------------------------------------------------- the receipt */
+
+/* The amount is the whole point of the page, so it is the size of one. */
+.receipt-amount {
+	font-size: clamp(2rem, 8vw, 2.9rem);
+	font-weight: 700;
+	line-height: 1.1;
+	font-variant-numeric: tabular-nums;
+}
+
+.receipt-parties {
+	margin-top: .3rem;
+	font-size: 1.05rem;
+	overflow-wrap: anywhere;
+}
+
+.receipt-activity {
+	margin-top: .5rem;
+	color: var(--ink-2);
+	overflow-wrap: anywhere;
+}
+
+.receipt-when {
+	color: var(--muted);
+	font-size: .9rem;
+}
+
+.receipt-facts {
+	display: grid;
+	gap: .6rem;
+	margin: 1.1rem 0 0;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+}
+
+.receipt-facts > div {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: .5rem .9rem;
+}
+
+.receipt-facts dt {
+	color: var(--muted);
+	font-size: .85rem;
+}
+
+.receipt-facts dd {
+	margin: 0;
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+/* The reference is read down a phone and typed into a bank's box, so it gets
+   digits that line up and characters that cannot be confused for each other. */
+.receipt-reference {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	letter-spacing: .02em;
+}
+
+.receipt-status {
+	font-weight: 600;
+}
+
+.receipt-status.is-confirmed {
+	color: var(--settled);
+}
+
+.receipt-status.is-rejected,
+.receipt-status.is-reversed {
+	color: var(--alarm);
+}
+
+.receipt-status.is-pending {
+	color: var(--due);
+}
+
+.receipt-note {
+	margin: 1rem 0 0;
+	color: var(--faint);
+	font-size: .78rem;
+	line-height: 1.5;
+}
+
+.receipt-actions {
+	margin-top: .9rem;
+}
+
+/* Print, which is also how a PDF gets made.
+
+   Nothing is regenerated for paper: the sheet on screen is the sheet that
+   comes out, which is why Thai cannot break here. The browser already has the
+   fonts and already shapes the script — the failure a server-side PDF has, of
+   rendering the numbers perfectly and the Thai as boxes, has no way to happen
+   when the renderer is the one the reader was already looking at.
+
+   Colour is dropped rather than trusted; a status that reads correctly only in
+   colour would not survive a black-and-white printer, and it does not have to
+   — every state is a word as well. */
+@media print {
+	.no-print,
+	.navbar,
+	.footer,
+	nav {
+		display: none !important;
+	}
+
+	body {
+		background: #fff;
+		color: #000;
+	}
+
+	.receipt-sheet {
+		box-shadow: none;
+		border: 1px solid #999;
+		border-radius: 0;
+		background: #fff;
+		color: #000;
+		break-inside: avoid;
+	}
+
+	.receipt-facts dt,
+	.receipt-when,
+	.receipt-note {
+		color: #444;
+	}
+
+	.receipt-status {
+		color: #000 !important;
+	}
+
+	@page {
+		margin: 16mm;
+	}
+}
+
 /* ------------------------------------------------ where people can pay you */
 
 .method-list {
