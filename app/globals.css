@@ -3357,6 +3357,7 @@ textarea.form-control {
    control on the screen: it sits above a QR somebody is about to scan. */
 .btn-quiet {
 	align-self: flex-start;
+	min-height: 40px;
 	margin-bottom: .6rem;
 	padding: .35rem .1rem;
 	border: 0;
@@ -3643,6 +3644,119 @@ textarea.form-control {
 	background: var(--accent-soft, var(--surface));
 	color: var(--ink);
 	font-weight: 600;
+}
+
+/* ------------------------------------------------ where people can pay you */
+
+.method-list {
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.method-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: .6rem;
+	padding: .7rem .85rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--sunk);
+}
+
+.method-row-main {
+	min-width: 0;
+	flex: 1 1 12rem;
+}
+
+.method-row-label {
+	display: flex;
+	align-items: center;
+	gap: .45rem;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* An account number is not a heading. It is the line somebody checks against
+   their banking app, so it is legible and monospaced-by-numerals rather than
+   loud. */
+.method-row-detail {
+	margin-top: .15rem;
+	color: var(--muted);
+	font-size: .85rem;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* One of these deletes a bank account, on a phone, next to two other controls.
+   `btn-sm` is 30px everywhere else in the app and that is fine for a toolbar;
+   it is not fine for a row where the mis-tap removes somebody's payment
+   details, so every button here gets a real target. */
+.method-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .4rem;
+}
+
+.method-row-actions .btn {
+	min-height: 40px;
+}
+
+.method-types {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35rem;
+}
+
+.method-form {
+	padding-top: .3rem;
+}
+
+/* The preview is the check, so it has to read as the thing being previewed and
+   not as another field. Bordered and inset, with the tag small enough to get
+   out of the way of what it is labelling. */
+.method-preview {
+	margin-top: .2rem;
+	padding: .75rem .85rem;
+	border: 1px dashed var(--line-2);
+	border-radius: var(--r-sm);
+	background: var(--paper);
+}
+
+.method-preview-tag {
+	display: block;
+	margin-bottom: .45rem;
+	color: var(--faint);
+	font-size: .75rem;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+}
+
+.method-preview-label {
+	font-weight: 600;
+}
+
+.method-preview-name {
+	color: var(--ink-2);
+	font-size: .9rem;
+}
+
+.method-preview-line {
+	margin-top: .2rem;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+.method-preview-note {
+	margin: .4rem 0 0;
+	color: var(--muted);
+	font-size: .85rem;
 }
 
 /* Whether the numbers add up yet. Words carry this, not colour — the colour is

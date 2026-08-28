@@ -6,7 +6,7 @@ const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
-const { activities, users, access, tokens, money, format, voice, promptpay, notifications } = core;
+const { activities, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods } = core;
 
 // A slip photographed on a phone is a few hundred kilobytes once the browser
 // has shrunk it. The ceiling is generous enough that nobody meets it by
@@ -678,21 +678,45 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
 	// participant ids alone would answer "not the payee" for the one person the
 	// activity was set up to pay.
 	const forPayee = creditorParticipantId === null || creditorParticipantId === payeeId;
-	const profile = creditorParticipantId ? activity.paymentProfiles?.get(creditorParticipantId) : null;
-
-	const promptpayId = forPayee ? (activity.payee?.promptpayId || null) : (profile?.promptpayId || null);
-	const accountName = forPayee ? (activity.payee?.promptpayName || null) : (profile?.promptpayName || null);
 	const recipientId = creditorParticipantId || payeeId;
+	const profile = recipientId ? activity.paymentProfiles?.get(recipientId) : null;
 
 	const options = [];
-	if (activity.currency === 'THB' && promptpayId) {
+
+	// Whatever this person saved on their own account — a bank account, a link,
+	// "cash, find me at the table". Every creditor gets their own, which is the
+	// point: before, only the organizer could be paid by anything but PromptPay,
+	// and only into details retyped into each activity separately.
+	for (const method of profile?.methods || []) {
+		// PromptPay is a Thai baht instrument and a QR that cannot be built is
+		// worse than no option at all.
+		if (method.type === 'promptpay' && activity.currency !== 'THB') continue;
+		options.push({
+			id: method.id,
+			type: method.type,
+			label: method.label,
+			destination: method.destination,
+			masked: method.type === 'promptpay' && method.destination
+				? promptpay.maskTarget(method.destination)
+				: null,
+			accountName: method.accountName,
+			instructions: method.instructions,
+			url: method.url,
+			source: 'profile',
+			creditorParticipantId: recipientId,
+		});
+	}
+
+	// The organizer who never joined the roster has no participant row and so
+	// no profile above, but is still who the activity collects for.
+	if (forPayee && options.length === 0 && activity.currency === 'THB' && activity.payee?.promptpayId) {
 		options.push({
 			id: `profile-promptpay-${recipientId}`,
 			type: 'promptpay',
 			label: 'PromptPay',
-			destination: promptpayId,
-			masked: promptpay.maskTarget(promptpayId),
-			accountName: accountName || null,
+			destination: activity.payee.promptpayId,
+			masked: promptpay.maskTarget(activity.payee.promptpayId),
+			accountName: activity.payee.promptpayName || null,
 			instructions: null,
 			url: null,
 			source: 'profile',
@@ -753,6 +777,64 @@ function router(deps = {}) {
 	// Where this person wants to be paid. Their own account, their own bank —
 	// Megu prints the address on a QR and never stands between the two ends of
 	// the transfer.
+	/**
+	 * Where people can pay this person.
+	 *
+	 * Scoped to the caller's own account throughout — every route below takes
+	 * the user id from the session and never from the request, so there is no
+	 * shape of request that edits somebody else's bank details.
+	 */
+	api.get('/me/payment-methods', requireAccount, async (req, res, next) => {
+		try {
+			res.json({ paymentMethods: await paymentMethods.listForUser(req.actor.userId) });
+		}
+		catch (error) { next(error); }
+	});
+
+	api.post('/me/payment-methods', requireAccount, async (req, res, next) => {
+		try {
+			await paymentMethods.create(req.actor.userId, req.body || {});
+			res.status(201).json({ paymentMethods: await paymentMethods.listForUser(req.actor.userId) });
+		}
+		catch (error) {
+			if (error.code || error.message === 'promptpay_unrecognised') {
+				return fail(res, 400, error.code || error.message);
+			}
+			next(error);
+		}
+	});
+
+	api.patch('/me/payment-methods/:methodId', requireAccount, async (req, res, next) => {
+		try {
+			await paymentMethods.update(req.params.methodId, req.actor.userId, req.body || {});
+			res.json({ paymentMethods: await paymentMethods.listForUser(req.actor.userId) });
+		}
+		catch (error) {
+			if (error.code === 'payment_method_not_found') return fail(res, 404, error.code);
+			if (error.code || error.message === 'promptpay_unrecognised') {
+				return fail(res, 400, error.code || error.message);
+			}
+			next(error);
+		}
+	});
+
+	api.delete('/me/payment-methods/:methodId', requireAccount, async (req, res, next) => {
+		try {
+			const removed = await paymentMethods.remove(req.params.methodId, req.actor.userId);
+			if (!removed) return fail(res, 404, 'payment_method_not_found');
+			res.json({ paymentMethods: await paymentMethods.listForUser(req.actor.userId) });
+		}
+		catch (error) { next(error); }
+	});
+
+	// The order is the default: whatever is first is what gets offered first.
+	api.put('/me/payment-methods/order', requireAccount, async (req, res, next) => {
+		try {
+			res.json({ paymentMethods: await paymentMethods.reorder(req.actor.userId, req.body?.methodIds) });
+		}
+		catch (error) { next(error); }
+	});
+
 	api.patch('/me', requireAccount, async (req, res, next) => {
 		try {
 			const body = req.body || {};

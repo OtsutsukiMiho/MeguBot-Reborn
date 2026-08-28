@@ -604,11 +604,35 @@ const en = {
 		add: 'Add this option',
 		save: 'Save payment options',
 		types: {
+			promptpay: 'PromptPay',
 			bank_transfer: 'Bank transfer',
 			payment_link: 'Payment link',
 			cash: 'Cash',
-			custom: 'Custom instructions',
+			custom: 'Something else',
 		},
+		// The account screen asks a different question from the activity screen:
+		// not "how does this group settle up" but "where do my friends send my
+		// money", which is a fact about a person and travels with them.
+		accountTitle: 'Where people can pay you',
+		accountHint: 'These follow you into every activity. Whoever owes you sees them when they come to pay.',
+		empty: 'Nothing here yet. Add somewhere people can send money and Megu will show it to them.',
+		addTitle: 'Add a payment method',
+		editTitle: 'Edit this payment method',
+		defaultTag: 'Offered first',
+		makeDefault: 'Offer this first',
+		destinationFieldFor: {
+			promptpay: 'PromptPay number or ID',
+			bank_transfer: 'Account number',
+			custom: 'Where to send it',
+		},
+		destinationPlaceholderFor: {
+			promptpay: 'Phone number or national ID',
+			bank_transfer: 'e.g. 123-4-56789-0',
+			custom: 'Anything the payer needs to send it to',
+		},
+		accountNamePlaceholder: 'The name their banking app will show',
+		previewTitle: 'What they will see',
+		previewEmpty: 'Add the details and they will appear here.',
 	},
 
 	promptpay: {

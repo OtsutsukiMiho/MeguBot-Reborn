@@ -125,6 +125,58 @@ const STATEMENTS = [
 	'CREATE INDEX IF NOT EXISTS identities_user_idx ON identities (user_id);',
 	'CREATE UNIQUE INDEX IF NOT EXISTS identities_user_provider_key ON identities (user_id, provider);',
 
+	// Where somebody can be paid, wherever they are being paid from.
+	//
+	// A way of receiving money belongs to the person, not to one dinner. It was
+	// split across two places that each had half the answer: PromptPay sat on
+	// `users`, which is right, and everything else sat in `activities.
+	// payment_options`, which meant an organizer retyped their bank details into
+	// every activity and nobody but the organizer could be paid by bank at all.
+	// The second half of that stopped being tolerable the moment a payment could
+	// name a creditor who was not the organizer.
+	//
+	// Order is the whole of the "default" concept: the first row is what gets
+	// offered first. A separate `is_default` flag would be a second source of
+	// truth for the same fact, and the two would disagree the first time a row
+	// was deleted.
+	`CREATE TABLE IF NOT EXISTS payment_methods (
+		id            TEXT PRIMARY KEY,
+		user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		type          TEXT NOT NULL,
+		label         TEXT NOT NULL,
+		destination   TEXT,
+		account_name  TEXT,
+		url           TEXT,
+		instructions  TEXT,
+		position      INTEGER NOT NULL DEFAULT 0,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_methods_type_check') THEN
+			ALTER TABLE payment_methods ADD CONSTRAINT payment_methods_type_check
+				CHECK (type IN ('promptpay', 'bank_transfer', 'payment_link', 'cash', 'custom'));
+		END IF;
+	END $$;`,
+	'CREATE INDEX IF NOT EXISTS payment_methods_user_idx ON payment_methods (user_id, position);',
+
+	// The PromptPay number people already saved becomes their first method, so
+	// nobody has to retype what Megu already knows. Guarded on the absence of a
+	// promptpay row rather than on a migration flag: it runs on every boot, does
+	// nothing on the second, and cannot double up if somebody adds a second
+	// number by hand in between.
+	// `md5(random())` rather than `gen_random_bytes`, which lives in pgcrypto and
+	// is not guaranteed to be installed on somebody's database.
+	`INSERT INTO payment_methods (id, user_id, type, label, destination, account_name, position)
+	 SELECT 'pmt_' || substring(md5(random()::text || clock_timestamp()::text) for 16),
+	        u.id, 'promptpay', 'PromptPay',
+	        u.promptpay_id, u.promptpay_name, 0
+	 FROM users u
+	 WHERE u.promptpay_id IS NOT NULL
+	   AND NOT EXISTS (
+	     SELECT 1 FROM payment_methods m WHERE m.user_id = u.id AND m.type = 'promptpay'
+	   );`,
+
 	// A merged id can remain in old sessions, bookmarks and audit metadata long
 	// after its user row is gone. Resolve it to the living account rather than
 	// recreating a second account from the stale session identity.

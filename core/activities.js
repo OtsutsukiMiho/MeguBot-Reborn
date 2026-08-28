@@ -1,6 +1,7 @@
 const { query, transaction } = require('./db.js');
 const { newId, newActivityCode } = require('./ids.js');
 const { resolveSplit } = require('./split.js');
+const paymentMethods = require('./payment-methods.js');
 const { assessSlip, validateAllocations } = require('./payment-evidence.js');
 const { pairwiseObligations, obligationsFor, paymentAmountInScope } = require('./obligations.js');
 
@@ -347,21 +348,22 @@ async function loadActivity(where, value) {
  * apart from "not on this roster".
  */
 async function loadPaymentProfiles(participants) {
-	const profiles = new Map(participants.map(p => [p.id, { promptpayId: null, promptpayName: null }]));
+	const profiles = new Map(participants.map(p => [p.id, { promptpayId: null, promptpayName: null, methods: [] }]));
 	const userIds = [...new Set(participants.filter(p => p.userId).map(p => p.userId))];
 	if (userIds.length === 0) return profiles;
 
-	const res = await query(
-		'SELECT id, promptpay_id, promptpay_name FROM users WHERE id = ANY($1::text[])',
-		[userIds],
-	);
-	const byUser = new Map(res.rows.map(r => [r.id, r]));
+	const byUser = await paymentMethods.listForUsers(userIds);
 	for (const participant of participants) {
-		const user = participant.userId ? byUser.get(participant.userId) : null;
-		if (!user) continue;
+		const methods = participant.userId ? (byUser.get(participant.userId) || []) : [];
+		if (methods.length === 0) continue;
+		// PromptPay is still surfaced on its own because the QR route and the
+		// payee summary both ask for "the number", and the first PromptPay
+		// method is what that means now.
+		const promptpay = methods.find(method => method.type === 'promptpay') || null;
 		profiles.set(participant.id, {
-			promptpayId: user.promptpay_id || null,
-			promptpayName: user.promptpay_name || null,
+			promptpayId: promptpay?.destination || null,
+			promptpayName: promptpay?.accountName || null,
+			methods,
 		});
 	}
 	return profiles;

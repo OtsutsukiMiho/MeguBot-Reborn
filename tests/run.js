@@ -35,6 +35,7 @@ const SUITES = [
 	['payment-due.test.js', 'the deadline — announced once, deferrable with a reason, never a mute'],
 	['payment-lifecycle.test.js', 'multi-period transfers, private evidence, auto-confirmation and reversal'],
 	['poll.test.js', 'the time poll — proposing, voting, and Megu deciding'],
+	['payment-methods.test.js', 'where a person can be paid — owned by them, and only editable by them'],
 	['split-expenses.test.js', 'split modes against Postgres — the division survives a correction'],
 	['corrections.test.js', 'editing, deleting and undoing — the ledger must be correctable'],
 	['creditor.test.js', 'the creditor column — two people collecting, and the rows written before it existed'],

@@ -319,6 +319,35 @@ async function setPromptPay(userId, { promptpayId, promptpayName }) {
 		[userId, stored, clearing ? null : name],
 	);
 	if (res.rows.length === 0) throw new Error('user_not_found');
+
+	// The number lives in `payment_methods` now, which is where everything
+	// reads it from. These columns stay written so a database rolled back to
+	// an older build still finds it, and because the schema's backfill reads
+	// them — but they are no longer what anybody asks.
+	//
+	// Kept in one statement each so the profile screen and the payment-methods
+	// screen cannot end up disagreeing about the same number.
+	if (clearing) {
+		await query('DELETE FROM payment_methods WHERE user_id = $1 AND type = $2', [userId, 'promptpay']);
+	}
+	else {
+		const updated = await query(
+			`UPDATE payment_methods SET destination = $2, account_name = $3, updated_at = now()
+			 WHERE user_id = $1 AND type = 'promptpay' RETURNING id`,
+			[userId, stored, name],
+		);
+		if (updated.rows.length === 0) {
+			// First number this person has saved. It goes to the front, because
+			// somebody who has just entered one is telling you where to send it.
+			await query(
+				`INSERT INTO payment_methods (id, user_id, type, label, destination, account_name, position)
+				 VALUES ($1, $2, 'promptpay', 'PromptPay', $3, $4,
+				         (SELECT COALESCE(MIN(position) - 1, 0) FROM payment_methods WHERE user_id = $2))`,
+				[newId('pmt'), userId, stored, name],
+			);
+		}
+	}
+
 	return rowToUser(res.rows[0]);
 }
 

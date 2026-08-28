@@ -10,6 +10,7 @@ const promptpay = require('./promptpay.js');
 const slip = require('./slip.js');
 const receipt = require('./receipt.js');
 const paymentEvidence = require('./payment-evidence.js');
+const paymentMethods = require('./payment-methods.js');
 const obligations = require('./obligations.js');
 const { initCoreSchema } = require('./schema.js');
 const users = require('./users.js');
@@ -33,6 +34,7 @@ module.exports = {
 	slip,
 	receipt,
 	paymentEvidence,
+	paymentMethods,
 	obligations,
 	users,
 	accountMerge,
