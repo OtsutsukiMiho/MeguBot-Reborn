@@ -29,8 +29,8 @@ const COPY = {
 		h1: ['เลิกเป็นคนที่ต้อง', 'ทวง', 'เพื่อนเอง'],
 		lede: 'Megu พาเรื่องที่พวกคุณนัดกันไว้ ตั้งแต่ “เอาไงดี” จนถึง “ทุกคนจ่ายครบ” เขาถามแทน สรุปแทน เตือนแทน และทวงแทน โดยไม่มีใครต้องเสียเพื่อน',
 		ctaIn: 'ไปที่กิจกรรมของฉัน',
-		ctaOut: 'เริ่มใช้ฟรีด้วย Discord',
-		ctaServers: 'ตั้งค่าบอทในเซิร์ฟเวอร์',
+		ctaOut: 'เริ่มใช้ฟรี',
+		ctaServers: 'ดูฝั่ง Discord',
 		scrollCue: 'เลื่อนดู',
 		steps: [
 			{ word: 'ถาม', h: 'ว่างวันไหนบ้าง', p: 'แปะลิงก์ในกลุ่มครั้งเดียว เพื่อนกดตอบได้เลย ไม่ต้องสมัคร ไม่ต้องโหลดแอป แล้ว Megu ไล่ตามคนที่ยังไม่ตอบให้เอง' },
@@ -38,9 +38,9 @@ const COPY = {
 			{ word: 'หาร', h: 'คนละเท่าไหร่', p: 'ค่าคอร์ท 400 หารกัน 4 คน เขาคิดให้ทันทีว่าใครติดเท่าไหร่ คนที่ไม่ได้ไปก็ไม่ต้องจ่าย' },
 			{ word: 'ทวง', h: 'จนกว่าจะครบ', p: 'ส่วนที่ไม่มีใครอยากทำ เขาจำได้ว่าใครยังค้าง ค้างมากี่วัน แล้วทักไปเองอย่างสุภาพ' },
 		],
-		serverEyebrow: 'อีกครึ่งหนึ่งของ Megu',
-		serverH2: 'ในเซิร์ฟเวอร์ เขาทำงานอยู่ตลอด',
-		serverLede: 'ก่อนจะมาช่วยเรื่องนัดกับเรื่องเงิน Megu เป็นบอทดูแลเซิร์ฟเวอร์มาก่อน และยังเป็นอยู่ ทุกอย่างข้างล่างนี้ตั้งค่าจากหน้าเว็บได้ ไม่ต้องจำคำสั่ง',
+		signInNote: 'เข้าสู่ระบบด้วย Discord หรือ Google — เพื่อนที่กดลิงก์กิจกรรมไม่ต้องสมัครอะไรเลย',
+		serverH2: 'ถ้ากลุ่มคุณอยู่ใน Discord',
+		serverLede: 'Megu มีบอทฝั่ง Discord ให้ด้วย สำหรับแอดมินที่ต้องดูแลเซิร์ฟเวอร์ ไม่ใช่ตัวระบบหลัก แต่ถ้ากลุ่มคุณอยู่ที่นั่นอยู่แล้วก็ได้ของแถมนี้ไป ตั้งค่าจากหน้าเว็บทั้งหมด ไม่ต้องจำคำสั่ง',
 		serverCta: 'ดูเซิร์ฟเวอร์ของฉัน',
 		caps: [
 			{ h: 'กันสแปม กันลิงก์เชิญ', p: 'ข้อความรัวเกิน 5 ครั้งใน 3 วินาที ลิงก์เชิญเซิร์ฟเวอร์อื่น แท็กรัวเกิน 5 คน และคำที่คุณสั่งห้ามไว้ เลือกได้ว่าจะแค่ลบ ปิดปาก 1 นาที หรือเชิญออก — แอดมินกับคนคุมห้องไม่โดน' },
@@ -50,8 +50,8 @@ const COPY = {
 			{ h: 'อ่านข้อความออกเสียง', p: 'ตั้งห้องแชทไว้ห้องหนึ่ง พิมพ์อะไรลงไป Megu อ่านให้ในห้องเสียง คนที่มือไม่ว่างก็ยังอยู่ในวงสนทนาได้ ตั้งชื่อที่ให้เขาเรียกเองได้ด้วย' },
 			{ h: 'บันทึกไว้ทุกเหตุการณ์', p: 'เข้า ออก ลบข้อความ แบน ปลดแบน เปลี่ยนยศ สร้างและลบห้อง คำเชิญ รวม 21 เหตุการณ์ ย้อนดูได้จากหน้าเว็บว่าใครทำอะไรไว้เมื่อไหร่' },
 		],
-		closeH2: 'หนึ่งบอท สองด้าน',
-		closeLede: 'ด้านหนึ่งดูแลเซิร์ฟเวอร์ให้แอดมิน อีกด้านดูแลเรื่องนัดกับเรื่องเงินให้เพื่อนกลุ่มหนึ่ง คนละคนใช้ คนละเรื่อง แต่เป็น Megu ตัวเดียวกัน และคนที่เปิดลิงก์กิจกรรมไม่ต้องมี Discord ด้วยซ้ำ',
+		closeH2: 'Megu ทำงานที่ที่กลุ่มคุณอยู่แล้ว',
+		closeLede: 'งานหลักของ Megu คือพากลุ่มคุณจากนัดกันไม่ลงตัว ไปจนถึงทุกคนจ่ายครบ ทำงานผ่านลิงก์ที่แปะในแชทไหนก็ได้ คนที่กดเข้ามาไม่ต้องมี Discord และไม่ต้องสมัครอะไรทั้งนั้น ส่วนบอทในเซิร์ฟเวอร์เป็นของแถมสำหรับกลุ่มที่อยู่บน Discord อยู่แล้ว',
 	},
 
 	en: {
@@ -60,8 +60,8 @@ const COPY = {
 		h1: ['Stop being the one who ', 'chases', ' everyone'],
 		lede: 'Megu carries a plan from “so what are we doing?” all the way to “everyone has paid.” It asks, it settles, it reminds, and it chases — so that none of you has to.',
 		ctaIn: 'Go to my activities',
-		ctaOut: 'Start free with Discord',
-		ctaServers: 'Set up the bot on a server',
+		ctaOut: 'Start free',
+		ctaServers: 'See the Discord side',
 		scrollCue: 'Scroll',
 		steps: [
 			{ word: 'ASK', h: 'Who is free, and when', p: 'Drop one link in the group chat. Your friends answer in a tap — no signup, no app to install. Megu goes after whoever has not replied.' },
@@ -69,9 +69,9 @@ const COPY = {
 			{ word: 'SPLIT', h: 'What each of you owes', p: '฿400 for the court between four people, worked out the moment it is entered. Whoever did not come does not pay.' },
 			{ word: 'CHASE', h: 'Until everyone has paid', p: 'The part nobody wants. Megu remembers who is still short, how many days it has been, and asks them politely itself.' },
 		],
-		serverEyebrow: 'The other half of Megu',
-		serverH2: 'In your server, it never clocks off',
-		serverLede: 'Long before the planning and the money, Megu was a server bot — and still is. Everything below is configured from the web, with no commands to memorise.',
+		signInNote: 'Sign in with Discord or Google — the friends who open an activity link need no account at all.',
+		serverH2: 'If your group lives on Discord',
+		serverLede: 'Megu also ships a Discord bot for admins who have a server to run. It is not the product — the planning and the money above are — but if your group is already there, you get this too. All of it is configured from the web, with no commands to memorise.',
 		serverCta: 'See my servers',
 		caps: [
 			{ h: 'Spam and invite links', p: 'Five messages in three seconds, invite links to other servers, more than five mentions at once, and any word you ban. Choose whether that just deletes the message, mutes for a minute, or removes the member — admins and moderators are never caught by it.' },
@@ -81,8 +81,8 @@ const COPY = {
 			{ h: 'Messages read aloud', p: 'Point Megu at a text channel and it speaks whatever is typed there into the voice channel, so whoever has their hands full is still part of the conversation. Each member can set the name it calls them by.' },
 			{ h: 'Every event on record', p: 'Joins, leaves, deleted messages, bans and unbans, role changes, channels created and destroyed, invites — twenty-one events in all, and the web shows you who did what, and when.' },
 		],
-		closeH2: 'One bot, two halves',
-		closeLede: 'One half looks after a server for its admins. The other looks after the plans and the money for a group of friends. Different people, different problems, the same Megu — and whoever opens an activity link needs no Discord account at all.',
+		closeH2: 'Megu works where your group already is',
+		closeLede: 'Megu’s job is carrying your group from “so what are we doing?” to “everyone has paid.” It works from a link you paste into any chat, and whoever opens it needs no Discord and no account of any kind. The server bot is a bonus for groups already living there.',
 	},
 };
 
@@ -121,7 +121,6 @@ export default function HomePage() {
 			<section className="hero-field band band-dark">
 				<div className="hero-block">
 					<div className="hero-copy">
-						<span className="eyebrow enter" style={{ '--i': 0 }}>{t.eyebrow}</span>
 
 						<h1 className="enter" style={{ '--i': 1 }}>
 							{h1a}<em>{h1accent}</em>{h1b}
@@ -135,6 +134,11 @@ export default function HomePage() {
 								: <a href="/api/auth/login" className="btn btn-primary btn-lg">{t.ctaOut}</a>}
 							<Link href="/servers" className="btn btn-secondary btn-lg">{t.ctaServers}</Link>
 						</div>
+
+						{/* The product's core claim, and until now it was buried four
+						    sections down under a heading about Discord: the people you
+						    send this to install nothing and sign up for nothing. */}
+						<p className="hero-note enter" style={{ '--i': 4 }}>{t.signInNote}</p>
 					</div>
 
 					{/* The flat mark ships in the HTML so there is something on screen
@@ -168,7 +172,6 @@ export default function HomePage() {
 
 			<section className="server-side band band-dark">
 				<div className="section-head reveal">
-					<span className="eyebrow">{t.serverEyebrow}</span>
 					<h2><span className="wipe">{t.serverH2}</span></h2>
 					<p className="lede">{t.serverLede}</p>
 				</div>

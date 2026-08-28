@@ -232,6 +232,15 @@ const STATEMENTS = [
 	// Portable settlement instructions live on the activity. PromptPay stays a
 	// profile default on `users`; these options cover the rest of the world.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_options JSONB NOT NULL DEFAULT \'[]\'::jsonb;',
+	// When the money is due, for an activity that happens once.
+	//
+	// Deliberately not `starts_at`. A badminton court is played on the 20th and
+	// settled on the 21st, and a dinner is eaten before anybody knows the bill —
+	// so "when we meet" and "when you pay" are two different dates, and the
+	// second is the only one worth chasing somebody about. Recurring agreements
+	// already answer this per month through `due_day` → `periods.due_at`; this
+	// column is the one-off equivalent and does not touch that path.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_due_at TIMESTAMPTZ;',
 	'CREATE INDEX IF NOT EXISTS activities_owner_idx ON activities (owner_user_id);',
 	'CREATE INDEX IF NOT EXISTS activities_guild_idx ON activities (guild_id);',
 
@@ -411,6 +420,29 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversal_reason TEXT;',
 
+	// Who this money was sent to.
+	//
+	// Until now a payment said who paid and not who was paid, because the whole
+	// system assumed one person collected for the whole activity — whoever sat
+	// in `activities.payee_participant_id`. That assumption breaks the first
+	// time two people front money, which on a trip or a dinner is most of the
+	// time: Megu covers the restaurant, Fig covers the taxi, and Nick owes two
+	// different people two different amounts. Without this column his ฿300 lands
+	// on whoever the activity happened to name, and the other creditor is left
+	// out of pocket with the ledger insisting everyone is square.
+	//
+	// Nullable, and it stays nullable. NULL means "written before this existed",
+	// not "nobody" — `settlement()` recognises those rows and reconstructs them
+	// rather than dropping them, and reports that it had to. Making the column
+	// NOT NULL would require inventing a creditor for every historical payment,
+	// which is precisely the guess this design refuses to bake into the data.
+	//
+	// RESTRICT rather than SET NULL, matching `expenses.paid_by`. Removing
+	// somebody who is owed money would otherwise turn every payment made to them
+	// into an unattributed row and move everyone else's balance without a word.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS creditor_participant_id TEXT REFERENCES participants(id) ON DELETE RESTRICT;',
+	'CREATE INDEX IF NOT EXISTS payments_creditor_idx ON payments (creditor_participant_id);',
+
 	// Unique across every activity, not just within one: a slip reused from
 	// another group is exactly the case worth catching, and it is the only one
 	// a per-activity constraint would miss. Partial, because almost every
@@ -479,6 +511,33 @@ const STATEMENTS = [
 		sent_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
 	'CREATE INDEX IF NOT EXISTS payment_reminders_participant_idx ON payment_reminders (participant_id, sent_at DESC);',
+
+	// "Not now, and here is why."
+	//
+	// The reminder that arrives on the due date offers two answers, because a
+	// reminder with only one leaves the honest reply — "payday is the 25th" —
+	// with nowhere to go, and the person who would have said it just ignores
+	// the message instead. The reason is the point: the organizer stops
+	// guessing, and stops asking in the group chat.
+	//
+	// It is not a payment, so it does not belong in `payment_events` — that
+	// table hangs off a `payments` row, and the whole situation here is that no
+	// such row exists yet.
+	//
+	// `snooze_until` holds the next reminder off, once. It never marks anything
+	// paid and never removes anyone from the roster of who owes what.
+	`CREATE TABLE IF NOT EXISTS payment_deferrals (
+		id             TEXT PRIMARY KEY,
+		activity_id    TEXT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+		period_id      TEXT REFERENCES periods(id) ON DELETE CASCADE,
+		participant_id TEXT NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+		reason         TEXT NOT NULL,
+		source         TEXT NOT NULL DEFAULT 'web',
+		snooze_until   TIMESTAMPTZ NOT NULL,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS payment_deferrals_participant_idx ON payment_deferrals (participant_id, created_at DESC);',
+	'CREATE INDEX IF NOT EXISTS payment_deferrals_activity_idx ON payment_deferrals (activity_id, created_at DESC);',
 ];
 
 /**

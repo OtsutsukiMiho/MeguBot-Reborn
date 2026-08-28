@@ -133,6 +133,10 @@ const en = {
 		display_name_too_long: 'Names can be up to 80 characters.',
 		currency_not_supported: 'That currency is not supported yet.',
 		owner_only: 'Only the organizer can change this.',
+		defer_reason_required: 'Add a short reason so the organizer knows.',
+		defer_reason_too_long: 'Reasons can be up to 200 characters.',
+		payment_due_at_invalid: 'That payment deadline is not a valid date.',
+		period_not_in_activity: 'That month does not belong to this activity.',
 		payment_option_invalid: 'Check the payment option and try again.',
 		payment_link_invalid: 'Enter a valid http or https payment link.',
 		payment_destination_required: 'Enter the bank or account destination.',
@@ -147,6 +151,10 @@ const en = {
 		slip_unreadable: 'Could not read that file as an image',
 		participant_has_money: 'There is money attached to this person — remove their expenses first',
 		participant_paid_out: 'This person fronted money for the group — delete that expense first',
+		participant_is_creditor: 'Someone has already paid this person — that payment has to be removed first',
+		creditor_not_in_activity: 'That person is not on this activity, so they cannot be paid here',
+		cannot_pay_yourself: 'Choose someone else to pay — you cannot send money to yourself',
+		choose_who_to_pay: 'You owe more than one person here — choose who this payment is for',
 		participant_not_in_activity: 'That person is not on this activity',
 		device_already_claimed: 'This browser has already chosen a different name.',
 		participant_already_claimed: 'That name has already been chosen. Ask the organizer to reset it if it is yours.',
@@ -193,6 +201,8 @@ const en = {
 		notScheduled: 'No time set yet',
 		noPeriodYet: 'No month opened yet',
 		dueOn: day => `due on the ${day}`,
+		payBy: when => `Pay by ${when}`,
+		payByNone: 'No payment deadline set',
 		peopleGoing: (going, total) => `${going}/${total} going`,
 		members: total => `${total} ${total === 1 ? 'member' : 'members'}`,
 		membersPaid: (paid, total) => `${paid} of ${total} paid`,
@@ -285,6 +295,12 @@ const en = {
 		dueDayField: 'Collect on day',
 		dueDayHint: 'of every month (1–28)',
 
+		// The day it happens and the day it is paid for are rarely the same:
+		// the court is played on the 20th and settled on the 21st. This is a
+		// separate field for that reason.
+		payByField: 'Pay by',
+		payByHint: 'On this day Megu reminds whoever has not paid. Optional.',
+
 		serverField: 'Discord server',
 		serverNone: 'Not linked to a server',
 
@@ -306,6 +322,24 @@ const en = {
 		claimed: 'Told them — waiting for confirmation',
 	},
 
+	// The second button on a reminder.
+	//
+	// A reminder with one button collects one answer: everybody who cannot pay
+	// today presses nothing, and the organizer is left with a blank where an
+	// explanation should be. This gives the honest answer — "not yet, because…"
+	// — somewhere to go.
+	defer: {
+		button: 'Not now',
+		title: 'Not ready to pay yet?',
+		reasonLabel: 'Tell them why, briefly',
+		hint: 'Megu passes it on to the organizer so nobody has to chase you. The amount stays outstanding.',
+		submit: 'Send it to the organizer',
+		done: when => `Noted. Megu will not ask again until ${when}.`,
+		badge: 'Asked to delay',
+		reasonBy: (name, reason) => `${name}: ${reason}`,
+		snoozedUntil: when => `Asking again ${when}`,
+	},
+
 	claim: {
 		title: 'Which one are you?',
 		hint: 'Tap your own name. No signup, no app to install.',
@@ -316,6 +350,50 @@ const en = {
 		question: name => `${name}, are you coming?`,
 		going: 'Going',
 		notGoing: 'Not going',
+	},
+
+	// ── the four screens ────────────────────────────────────────────────────
+	//
+	// One activity, four things a person might have come to do. Each screen is
+	// named after the job rather than the section, because the name is what the
+	// reader is deciding between when they look at the summary.
+	screens: {
+		back: 'Back',
+		summary: 'Overview',
+		payTitle: 'Pay',
+		payFor: title => `for ${title}`,
+		payNothing: 'You are all paid up for this one.',
+		payClaimFirst: 'Tap your own name on the overview first, then Megu knows which amount is yours.',
+		claimFirst: 'Tap your own name on the overview first, then Megu knows whose answer this is.',
+		answerTitle: 'Your answer',
+		answerFor: title => `for ${title}`,
+		answered: 'Answered',
+		manageTitle: 'Organizer tools',
+		manageFor: title => `for ${title}`,
+		manageDenied: 'Only the organizer can open this.',
+		openManage: 'Organizer tools',
+	},
+
+	// The single thing this reader should do next, printed once, at the top.
+	// The old page showed every panel to everybody and let them find it.
+	next: {
+		oweLabel: 'You owe',
+		settledLabel: 'Your total',
+		pendingLabel: 'Told them — waiting for confirmation',
+		title: 'Your turn',
+		claim: 'Which one are you?',
+		claimAction: 'Pick your name',
+		owe: amount => `You owe ${amount}`,
+		oweAction: 'Pay now',
+		waitingConfirm: 'You said you paid — waiting for the organizer',
+		deferred: when => `You asked to pay later. Megu will ask again on ${when}.`,
+		vote: 'Megu is asking when everyone is free',
+		voteAction: 'Choose a time',
+		rsvp: 'Say whether you are coming',
+		rsvpAction: 'Answer',
+		review: n => `${n} ${n === 1 ? 'payment is' : 'payments are'} waiting for you to check`,
+		reviewAction: 'Review them',
+		clear: 'Nothing needs you right now.',
 	},
 
 	schedule: {
@@ -421,6 +499,10 @@ const en = {
 		openMonth: 'Open this month',
 		monthAlreadyOpen: period => `${period} is already open`,
 		monthOpened: period => `${period} opened`,
+		payByLabel: 'Payment deadline',
+		payByHint: 'On that day Megu reminds whoever has not paid — on Discord or by email, whichever each person chose.',
+		payBySave: 'Save deadline',
+		payByClear: 'Clear',
 		addExpense: 'Add a cost',
 		addAndSplit: 'Add it and split it',
 		cancelActivity: 'Cancel this activity',
@@ -445,6 +527,9 @@ const en = {
 		title: 'Pay',
 		payTo: name => `Transfer to ${name}`,
 		organizerRecipient: 'the organizer',
+		chooseCreditor: 'Who are you paying?',
+		chooseCreditorHint: 'More than one person covered something for this group, so there is more than one transfer to make.',
+		chooseSomeoneElse: 'Pay someone else instead',
 		amountLabel: 'Amount',
 		scanHint: 'Scan this with your banking app',
 		// The participant is almost always on the same phone they would scan

@@ -2,6 +2,7 @@ const { query, transaction } = require('./db.js');
 const { newId, newActivityCode } = require('./ids.js');
 const { splitEvenlyBy } = require('./money.js');
 const { assessSlip, validateAllocations } = require('./payment-evidence.js');
+const { pairwiseObligations, obligationsFor, paymentAmountInScope } = require('./obligations.js');
 
 // ── Two axes ────────────────────────────────────────────────────────────────
 //
@@ -60,6 +61,7 @@ function rowToActivity(row) {
 		paymentOptions: Array.isArray(row.payment_options) ? row.payment_options : [],
 		recurrence: row.recurrence,
 		dueDay: row.due_day,
+		paymentDueAt: row.payment_due_at || null,
 		payeeParticipantId: row.payee_participant_id || null,
 		guildId: row.guild_id,
 		channelId: row.channel_id,
@@ -80,6 +82,19 @@ function rowToParticipant(row) {
 		rsvp: row.rsvp,
 		attended: row.attended,
 		claimedAt: row.claimed_at,
+	};
+}
+
+function rowToDeferral(row) {
+	return {
+		id: row.id,
+		activityId: row.activity_id,
+		periodId: row.period_id,
+		participantId: row.participant_id,
+		reason: row.reason,
+		source: row.source,
+		snoozeUntil: row.snooze_until,
+		createdAt: row.created_at,
 	};
 }
 
@@ -130,6 +145,7 @@ async function createActivity(input) {
 		channelId = null,
 		recurrence = null,
 		dueDay = null,
+		paymentDueAt = null,
 		currency = 'THB',
 		paymentOptions = [],
 		participants = [],
@@ -148,11 +164,15 @@ async function createActivity(input) {
 		const activityId = newId('act');
 		const res = await client.query(
 			`INSERT INTO activities
-			   (id, code, owner_user_id, title, kind, location, starts_at, currency, guild_id, channel_id, recurrence, due_day, plan_state, payment_options)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb) RETURNING *`,
+			   (id, code, owner_user_id, title, kind, location, starts_at, currency, guild_id, channel_id, recurrence, due_day, payment_due_at, plan_state, payment_options)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb) RETURNING *`,
 			[
 				activityId, newActivityCode(), ownerUserId, title.trim(), kind,
 				location, startsAt, storedCurrency, guildId, channelId, recurrence, dueDay,
+				// A monthly agreement already answers "when is it due" once per
+				// month through `dueDay` → `periods.due_at`. Giving it a second,
+				// activity-wide deadline would be two answers to one question.
+				kind === 'recurring' ? null : cleanPaymentDueAt(paymentDueAt),
 				// A monthly agreement has nothing to agree on — it just runs.
 				kind === 'recurring' ? 'confirmed' : 'open',
 				JSON.stringify(storedPaymentOptions),
@@ -184,7 +204,7 @@ async function loadActivity(where, value) {
 	const activity = rowToActivity(res.rows[0]);
 	if (!activity) return null;
 
-	const [participants, periods, slots, slotVotes, expenses, shares, payments, paymentAllocations, paymentEvents] = await Promise.all([
+	const [participants, periods, slots, slotVotes, expenses, shares, payments, paymentAllocations, paymentEvents, deferrals] = await Promise.all([
 		query('SELECT * FROM participants WHERE activity_id = $1 ORDER BY position, created_at', [activity.id]),
 		query('SELECT * FROM periods WHERE activity_id = $1 ORDER BY period_key DESC', [activity.id]),
 		query('SELECT * FROM slots WHERE activity_id = $1 ORDER BY position, starts_at', [activity.id]),
@@ -209,6 +229,7 @@ async function loadActivity(where, value) {
 			[activity.id],
 		),
 		query('SELECT * FROM payment_events WHERE activity_id = $1 ORDER BY created_at', [activity.id]),
+		query('SELECT * FROM payment_deferrals WHERE activity_id = $1 ORDER BY created_at DESC', [activity.id]),
 	]);
 
 	const allocationsByPayment = new Map();
@@ -234,6 +255,9 @@ async function loadActivity(where, value) {
 
 	activity.participants = participants.rows.map(rowToParticipant);
 	activity.periods = periods.rows.map(rowToPeriod);
+	// Newest first, because only the latest one is an answer to "why has this
+	// person not paid yet" — the older ones are history.
+	activity.deferrals = deferrals.rows.map(rowToDeferral);
 	activity.slots = slots.rows.map(r => ({ id: r.id, startsAt: r.starts_at, position: r.position }));
 	activity.slotVotes = slotVotes.rows.map(r => ({
 		slotId: r.slot_id,
@@ -259,6 +283,9 @@ async function loadActivity(where, value) {
 		id: r.id,
 		periodId: r.period_id,
 		participantId: r.participant_id,
+		// Null on every row written before the column existed. `settlement()`
+		// reconstructs those rather than ignoring them, and says that it did.
+		creditorParticipantId: r.creditor_participant_id || null,
 		amountSatang: Number(r.amount_satang),
 		expectedSatang: r.expected_satang == null ? null : Number(r.expected_satang),
 		promptpayTarget: r.promptpay_target || null,
@@ -297,9 +324,43 @@ async function loadActivity(where, value) {
 		confirmedAt: r.confirmed_at,
 	}));
 
+	// Where each person on the roster can be paid, not just the one the activity
+	// named. Anybody who fronted money is owed some, so anybody can be the far
+	// end of a transfer, and the page has to be able to print their number.
+	activity.paymentProfiles = await loadPaymentProfiles(activity.participants);
 	activity.payee = await resolvePayee(activity);
 
 	return activity;
+}
+
+/**
+ * PromptPay details for every participant who has an account, in one query.
+ *
+ * A number belongs to the person, not to the activity — it follows them into
+ * every group they are in, and is retyped nowhere. A participant who has never
+ * signed in has no account and therefore no number; they get an entry with
+ * nulls rather than being left out, so callers can tell "cannot be paid here"
+ * apart from "not on this roster".
+ */
+async function loadPaymentProfiles(participants) {
+	const profiles = new Map(participants.map(p => [p.id, { promptpayId: null, promptpayName: null }]));
+	const userIds = [...new Set(participants.filter(p => p.userId).map(p => p.userId))];
+	if (userIds.length === 0) return profiles;
+
+	const res = await query(
+		'SELECT id, promptpay_id, promptpay_name FROM users WHERE id = ANY($1::text[])',
+		[userIds],
+	);
+	const byUser = new Map(res.rows.map(r => [r.id, r]));
+	for (const participant of participants) {
+		const user = participant.userId ? byUser.get(participant.userId) : null;
+		if (!user) continue;
+		profiles.set(participant.id, {
+			promptpayId: user.promptpay_id || null,
+			promptpayName: user.promptpay_name || null,
+		});
+	}
+	return profiles;
 }
 
 /**
@@ -341,23 +402,16 @@ async function resolvePayee(activity) {
 		};
 	}
 
-	const base = {
+	// Read from the roster-wide lookup rather than asking again for one row.
+	// Two paths to the same number is how the payee's screen and everybody
+	// else's start disagreeing about which account is current.
+	const profile = activity.paymentProfiles?.get(participant.id) || { promptpayId: null, promptpayName: null };
+	return {
 		participantId: participant.id,
 		displayName: participant.displayName,
 		userId: participant.userId || null,
-		promptpayId: null,
-		promptpayName: null,
-	};
-	if (!participant.userId) return base;
-
-	const res = await query(
-		'SELECT promptpay_id, promptpay_name FROM users WHERE id = $1',
-		[participant.userId],
-	);
-	return {
-		...base,
-		promptpayId: res.rows[0]?.promptpay_id || null,
-		promptpayName: res.rows[0]?.promptpay_name || null,
+		promptpayId: profile.promptpayId,
+		promptpayName: profile.promptpayName,
 	};
 }
 
@@ -427,6 +481,26 @@ function cleanCurrency(value) {
 	return currency;
 }
 
+/**
+ * The payment deadline, or nothing.
+ *
+ * A browser sends `<input type="date">` back as "2026-08-21", which `new Date`
+ * reads as midnight UTC — seven in the morning in Bangkok, on a date the
+ * organizer thinks of as a whole day. Anything that arrives as a bare date is
+ * therefore moved to the end of that day in Bangkok, so "จ่ายวันที่ 21" means
+ * the 21st is not over until it is over. A full timestamp is trusted as sent.
+ */
+function cleanPaymentDueAt(value) {
+	if (value === null || value === undefined || value === '') return null;
+	if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+		const [year, month, day] = value.trim().split('-').map(Number);
+		return new Date(Date.UTC(year, month - 1, day, 16, 59, 59));
+	}
+	const at = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(at.getTime())) throw codedError('payment_due_at_invalid');
+	return at;
+}
+
 function normalisePaymentOptions(options) {
 	if (!Array.isArray(options)) return [];
 	const usedIds = new Set();
@@ -492,16 +566,16 @@ async function summariseActivitiesForOwner(ownerUserId, {
 
 	const [activityRows, participants, periods, expenses, shares, payments, slots, votes] = await Promise.all([
 		activityRowsPromise || query(`SELECT id, kind FROM activities WHERE ${activityScope}`, args),
-		query(`SELECT id, activity_id, rsvp FROM participants WHERE activity_id IN ${owned}`, args),
+		query(`SELECT id, activity_id, display_name, rsvp FROM participants WHERE activity_id IN ${owned}`, args),
 		query(`SELECT id, activity_id, period_key FROM periods WHERE activity_id IN ${owned}`, args),
 		query(`SELECT id, activity_id, period_id, amount_satang, paid_by FROM expenses WHERE activity_id IN ${owned}`, args),
 		query(
-			`SELECT s.participant_id, s.amount_satang, e.activity_id, e.period_id
+			`SELECT s.expense_id, s.participant_id, s.amount_satang, e.activity_id, e.period_id
 			 FROM shares s JOIN expenses e ON e.id = s.expense_id
 			 WHERE e.activity_id IN ${owned}`,
 			args,
 		),
-		query(`SELECT activity_id, period_id, participant_id, amount_satang, status FROM payments WHERE activity_id IN ${owned}`, args),
+		query(`SELECT activity_id, period_id, participant_id, creditor_participant_id, amount_satang, status FROM payments WHERE activity_id IN ${owned}`, args),
 		query(`SELECT id, activity_id FROM slots WHERE activity_id IN ${owned}`, args),
 		query(
 			`SELECT v.slot_id, v.participant_id, sl.activity_id
@@ -519,7 +593,7 @@ async function summariseActivitiesForOwner(ownerUserId, {
 
 	const push = (id, key, value) => bucket.get(id)?.[key].push(value);
 
-	for (const r of participants.rows) push(r.activity_id, 'participants', { id: r.id, rsvp: r.rsvp });
+	for (const r of participants.rows) push(r.activity_id, 'participants', { id: r.id, displayName: r.display_name, rsvp: r.rsvp });
 	for (const r of periods.rows) push(r.activity_id, 'periods', { id: r.id, key: r.period_key });
 	for (const r of slots.rows) push(r.activity_id, 'slots', { id: r.id });
 	for (const r of votes.rows) push(r.activity_id, 'slotVotes', { slotId: r.slot_id, participantId: r.participant_id });
@@ -527,10 +601,21 @@ async function summariseActivitiesForOwner(ownerUserId, {
 		push(r.activity_id, 'expenses', { id: r.id, periodId: r.period_id, amountSatang: Number(r.amount_satang), paidBy: r.paid_by });
 	}
 	for (const r of shares.rows) {
-		push(r.activity_id, 'shares', { participantId: r.participant_id, periodId: r.period_id, amountSatang: Number(r.amount_satang) });
+		// `expenseId` and the participant's name are carried here so that the
+		// summary feeds `settlement()` the same shape the activity page does.
+		// Without them the pair calculation quietly returns nothing, which is a
+		// worse failure than a slow one: the list would agree with the page
+		// until the day somebody read the pairs off it.
+		push(r.activity_id, 'shares', { expenseId: r.expense_id, participantId: r.participant_id, periodId: r.period_id, amountSatang: Number(r.amount_satang) });
 	}
 	for (const r of payments.rows) {
-		push(r.activity_id, 'payments', { participantId: r.participant_id, periodId: r.period_id, amountSatang: Number(r.amount_satang), status: r.status });
+		push(r.activity_id, 'payments', {
+			participantId: r.participant_id,
+			creditorParticipantId: r.creditor_participant_id || null,
+			periodId: r.period_id,
+			amountSatang: Number(r.amount_satang),
+			status: r.status,
+		});
 	}
 
 	const nowKey = periodKeyFor(at);
@@ -626,11 +711,17 @@ async function removeParticipant(participantId) {
 			`SELECT
 			   (SELECT count(*) FROM shares WHERE participant_id = $1)      AS shares,
 			   (SELECT count(*) FROM payments WHERE participant_id = $1)    AS payments,
-			   (SELECT count(*) FROM expenses WHERE paid_by = $1)           AS paid`,
+			   (SELECT count(*) FROM expenses WHERE paid_by = $1)           AS paid,
+			   (SELECT count(*) FROM payments
+			     WHERE creditor_participant_id = $1)                        AS received`,
 			[participantId],
 		);
-		const { shares, payments, paid } = money.rows[0];
+		const { shares, payments, paid, received } = money.rows[0];
 		if (Number(paid) > 0) throw codedError('participant_paid_out');
+		// Somebody money was sent to. The foreign key would refuse this anyway;
+		// catching it here is what turns a constraint violation into a sentence
+		// the organizer can act on.
+		if (Number(received) > 0) throw codedError('participant_is_creditor');
 		if (Number(shares) > 0 || Number(payments) > 0) {
 			throw codedError('participant_has_money');
 		}
@@ -983,6 +1074,64 @@ async function removeExpense(expenseId) {
 	return res.rows.length > 0;
 }
 
+// How long "not now" buys. Long enough that the answer is respected — nobody
+// wants to explain twice that payday is the 25th — and short enough that it
+// cannot be used to switch Megu off: two days later she asks again, and the
+// person still appears as unpaid to the organizer the whole time.
+const DEFERRAL_SNOOZE_HOURS = 48;
+
+/**
+ * "Not now, and here is why."
+ *
+ * The reason is the entire point. A reminder with only a Pay button leaves the
+ * honest answer with nowhere to go, so the person who would have given it says
+ * nothing instead, and the organizer is left guessing in a group chat. This
+ * writes it down, holds the next reminder off for `DEFERRAL_SNOOZE_HOURS`, and
+ * changes nothing about what is owed.
+ */
+async function deferPayment({ activityId, participantId, periodId = null, reason, source = 'web', snoozeHours = DEFERRAL_SNOOZE_HOURS, now = new Date() }) {
+	const text = String(reason || '').trim();
+	if (!text) throw codedError('defer_reason_required');
+	if ([...text].length > 200) throw codedError('defer_reason_too_long');
+
+	const res = await query(
+		`INSERT INTO payment_deferrals (id, activity_id, period_id, participant_id, reason, source, snooze_until)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+		[newId('dfr'), activityId, periodId, participantId, text, source, new Date(now.getTime() + snoozeHours * 3600 * 1000)],
+	);
+	return rowToDeferral(res.rows[0]);
+}
+
+/**
+ * The current excuse for each of these people, if it is still current.
+ *
+ * Keyed by participant id, and only rows whose snooze has not run out — an
+ * expired deferral is history, not a reason to stay quiet.
+ */
+async function activeDeferrals(participantIds, { now = new Date() } = {}) {
+	if (participantIds.length === 0) return new Map();
+	const res = await query(
+		`SELECT DISTINCT ON (participant_id) *
+		 FROM payment_deferrals
+		 WHERE participant_id = ANY($1::text[]) AND snooze_until > $2
+		 ORDER BY participant_id, created_at DESC`,
+		[participantIds, now],
+	);
+	return new Map(res.rows.map(row => [row.participant_id, rowToDeferral(row)]));
+}
+
+/**
+ * The activity a roster row belongs to.
+ *
+ * A Discord button carries a participant id and nothing else — it is pressed in
+ * a DM, where there is no channel, no guild and no page to read context from.
+ */
+async function getActivityByParticipant(participantId) {
+	const res = await query('SELECT activity_id FROM participants WHERE id = $1', [participantId]);
+	if (res.rows.length === 0) return null;
+	return getActivity(res.rows[0].activity_id);
+}
+
 async function updateActivity(activityId, input) {
 	const fields = [];
 	const values = [activityId];
@@ -991,6 +1140,12 @@ async function updateActivity(activityId, input) {
 		if (input[key] === undefined) continue;
 		values.push(key === 'title' ? String(input[key]).trim() : input[key]);
 		fields.push(`${column} = $${values.length}`);
+	}
+	// Checked against undefined rather than truthiness: clearing the deadline is
+	// a real edit an organizer makes, and `null` must not read as "not supplied".
+	if (input.paymentDueAt !== undefined) {
+		values.push(cleanPaymentDueAt(input.paymentDueAt));
+		fields.push(`payment_due_at = $${values.length}`);
 	}
 	if (input.paymentOptions !== undefined) {
 		values.push(JSON.stringify(normalisePaymentOptions(input.paymentOptions)));
@@ -1023,18 +1178,32 @@ async function recordPayment(activityId, participantId, input) {
 		promptpayTarget = null,
 		paymentDestination = null,
 		confirmation = null,
+		creditorParticipantId = null,
 	} = input;
 	const normalized = validateAllocations(
 		amountSatang,
 		allocations || [{ periodId, amountSatang }],
 	);
+	// Sending money to yourself is not a payment, it is a typo — and one that
+	// would quietly cancel itself out of the pair arithmetic instead of failing.
+	if (creditorParticipantId && creditorParticipantId === participantId) {
+		throw codedError('cannot_pay_yourself');
+	}
 
 	return transaction(async (client) => {
+		// Both ends of the transfer checked in one query, and both against this
+		// activity: a creditor id borrowed from another group would otherwise
+		// write a payment that no settlement anywhere could see.
+		const wanted = creditorParticipantId ? [participantId, creditorParticipantId] : [participantId];
 		const roster = await client.query(
-			'SELECT id FROM participants WHERE id = $1 AND activity_id = $2',
-			[participantId, activityId],
+			'SELECT id FROM participants WHERE activity_id = $1 AND id = ANY($2::text[])',
+			[activityId, wanted],
 		);
-		if (roster.rows.length === 0) throw codedError('participant_not_in_activity');
+		const present = new Set(roster.rows.map(row => row.id));
+		if (!present.has(participantId)) throw codedError('participant_not_in_activity');
+		if (creditorParticipantId && !present.has(creditorParticipantId)) {
+			throw codedError('creditor_not_in_activity');
+		}
 
 		const periodIds = normalized.map(item => item.periodId).filter(Boolean);
 		if (periodIds.length) {
@@ -1049,14 +1218,15 @@ async function recordPayment(activityId, participantId, input) {
 		const primaryPeriodId = normalized.length === 1 ? normalized[0].periodId : null;
 		const res = await client.query(
 			`INSERT INTO payments
-			   (id, activity_id, period_id, participant_id, amount_satang, method, reference,
+			   (id, activity_id, period_id, participant_id, creditor_participant_id, amount_satang, method, reference,
 			    expected_satang, promptpay_target, payment_destination, status, confirmed_by, confirmed_at,
 			    confirmation_source, verification_level)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
-			         $11, $12, CASE WHEN $11 = 'confirmed' THEN now() ELSE NULL END, $13, $14)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
+			         $12, $13, CASE WHEN $12 = 'confirmed' THEN now() ELSE NULL END, $14, $15)
 			 RETURNING *`,
 			[
-				paymentId, activityId, primaryPeriodId, participantId, amountSatang, method, reference,
+				paymentId, activityId, primaryPeriodId, participantId, creditorParticipantId || null,
+				amountSatang, method, reference,
 				expectedSatang == null ? Number(amountSatang) : Number(expectedSatang),
 				promptpayTarget,
 				paymentDestination ? JSON.stringify(paymentDestination) : null,
@@ -1078,7 +1248,7 @@ async function recordPayment(activityId, participantId, input) {
 			activityId,
 			type: 'created',
 			actorParticipantId: participantId,
-			metadata: { method, allocations: normalized },
+			metadata: { method, allocations: normalized, creditorParticipantId: creditorParticipantId || null },
 		});
 		if (confirmation) {
 			await addPaymentEvent(client, {
@@ -1097,6 +1267,7 @@ async function recordPayment(activityId, participantId, input) {
 		return {
 			id: row.id,
 			participantId: row.participant_id,
+			creditorParticipantId: row.creditor_participant_id || null,
 			amountSatang: Number(row.amount_satang),
 			status: row.status,
 			allocations: normalized,
@@ -1409,15 +1580,11 @@ async function rejectPayment(paymentId, confirmedByUserId, reason) {
  */
 function settlement(activity, periodId = null) {
 	const inScope = row => (periodId === null ? true : row.periodId === periodId);
-	const paymentAmountInScope = (payment) => {
-		if (periodId === null) return payment.amountSatang;
-		if (Array.isArray(payment.allocations) && payment.allocations.length > 0) {
-			return payment.allocations
-				.filter(allocation => allocation.periodId === periodId)
-				.reduce((sum, allocation) => sum + allocation.amountSatang, 0);
-		}
-		return payment.periodId === periodId ? payment.amountSatang : 0;
-	};
+	// Shared with the pair calculation rather than written twice. Two copies of
+	// "how much of this payment belongs to August" is two answers waiting to
+	// disagree, and the disagreement would show up as a roster line and a
+	// payment screen quoting different numbers for the same month.
+	const amountHere = payment => paymentAmountInScope(payment, periodId);
 
 	const byParticipant = new Map(activity.participants.map(p => [p.id, {
 		participantId: p.id,
@@ -1439,14 +1606,32 @@ function settlement(activity, periodId = null) {
 	for (const payment of activity.payments) {
 		const entry = byParticipant.get(payment.participantId);
 		if (!entry) continue;
-		const amount = paymentAmountInScope(payment);
+		const amount = amountHere(payment);
 		if (payment.status === 'confirmed') entry.settled += amount;
 		else if (payment.status === 'pending') entry.pending += amount;
 	}
 
+	// Who owes whom, alongside how much each person is up or down.
+	//
+	// `net` and `outstanding` are unchanged and stay the number every existing
+	// caller reads. The pairs are additional: the same money, said in the form
+	// somebody can act on, because "you are ฿300 down" does not tell you which
+	// two people to send it to.
+	const obligations = pairwiseObligations(activity, periodId);
+
 	const rows = [...byParticipant.values()].map((entry) => {
 		const net = entry.owes - entry.paidOut;
-		return { ...entry, net, outstanding: net - entry.settled };
+		const mine = obligationsFor(obligations, entry.participantId);
+		return {
+			...entry,
+			net,
+			outstanding: net - entry.settled,
+			owesTo: mine.owesTo,
+			owedBy: mine.owedBy,
+			owesTotal: mine.owesTotalSatang,
+			owedTotal: mine.owedTotalSatang,
+			overpaid: mine.overpaidSatang,
+		};
 	});
 
 	const expenses = activity.expenses.filter(inScope);
@@ -1456,7 +1641,14 @@ function settlement(activity, periodId = null) {
 	let state = 'none';
 	if (expenses.length > 0) state = unpaid.length === 0 ? 'settled' : 'open';
 
-	return { state, total, rows, unpaid, fullySettled: state === 'settled' };
+	// Confirmed money that predates the creditor column, and therefore had to be
+	// spread across this person's debts by guesswork. A screen showing a figure
+	// derived this way is required to say so.
+	const hasLegacyPayments = (activity.payments || []).some(payment => payment.status === 'confirmed'
+		&& !payment.creditorParticipantId
+		&& amountHere(payment) > 0);
+
+	return { state, total, rows, unpaid, obligations, hasLegacyPayments, fullySettled: state === 'settled' };
 }
 
 /**
@@ -1556,6 +1748,7 @@ module.exports = {
 	createActivity,
 	getActivity,
 	getActivityByCode,
+	getActivityByParticipant,
 	listActivitiesForOwner,
 	addParticipant,
 	claimParticipant,
@@ -1566,6 +1759,9 @@ module.exports = {
 	setAttended,
 	setPlanState,
 	updateActivity,
+	DEFERRAL_SNOOZE_HOURS,
+	deferPayment,
+	activeDeferrals,
 	ensurePeriod,
 	periodKeyFor,
 	periodLabelFor,

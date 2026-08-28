@@ -14,6 +14,7 @@ const SUITES = [
 	['rate-limit.test.js', 'the Discord block guard — recognise it, hold it, share it'],
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
+	['obligations.test.js', 'who owes whom — several payers, late joiners, money sent to the wrong person'],
 	['promptpay.test.js', 'the PromptPay payload — checksum, accounts, amounts'],
 	['slip.test.js', 'reading pictures — slip QRs, imported accounts, and OCR text'],
 	['payment-evidence.test.js', 'optimistic confirmation and multi-period allocation policy'],
@@ -30,10 +31,13 @@ const SUITES = [
 	['account-merge.test.js', 'two accounts, one person — every reference moved, not one satang changed'],
 	['e2e.test.js', 'core against Postgres — full badminton lifecycle'],
 	['recurring.test.js', 'monthly agreements, periods and DM reminders'],
+	['payment-due.test.js', 'the deadline — announced once, deferrable with a reason, never a mute'],
 	['payment-lifecycle.test.js', 'multi-period transfers, private evidence, auto-confirmation and reversal'],
 	['poll.test.js', 'the time poll — proposing, voting, and Megu deciding'],
 	['corrections.test.js', 'editing, deleting and undoing — the ledger must be correctable'],
+	['creditor.test.js', 'the creditor column — two people collecting, and the rows written before it existed'],
 	['api.test.js', 'HTTP layer — roles, redaction, claim and payment flow'],
+	['pay-routing.test.js', 'where the money is sent — two creditors, one roster, and whose QR is printed'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
 

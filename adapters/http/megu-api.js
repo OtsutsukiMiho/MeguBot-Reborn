@@ -243,7 +243,7 @@ async function requireAccount(req, res, next) {
  * Participant rows carry device tokens and Discord ids. Neither ever leaves
  * the server — the client only needs to know which row is "me".
  */
-function publicParticipant(p, meId, showAmounts, settlementRow) {
+function publicParticipant(p, meId, showAmounts, settlementRow, deferral = null) {
 	const out = {
 		id: p.id,
 		displayName: p.displayName,
@@ -252,6 +252,16 @@ function publicParticipant(p, meId, showAmounts, settlementRow) {
 		claimed: Boolean(p.claimedAt),
 		isMe: p.id === meId,
 	};
+	// Why this person has not paid, in their own words. Passed in already
+	// filtered: an excuse is written for the organizer and for the person who
+	// gave it, and there is no reason for the rest of the roster to read it.
+	if (deferral) {
+		out.deferral = {
+			reason: deferral.reason,
+			snoozeUntil: deferral.snoozeUntil,
+			createdAt: deferral.createdAt,
+		};
+	}
 	if (showAmounts && settlementRow) {
 		out.owes = settlementRow.owes;
 		out.paidOut = settlementRow.paidOut;
@@ -259,8 +269,51 @@ function publicParticipant(p, meId, showAmounts, settlementRow) {
 		out.pending = settlementRow.pending;
 		out.outstanding = settlementRow.outstanding;
 		out.net = settlementRow.net;
+		// The same money, said as transfers rather than as a balance. `net` can
+		// only ever say how far down somebody is; these say who they have to
+		// send it to, which on a trip where two people fronted cash is two
+		// different people and was previously unanswerable.
+		//
+		// Sent under the same `showAmounts` gate as everything above it: this is
+		// more precise than the balance, not more public than it.
+		out.owesTo = settlementRow.owesTo.map(pairLine);
+		out.owedBy = settlementRow.owedBy.map(pairLine);
+		out.overpaid = settlementRow.overpaid;
 	}
 	return out;
+}
+
+/**
+ * One obligation, trimmed to what a screen needs.
+ *
+ * The internal row also carries `grossSatang` and `settledSatang`, which are
+ * working figures for the arithmetic and would only invite a client to do the
+ * subtraction itself and disagree with the server about the answer.
+ */
+function pairLine(obligation) {
+	return {
+		debtorId: obligation.debtorId,
+		debtorName: obligation.debtorName,
+		creditorId: obligation.creditorId,
+		creditorName: obligation.creditorName,
+		outstandingSatang: obligation.outstandingSatang,
+		pendingSatang: obligation.pendingSatang,
+		overpaidSatang: obligation.overpaidSatang,
+		estimated: obligation.estimated,
+	};
+}
+
+/**
+ * The excuse that is still standing for this person, on this month.
+ *
+ * Expired ones are left out on purpose: what the page shows is the same thing
+ * that is actually holding a reminder back, so "no reason shown" and "Megu will
+ * ask again tonight" never disagree.
+ */
+function activeDeferral(activity, participantId, scope, now = new Date()) {
+	return (activity.deferrals || []).find(deferral => deferral.participantId === participantId
+		&& (deferral.periodId || null) === scope
+		&& new Date(deferral.snoozeUntil) > now) || null;
 }
 
 /**
@@ -321,7 +374,7 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
 	return voice.say('activityCreated', { title: activity.title }, seed);
 }
 
-function serializeActivity(activity, actor, { periodId } = {}) {
+function serializeActivity(activity, actor, { periodId, creditorParticipantId = null } = {}) {
 	const lang = core.format.resolveLang(actor?.lang);
 	const role = access.activityRole(actor, activity);
 	const showAmounts = access.can(role, 'viewAmounts');
@@ -348,7 +401,52 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		? payment.amountSatang
 		: payment.allocations?.filter(allocation => allocation.periodId === scope)
 			.reduce((subtotal, allocation) => subtotal + allocation.amountSatang, 0) || payment.amountSatang;
-	const paymentOptions = availablePaymentOptions(activity);
+	// Which person's account this page is offering. Resolved the same way the
+	// payment routes resolve it, so what is on screen is what a claim would be
+	// recorded against — and left on the activity's payee when the viewer owes
+	// several people, because the page must not pick one of them silently.
+	const payingTo = resolveCreditor(activity, sum, me?.id || null, creditorParticipantId);
+	// Owing two people means there is no single account to print. Showing one of
+	// them anyway is the exact mistake this work exists to remove, so the page
+	// gets nothing to copy and a list to choose from instead.
+	const paymentOptions = payingTo.reason === 'ambiguous'
+		? []
+		: availablePaymentOptions(activity, payingTo.creditorId);
+
+	// Where the money goes — for this reader, not for the activity in general.
+	//
+	// `masked` is what the page prints; `number` is what the copy button puts on
+	// the clipboard. They are separated because a full phone number rendered on
+	// screen ends up in screenshots and shared Discord windows, and there is no
+	// reason for it to be visible when what the reader needs is to paste it into
+	// a banking app.
+	//
+	// Both are gated on `showAmounts`, so someone holding a forwarded link who
+	// is not on the roster gets neither — the same rule that already hides what
+	// everyone owes.
+	const payToParticipant = payingTo.creditorId
+		? activity.participants.find(p => p.id === payingTo.creditorId) || null
+		: null;
+	const payToProfile = payingTo.creditorId ? activity.paymentProfiles?.get(payingTo.creditorId) : null;
+	const payToIsPayee = !payingTo.creditorId || payingTo.creditorId === (activity.payee?.participantId || null);
+	const payToNumber = payToIsPayee
+		? (activity.payee?.promptpayId || null)
+		: (payToProfile?.promptpayId || null);
+	const payToName = payToIsPayee
+		? (activity.payee?.promptpayName || null)
+		: (payToProfile?.promptpayName || null);
+
+	const payToLine = payingTo.reason === 'ambiguous' || (!payToParticipant && !activity.payee)
+		? null
+		: {
+			participantId: payToParticipant ? payToParticipant.id : (activity.payee?.participantId || null),
+			displayName: payToParticipant ? payToParticipant.displayName : activity.payee.displayName,
+			accountName: payToName,
+			masked: payToNumber ? promptpay.maskTarget(payToNumber) : null,
+			number: payToNumber,
+			ready: paymentOptions.length > 0,
+			isMe: Boolean(me && payToParticipant && me.id === payToParticipant.id),
+		};
 
 	return {
 		code: activity.code,
@@ -363,6 +461,7 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		currency: activity.currency,
 		recurrence: activity.recurrence,
 		dueDay: activity.dueDay,
+		paymentDueAt: activity.paymentDueAt,
 		createdAt: activity.createdAt,
 		role,
 		me: me ? { id: me.id, displayName: me.displayName, rsvp: me.rsvp } : null,
@@ -371,7 +470,17 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 			displayName: p.displayName,
 			rsvp: p.rsvp,
 			outstanding: showAmounts ? (byParticipant[p.id]?.outstanding || 0) : null,
+			owesTo: showAmounts ? (byParticipant[p.id]?.owesTo || []).map(pairLine) : null,
+			owedBy: showAmounts ? (byParticipant[p.id]?.owedBy || []).map(pairLine) : null,
 		})),
+		// Every live transfer in this activity, for the screens that show the
+		// whole picture rather than one person's line. Withheld entirely from
+		// somebody who is not on the roster, like every other figure here.
+		obligations: showAmounts ? sum.obligations.map(pairLine) : null,
+		// True when some of the figures above were reconstructed from payments
+		// written before Megu recorded who they were sent to. A screen quoting
+		// one of those is required to say it is a reconstruction.
+		obligationsEstimated: showAmounts ? sum.hasLegacyPayments : null,
 		megu: meguLineFor(activity, sum, period, lang),
 		// `key` travels and `label` does not: a month's name is rendered by
 		// the reader's browser in the reader's language, rather than frozen
@@ -404,7 +513,10 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 				pendingSatang: showAmounts && standing ? standing.pending : null,
 			};
 		}),
-		participants: activity.participants.map(p => publicParticipant(p, me?.id, showAmounts, byParticipant[p.id])),
+		participants: activity.participants.map(p => publicParticipant(
+			p, me?.id, showAmounts, byParticipant[p.id],
+			role === 'owner' || mine.some(row => row.id === p.id) ? activeDeferral(activity, p.id, scope) : null,
+		)),
 		expenses: showAmounts
 			? activity.expenses.filter(inScope).map(e => ({
 				id: e.id,
@@ -423,6 +535,10 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 			? activity.payments.filter(paymentInScope).map(p => ({
 				id: p.id,
 				participantId: p.participantId,
+				// Null on rows written before Megu recorded who was paid. The
+				// screen treats that as "applies to whoever you are looking at"
+				// rather than hiding the claim, which would read as lost money.
+				creditorParticipantId: p.creditorParticipantId,
 				amountSatang: allocatedAmount(p),
 				transferAmountSatang: p.amountSatang,
 				allocations: p.allocations,
@@ -469,37 +585,102 @@ function serializeActivity(activity, actor, { periodId } = {}) {
 		// who is not on the roster gets neither — the same rule that already
 		// hides what everyone owes.
 		paymentOptions: showAmounts ? paymentOptions : [],
-		payTo: showAmounts && activity.payee
-			? {
-				participantId: activity.payee.participantId,
-				displayName: activity.payee.displayName,
-				accountName: activity.payee.promptpayName || null,
-				masked: activity.payee.promptpayId ? promptpay.maskTarget(activity.payee.promptpayId) : null,
-				number: activity.payee.promptpayId || null,
-				ready: paymentOptions.length > 0,
-				isMe: Boolean(me && me.id === activity.payee.participantId),
-			}
-			: null,
+		payTo: showAmounts ? payToLine : null,
+		// Present only when the viewer owes more than one person, and then it is
+		// the whole answer: there is no single account to print, and the page has
+		// to ask before it can show one. Empty otherwise.
+		payToChoices: showAmounts && payingTo.reason === 'ambiguous'
+			? payingTo.owed.map(o => ({
+				participantId: o.creditorId,
+				displayName: o.creditorName,
+				outstandingSatang: o.outstandingSatang,
+			}))
+			: [],
 	};
 }
 
-function availablePaymentOptions(activity) {
+/**
+ * Where to send money to one particular person on this roster.
+ *
+ * The creditor is a parameter rather than always being `activity.payee`,
+ * because on any activity where two people fronted cash there is more than one
+ * person to pay, and handing everyone the organizer's QR is how the person who
+ * covered the taxi ends up out of pocket with the ledger insisting the group is
+ * square.
+ *
+ * PromptPay comes from that person's own account, so it follows them between
+ * groups. The activity-level options are a different thing and are treated
+ * differently: the organizer wrote them, they describe where the activity's
+ * payee collects, and offering them for anybody else would print one person's
+ * bank details under another person's name.
+ */
+/**
+ * Who a given viewer is paying on this activity, or why that cannot be decided.
+ *
+ * Shared by the page and by the routes that move money, because those two
+ * answering differently is the whole bug: a screen showing one person's QR
+ * while the claim is recorded against another is worse than either being wrong
+ * on its own.
+ *
+ * reasons: 'not-in-activity' | 'self' | 'ambiguous'
+ */
+function resolveCreditor(activity, sum, meId, requested = null) {
+	if (requested) {
+		if (!activity.participants.some(p => p.id === requested)) {
+			return { creditorId: null, reason: 'not-in-activity', owed: [] };
+		}
+		if (meId && requested === meId) return { creditorId: null, reason: 'self', owed: [] };
+		const owed = meId ? sum.obligations.filter(o => o.debtorId === meId && o.outstandingSatang > 0) : [];
+		return { creditorId: requested, reason: null, owed };
+	}
+
+	const owed = meId ? sum.obligations.filter(o => o.debtorId === meId && o.outstandingSatang > 0) : [];
+	if (owed.length === 1) return { creditorId: owed[0].creditorId, reason: null, owed };
+	if (owed.length > 1) return { creditorId: null, reason: 'ambiguous', owed };
+
+	// Nobody is owed anything, so there is no wrong answer to give: fall back to
+	// whoever the activity collects for, which is what every screen showed
+	// before creditors existed.
+	return { creditorId: activity.payee?.participantId || null, reason: null, owed };
+}
+
+function availablePaymentOptions(activity, creditorParticipantId = null) {
+	const payeeId = activity.payee?.participantId || null;
+
+	// Naming no creditor means "the activity's default recipient". That has to
+	// include the organizer who deliberately did not join — `resolvePayee` keeps
+	// them as a valid recipient with no participant row at all, so comparing
+	// participant ids alone would answer "not the payee" for the one person the
+	// activity was set up to pay.
+	const forPayee = creditorParticipantId === null || creditorParticipantId === payeeId;
+	const profile = creditorParticipantId ? activity.paymentProfiles?.get(creditorParticipantId) : null;
+
+	const promptpayId = forPayee ? (activity.payee?.promptpayId || null) : (profile?.promptpayId || null);
+	const accountName = forPayee ? (activity.payee?.promptpayName || null) : (profile?.promptpayName || null);
+	const recipientId = creditorParticipantId || payeeId;
+
 	const options = [];
-	if (activity.currency === 'THB' && activity.payee?.promptpayId) {
+	if (activity.currency === 'THB' && promptpayId) {
 		options.push({
-			id: `profile-promptpay-${activity.payee.participantId}`,
+			id: `profile-promptpay-${recipientId}`,
 			type: 'promptpay',
 			label: 'PromptPay',
-			destination: activity.payee.promptpayId,
-			masked: promptpay.maskTarget(activity.payee.promptpayId),
-			accountName: activity.payee.promptpayName || null,
+			destination: promptpayId,
+			masked: promptpay.maskTarget(promptpayId),
+			accountName: accountName || null,
 			instructions: null,
 			url: null,
 			source: 'profile',
+			creditorParticipantId: recipientId,
 		});
 	}
-	for (const option of activity.paymentOptions || []) {
-		options.push({ ...option, source: 'activity' });
+	// Only for the payee. These were written by the organizer to describe where
+	// the activity collects; attaching them to a different creditor would print
+	// one person's bank account under another person's name.
+	if (forPayee) {
+		for (const option of activity.paymentOptions || []) {
+			options.push({ ...option, source: 'activity', creditorParticipantId: recipientId });
+		}
 	}
 	return options;
 }
@@ -598,7 +779,7 @@ function router(deps = {}) {
 	api.post('/activities', requireAccount, async (req, res, next) => {
 		try {
 			const {
-				title, kind = 'event', location, startsAt, guildId, channelId, participants,
+				title, kind = 'event', location, startsAt, paymentDueAt, guildId, channelId, participants,
 				ownerParticipation = true, ownerDisplayName, saveOwnerDisplayName = false,
 				currency = 'THB', initialPayerPosition = 0,
 			} = req.body || {};
@@ -632,6 +813,10 @@ function router(deps = {}) {
 				channelId: channelId || null,
 				recurrence: recurring ? 'monthly' : null,
 				dueDay: recurring ? Number(req.body.dueDay) || 1 : null,
+				// Deliberately separate from `startsAt`. The court is played on
+				// the 20th and settled on the 21st; a recurring agreement answers
+				// the same question per month through `dueDay` instead.
+				paymentDueAt: recurring ? null : (paymentDueAt || null),
 				participants: roster,
 			});
 
@@ -658,7 +843,7 @@ function router(deps = {}) {
 			res.status(201).json({ activity: serializeActivity(full, req.actor) });
 		}
 		catch (error) {
-			if (['display_name_required', 'display_name_too_long', 'currency_not_supported'].includes(error.code || error.message)) {
+			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid'].includes(error.code || error.message)) {
 				return fail(res, 400, error.code || error.message);
 			}
 			next(error);
@@ -696,7 +881,15 @@ function router(deps = {}) {
 		try {
 			const activity = await activities.getActivityByCode(req.params.code);
 			if (!activity) return fail(res, 404, 'notFound');
-			res.json({ activity: serializeActivity(activity, req.actor, { periodId: req.query.period }) });
+			res.json({
+				activity: serializeActivity(activity, req.actor, {
+					periodId: req.query.period,
+					// The pay screen asks for one creditor at a time. Without it
+					// the page answers for whoever the reader owes, and says it
+					// cannot choose when that is more than one person.
+					creditorParticipantId: req.query.creditorParticipantId || null,
+				}),
+			});
 		}
 		catch (error) {
 			next(error);
@@ -725,6 +918,55 @@ function router(deps = {}) {
 			res.json({ activity: serializeActivity(full, req.actor) });
 		}
 		catch (error) {
+			next(error);
+		}
+	});
+
+	/**
+	 * "Not now, and here is why."
+	 *
+	 * The web half of the second button on the due-date reminder. Discord can
+	 * ask for the reason in a modal; an email cannot, so its quiet button is a
+	 * link that lands here through the page. Both write the same row.
+	 *
+	 * Not `requireAccount`: the person who owes money is very often somebody who
+	 * claimed a name on a shared link and never signed up for anything, and they
+	 * are exactly who this needs to hear from.
+	 */
+	api.post('/a/:code/defer', async (req, res, next) => {
+		try {
+			const activity = await activities.getActivityByCode(req.params.code);
+			if (!activity) return fail(res, 404, 'notFound');
+
+			const me = access.matchParticipant(req.actor, activity.participants);
+			if (!me) return fail(res, 403, 'claim_your_name_first');
+
+			const periodId = req.body?.periodId || null;
+			if (periodId && !activity.periods.some(period => period.id === periodId)) {
+				return fail(res, 400, 'period_not_in_activity');
+			}
+
+			const deferral = await activities.deferPayment({
+				activityId: activity.id,
+				participantId: me.id,
+				periodId,
+				reason: req.body?.reason,
+				source: 'web',
+			});
+			await core.reminders.announceDeferral({
+				activity,
+				participantId: me.id,
+				deferral,
+				baseUrl: req.actor?.shareOrigin || '',
+			});
+
+			const full = await activities.getActivity(activity.id);
+			res.json({ activity: serializeActivity(full, req.actor), snoozeUntil: deferral.snoozeUntil });
+		}
+		catch (error) {
+			if (['defer_reason_required', 'defer_reason_too_long'].includes(error.code || error.message)) {
+				return fail(res, 400, error.code || error.message);
+			}
 			next(error);
 		}
 	});
@@ -793,12 +1035,60 @@ function router(deps = {}) {
 		const me = chosen.participant;
 		const row = me ? sum.rows.find(r => r.participantId === me.id) : null;
 
-		const outstanding = row?.outstanding || 0;
-		const pending = row?.pending || 0;
+		// And who this money is going to.
+		//
+		// Until the creditor column existed there was only ever one answer —
+		// whoever the activity named — and on an activity where two people
+		// fronted cash that answer was wrong for one of them. Now the caller
+		// either owes exactly one person, in which case it is obvious, or owes
+		// several and has to say which, because guessing here is guessing with
+		// somebody's money.
+		//
+		// Resolved by the same function the page uses, so the account on screen
+		// and the account this claim is recorded against cannot drift apart.
+		// A creditor named explicitly is allowed even when nothing is owed to
+		// them: paying a little extra, or settling something the group agreed
+		// off-ledger, is a real thing people do, and the record should still say
+		// who received it.
+		const requestedCreditor = req.body?.creditorParticipantId || req.query?.creditorParticipantId || null;
+		const { creditorId, reason, owed } = resolveCreditor(activity, sum, me?.id || null, requestedCreditor);
+
+		if (reason === 'not-in-activity') {
+			fail(res, 400, 'creditor_not_in_activity');
+			return null;
+		}
+		if (reason === 'self') {
+			fail(res, 400, 'cannot_pay_yourself');
+			return null;
+		}
+		if (reason === 'ambiguous') {
+			fail(res, 409, 'choose_who_to_pay', 'You owe more than one person here — choose who this payment is for');
+			return null;
+		}
+
+		const pair = creditorId && me
+			? sum.obligations.find(o => o.debtorId === me.id && o.creditorId === creditorId)
+			: null;
+
+		// Scoped to this pair, not to the whole roster line. Somebody who owes
+		// ฿200 to one person and ฿100 to another must not be offered a QR for
+		// ฿300 made out to either of them.
+		const outstanding = pair ? pair.outstandingSatang : 0;
+		const pending = pair ? pair.pendingSatang : 0;
+		const creditor = creditorId
+			? activity.participants.find(p => p.id === creditorId) || null
+			: null;
+
 		return {
 			activity, role, me, period, scope, sum, row,
+			creditor,
+			creditorId,
+			owed,
 			outstanding,
 			available: Math.max(0, outstanding - pending),
+			// What the roster line says, kept for anything that still wants the
+			// person's whole position rather than one leg of it.
+			rowOutstanding: row?.outstanding || 0,
 		};
 	}
 
@@ -819,7 +1109,7 @@ function router(deps = {}) {
 			const ctx = await payContext(req, res);
 			if (!ctx) return;
 
-			const methods = availablePaymentOptions(ctx.activity);
+			const methods = availablePaymentOptions(ctx.activity, ctx.creditorId);
 			const selected = methods.find(option => option.id === req.query.method)
 				|| methods.find(option => option.type === 'promptpay');
 			if (!selected || selected.type !== 'promptpay') return fail(res, 404, 'promptpay_missing');
@@ -864,9 +1154,16 @@ function router(deps = {}) {
 					const period = ctx.activity.periods.find(item => item.id === requested?.periodId);
 					if (!period || seen.has(period.id)) return fail(res, 400, 'payment_allocation_invalid');
 					seen.add(period.id);
-					const standing = activities.settlement(ctx.activity, period.id).rows
-						.find(item => item.participantId === ctx.me.id);
-					const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
+					// Per month and per creditor. Splitting a transfer across
+					// months is already supported; what must not happen is one
+					// month's headroom being borrowed from a debt owed to
+					// somebody else entirely.
+					const monthly = activities.settlement(ctx.activity, period.id);
+					const standing = ctx.creditorId
+						? monthly.obligations.find(o => o.debtorId === ctx.me.id && o.creditorId === ctx.creditorId)
+						: monthly.rows.find(item => item.participantId === ctx.me.id);
+					const available = Math.max(0, (standing?.outstandingSatang ?? standing?.outstanding ?? 0)
+						- (standing?.pendingSatang ?? standing?.pending ?? 0));
 					const allocationAmount = Number(requested.amountSatang);
 					if (!Number.isSafeInteger(allocationAmount) || allocationAmount <= 0 || allocationAmount > available) {
 						return fail(res, 400, 'payment_allocation_exceeds_outstanding');
@@ -880,7 +1177,7 @@ function router(deps = {}) {
 
 			const amount = allocations.reduce((sum, allocation) => sum + allocation.amountSatang, 0);
 			if (amount <= 0) return fail(res, 400, 'nothing_outstanding');
-			const methods = availablePaymentOptions(ctx.activity);
+			const methods = availablePaymentOptions(ctx.activity, ctx.creditorId);
 			const requestedMethod = req.body?.paymentMethodId;
 			const selected = requestedMethod
 				? methods.find(option => option.id === requestedMethod) || null
@@ -889,6 +1186,9 @@ function router(deps = {}) {
 
 			const payment = await activities.recordPayment(ctx.activity.id, ctx.me.id, {
 				amountSatang: amount,
+				// Who it is going to, recorded at the moment of the claim rather
+				// than inferred later from whoever the activity names today.
+				creditorParticipantId: ctx.creditorId,
 				method: selected?.type || 'manual',
 				periodId: allocations.length === 1 ? allocations[0].periodId : null,
 				allocations,
@@ -932,9 +1232,33 @@ function router(deps = {}) {
 				? activity.periods.find(item => item.id === req.body?.periodId)
 					|| activities.currentPeriod(activity)
 				: null;
-			const standing = activities.settlement(activity, period?.id || null).rows
-				.find(item => item.participantId === participant.id);
-			const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
+			const sum = activities.settlement(activity, period?.id || null);
+
+			// Who took the cash. The organizer is the obvious default and was
+			// the only possibility before, but on a trip the person holding the
+			// notes is whoever fronted that particular bill.
+			const owed = sum.obligations.filter(o => o.debtorId === participant.id && o.outstandingSatang > 0);
+			const requestedCreditor = req.body?.creditorParticipantId || null;
+			if (requestedCreditor && !activity.participants.some(p => p.id === requestedCreditor)) {
+				return fail(res, 400, 'creditor_not_in_activity');
+			}
+			if (requestedCreditor && requestedCreditor === participant.id) {
+				return fail(res, 400, 'cannot_pay_yourself');
+			}
+			const creditorId = requestedCreditor
+				|| (owed.length === 1 ? owed[0].creditorId : null)
+				|| activity.payee?.participantId
+				|| null;
+			if (!requestedCreditor && owed.length > 1) {
+				return fail(res, 409, 'choose_who_to_pay', 'They owe more than one person here — say who received the cash');
+			}
+
+			const pair = creditorId
+				? sum.obligations.find(o => o.debtorId === participant.id && o.creditorId === creditorId)
+				: null;
+			const standing = pair || sum.rows.find(item => item.participantId === participant.id);
+			const available = Math.max(0, (standing?.outstandingSatang ?? standing?.outstanding ?? 0)
+				- (standing?.pendingSatang ?? standing?.pending ?? 0));
 			const amountSatang = Number(req.body?.amountSatang);
 			if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0 || amountSatang > available) {
 				return fail(res, 400, 'manual_payment_exceeds_outstanding');
@@ -942,6 +1266,7 @@ function router(deps = {}) {
 
 			await activities.recordPayment(activity.id, participant.id, {
 				amountSatang,
+				creditorParticipantId: creditorId,
 				method: 'cash',
 				periodId: period?.id || null,
 				expectedSatang: amountSatang,
@@ -1209,11 +1534,15 @@ function router(deps = {}) {
 				location: req.body?.location,
 				startsAt: req.body?.startsAt ? new Date(req.body.startsAt) : undefined,
 				dueDay: req.body?.dueDay,
+				// `null` clears the deadline and `undefined` leaves it alone, so
+				// the two must stay distinguishable all the way down.
+				paymentDueAt: req.body?.paymentDueAt === undefined ? undefined : (req.body.paymentDueAt || null),
 			});
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor) });
 		}
 		catch (error) {
+			if ((error.code || error.message) === 'payment_due_at_invalid') return fail(res, 400, 'payment_due_at_invalid');
 			next(error);
 		}
 	});

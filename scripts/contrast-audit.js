@@ -34,9 +34,35 @@ const PAIRS = [
 	['settled', 'paper', AA_BODY, 'settled amounts'],
 	['settled', 'surface', AA_BODY, 'settled amounts on a panel'],
 	['settled', 'settled-soft', AA_BODY, 'settled text on its own tint'],
+
+	// The failure colour, kept apart from `due` since the celadon palette
+	// separated them. It is rare on screen, which is exactly why it has to be
+	// legible the once it appears.
+	['alarm', 'paper', AA_BODY, 'a rejected slip or a reversed payment'],
+	['alarm', 'surface', AA_BODY, 'the same, on a panel'],
+	['alarm', 'alarm-soft', AA_BODY, 'failure text on its own tint'],
+
 	['on-brand', 'brand', AA_BODY, 'button text'],
-	['line-2', 'paper', 1.5, 'borders and control outlines'],
-	['line-2', 'surface', 1.5, 'borders on a panel'],
+	// Boundaries carry two different jobs and only one of them is structural.
+	//
+	// `line-2` is what separates one section from the next — a panel edge, a
+	// section rule — so it is held to the 3:1 WCAG 1.4.11 asks of a non-text UI
+	// boundary. The table used to accept 1.5 there, which is exactly how a
+	// redesign could delete every card, replace them with rules measuring
+	// 1.21:1, and still pass: the page was left with no visible divisions at all
+	// and the audit called it green.
+	//
+	// `line` is the softer separator *inside* something already bounded, between
+	// rows of one table. It may stay quiet, and it may never be the only thing
+	// dividing two sections.
+	['line-2', 'paper', AA_LARGE, 'a section boundary'],
+	['line-2', 'surface', AA_LARGE, 'a panel edge'],
+	['line', 'surface', 1.15, 'a row separator inside a table'],
+	// The card hairline. It is deliberately quiet because it never carries the
+	// boundary alone — the card also has a background lift off the ground and a
+	// layered shadow, and those three together are what makes the edge read.
+	// Anything that divides two sections on its own uses `line-2` and its 3:1.
+	['edge', 'paper', 1.1, 'the hairline on a card that also lifts and casts'],
 
 	// Audit-log category badges. Measured against the panel they sit on rather
 	// than their own tint, because the tint is only ~12–18% of the same hue and

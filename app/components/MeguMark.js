@@ -95,9 +95,14 @@ export default function MeguMark({ size = 64, mood = 'calm', className = '', tit
 			aria-label={title || 'Megu'}
 		>
 			<defs>
+				{/* Megu's coat is navy, and on the dark theme the page behind her
+				    is navy too — measured at 1.36:1, which is not a low-contrast
+				    logo, it is an invisible one. The stops are theme variables
+				    now, so the mark lifts off a night ground instead of sinking
+				    into it. `--megu-body-*` are defined beside the palette. */}
 				<linearGradient id="megu-body" x1="0.1" y1="0" x2="0.6" y2="1">
-					<stop offset="0%" stopColor="#3D4795" />
-					<stop offset="100%" stopColor="#212862" />
+					<stop offset="0%" stopColor="var(--megu-body-lit, #3D4795)" />
+					<stop offset="100%" stopColor="var(--megu-body, #212862)" />
 				</linearGradient>
 			</defs>
 

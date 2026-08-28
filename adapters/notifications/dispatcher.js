@@ -13,7 +13,20 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 					const content = core.notifications.render(delivery);
 					if (delivery.channel === 'discord') {
 						if (!delivery.discord_uid) throw new Error('Discord identity is unavailable');
-						await sendDiscord({ recipients: [delivery.discord_uid], message: `${content.body}${content.ctaUrl ? `\n${content.ctaUrl}` : ''}` });
+						await sendDiscord({
+							recipients: [delivery.discord_uid],
+							// The URL stays in the text as well as on the button.
+							// A link button is unreachable to anyone reading the
+							// DM through a screen reader's message text, and it
+							// is the one thing in the message that must not be.
+							message: `${content.body}${content.ctaUrl ? `\n${content.ctaUrl}` : ''}`,
+							cta: content.ctaUrl ? { label: content.ctaLabel, url: content.ctaUrl } : null,
+							// Present only on the events that have a second
+							// answer to offer; the bot draws no button without it.
+							defer: content.defer
+								? { ...content.defer, label: content.secondaryLabel }
+								: null,
+						});
 					}
 					else if (delivery.channel === 'email') {
 						if (!delivery.email) throw new Error('Verified email is unavailable');
