@@ -1,6 +1,7 @@
 const { query, transaction } = require('./db.js');
 const { newId } = require('./ids.js');
 const { normaliseTarget } = require('./promptpay.js');
+const { isSupported } = require('./locales.js');
 
 const PROVIDERS = new Set(['discord', 'google', 'line']);
 
@@ -260,7 +261,9 @@ async function getNotificationPreferences(userId) {
 async function setNotificationPreferences(userId, { mode, locale }) {
 	const allowedModes = new Set(['discord', 'email', 'both', 'off']);
 	if (!allowedModes.has(mode)) throw new Error('notification_mode_invalid');
-	if (!['en', 'th'].includes(locale)) throw new Error('notification_locale_invalid');
+	// Asked of the registry, so a language added there is accepted here without
+	// this line having to be found and edited.
+	if (!isSupported(locale)) throw new Error('notification_locale_invalid');
 	const identities = await getIdentities(userId);
 	const hasDiscord = identities.some(identity => identity.provider === 'discord');
 	const hasEmail = identities.some(identity => identity.provider === 'google' && identity.emailVerified && identity.email);

@@ -6,6 +6,7 @@ const db = require('./db.js');
 const ids = require('./ids.js');
 const money = require('./money.js');
 const format = require('./format.js');
+const locales = require('./locales.js');
 const promptpay = require('./promptpay.js');
 const slip = require('./slip.js');
 const receipt = require('./receipt.js');
@@ -30,6 +31,7 @@ module.exports = {
 	ids,
 	money,
 	format,
+	locales,
 	promptpay,
 	slip,
 	receipt,

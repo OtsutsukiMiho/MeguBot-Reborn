@@ -208,9 +208,27 @@ const STATEMENTS = [
 	`CREATE TABLE IF NOT EXISTS notification_preferences (
 		user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		mode       TEXT NOT NULL CHECK (mode IN ('discord', 'email', 'both', 'off')),
-		locale     TEXT NOT NULL DEFAULT 'en' CHECK (locale IN ('en', 'th')),
+		locale     TEXT NOT NULL DEFAULT 'en',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
+
+	// The locale column used to name the languages — `CHECK (locale IN ('en',
+	// 'th'))` — which made adding a third one a schema migration. That is exactly
+	// what `core/locales.js` exists to stop: the registry decides what Megu
+	// speaks and `setNotificationPreferences` enforces it, so all the database
+	// needs to do is refuse something that is not a language code at all.
+	//
+	// Dropped by its generated name and re-added by an explicit one, so this is
+	// a no-op on the second boot and on a database that never had the old shape.
+	`DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notification_preferences_locale_check') THEN
+			ALTER TABLE notification_preferences DROP CONSTRAINT notification_preferences_locale_check;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notification_preferences_locale_shape') THEN
+			ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_locale_shape
+				CHECK (locale ~ '^[a-z]{2}(-[A-Za-z0-9]{2,8})?$');
+		END IF;
+	END $$;`,
 
 	// Discord refresh credentials are needed when somebody signs in through a
 	// linked Google identity and then opens the server dashboard. Tokens are

@@ -13,6 +13,7 @@ const {
 const SUITES = [
 	['rate-limit.test.js', 'the Discord block guard — recognise it, hold it, share it'],
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
+	['locales.test.js', 'the locale registry — a third language is translations, not code'],
 	['split.test.js', 'dividing an expense — exact, percentage and weighted, always reconciling'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
 	['obligations.test.js', 'who owes whom — several payers, late joiners, money sent to the wrong person'],

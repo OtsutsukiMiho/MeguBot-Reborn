@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import MeguMark from './components/MeguMark';
 import { useLang } from './components/LangProvider';
+import { withFallback } from './copy/fallback';
 
 // WebGL cannot render on the server and must not block first paint, so the flat
 // vector is what ships in the HTML and the scene fades in over it once it is
@@ -100,7 +101,13 @@ export default function HomePage() {
 			.catch(() => {});
 	}, []);
 
-	const t = COPY[lang];
+	// `COPY[lang]` alone is undefined for any language this page has not been
+	// written in, and the destructure on the next line turns that into a blank
+	// screen rather than an untranslated one. English underneath means a new
+	// language ships with a landing page in English until somebody writes it,
+	// which is the difference between a translation being late and the front
+	// door being broken.
+	const t = withFallback(COPY.en, COPY[lang]);
 	const [h1a, h1accent, h1b] = t.h1;
 
 	// The card's light follows the pointer. Written straight to the element as
