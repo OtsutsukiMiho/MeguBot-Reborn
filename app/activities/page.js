@@ -255,6 +255,7 @@ function CreateActivity({ guilds, user, onCreated, onCancel }) {
 	const [title, setTitle] = useState('');
 	const [knowsWhen, setKnowsWhen] = useState(false);
 	const [startsAt, setStartsAt] = useState('');
+	const [paymentDueAt, setPaymentDueAt] = useState('');
 	const [location, setLocation] = useState('');
 	const [amount, setAmount] = useState('');
 	const [dueDay, setDueDay] = useState('1');
@@ -302,6 +303,9 @@ function CreateActivity({ guilds, user, onCreated, onCancel }) {
 					startsAt: recurring || !knowsWhen ? null : startsAt || null,
 					amount: recurring ? Number(amount) || undefined : undefined,
 					dueDay: recurring ? Number(dueDay) || 1 : undefined,
+					// A monthly agreement answers the same question through its
+					// collection day, so this is for one-off activities only.
+					paymentDueAt: recurring ? undefined : (paymentDueAt || null),
 					currency,
 					ownerParticipation,
 					ownerDisplayName: ownerParticipation ? ownerDisplayName.trim() : undefined,
@@ -458,6 +462,18 @@ function CreateActivity({ guilds, user, onCreated, onCancel }) {
 								{c.whereField}{' '}<span className="field-optional">{c.optional}</span>
 							</label>
 							<input id="megu-location" className="form-control" placeholder={c.wherePlaceholder} value={location} onChange={e => setLocation(e.target.value)} />
+						</div>
+
+						{/* Deliberately its own field, below "when is it".
+						    The court is played on the 20th and settled on the
+						    21st; folding the two together would make one of
+						    them wrong roughly half the time. */}
+						<div className="field">
+							<label className="field-label" htmlFor="megu-pay-by">
+								{c.payByField}{' '}<span className="field-optional">{c.optional}</span>
+							</label>
+							<input id="megu-pay-by" className="form-control" type="date" value={paymentDueAt} onChange={e => setPaymentDueAt(e.target.value)} />
+							<p className="field-hint">{c.payByHint}</p>
 						</div>
 					</>
 				)}

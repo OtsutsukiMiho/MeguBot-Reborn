@@ -29,11 +29,16 @@ async function enqueue({ userId, eventType, payload, dedupeKey, channels = null 
 		const preference = await client.query('SELECT mode, locale FROM notification_preferences WHERE user_id = $1', [userId]);
 		const mode = preference.rows[0]?.mode || (discord ? 'discord' : email ? 'email' : 'off');
 		const locale = preference.rows[0]?.locale || 'en';
+		// `xmax = 0` is true only on a genuine insert: on the conflict path the
+		// row carries the updating transaction's id. Callers need to tell the
+		// two apart — a sweep that runs every five minutes would otherwise
+		// report "1 reminder sent" on every pass for the same reminder, which
+		// reads in the log exactly like the bug it is not.
 		const event = await client.query(
 			`INSERT INTO notification_events (id, user_id, event_type, payload, dedupe_key)
 			 VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (dedupe_key) DO UPDATE SET dedupe_key = EXCLUDED.dedupe_key
-			 RETURNING id`,
+			 RETURNING id, (xmax = 0) AS inserted`,
 			[newId('nev'), userId, eventType, { ...payload, locale }, dedupeKey],
 		);
 		const available = { hasDiscord: Boolean(discord), hasEmail: Boolean(email) };
@@ -48,7 +53,7 @@ async function enqueue({ userId, eventType, payload, dedupeKey, channels = null 
 				[newId('ndl'), event.rows[0].id, channel],
 			);
 		}
-		return { eventId: event.rows[0].id, mode };
+		return { eventId: event.rows[0].id, created: event.rows[0].inserted === true, mode };
 	});
 }
 
@@ -100,8 +105,27 @@ function render(delivery) {
 	const th = p.locale === 'th';
 	const subject = (th ? p.subjectTh : p.subjectEn) || p.subject || (th ? `อัปเดตจาก Megu · ${p.activityTitle || ''}` : `Megu update · ${p.activityTitle || ''}`);
 	const body = (th ? p.bodyTh : p.bodyEn) || p.body || (th ? 'มีรายการใหม่ในกิจกรรมของคุณ' : 'There is a new update in your activity.');
-	const ctaLabel = p.ctaLabel || (th ? 'เปิดใน Megu' : 'Open in Megu');
-	return { subject, body, ctaLabel, ctaUrl: p.ctaUrl || null };
+	const ctaLabel = (th ? p.ctaLabelTh : p.ctaLabelEn) || p.ctaLabel || (th ? 'เปิดใน Megu' : 'Open in Megu');
+
+	// A second, quieter button. It exists because a message with one button
+	// only collects one answer: everybody who cannot press "Pay" today presses
+	// nothing, and silence is the one reply that tells the organizer nothing.
+	// Email can only offer it as a link; Discord replaces it with a real button
+	// and a modal, and both end up writing the same row.
+	const secondaryUrl = p.secondaryUrl || null;
+	const secondaryLabel = secondaryUrl
+		? ((th ? p.secondaryLabelTh : p.secondaryLabelEn) || p.secondaryLabel || (th ? 'ยังไม่พร้อม' : 'Not now'))
+		: null;
+
+	return {
+		subject,
+		body,
+		ctaLabel,
+		ctaUrl: p.ctaUrl || null,
+		secondaryLabel,
+		secondaryUrl,
+		defer: p.defer || null,
+	};
 }
 
 module.exports = { channelsFor, enqueue, claimPending, markSent, markFailed, render };

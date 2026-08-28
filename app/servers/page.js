@@ -44,7 +44,10 @@ function ServerCardAvatar({ guild }) {
 	);
 }
 
-function ServerCard({ g, copy, lang }) {
+function ServerCard({ g, copy }) {
+	// `fmt` rather than a `lang` prop: the member count is formatted by the
+	// reader's locale, and asking the hook is one less thing to thread through.
+	const { fmt } = useCopy();
 	const banner = guildBannerUrl(g);
 
 	return (
@@ -76,7 +79,7 @@ function ServerCard({ g, copy, lang }) {
 				<div className="server-card-title" title={g.name}>{g.name}</div>
 				<div className="server-card-details">
 					{typeof g.memberCount === 'number'
-						? copy.members(g.memberCount.toLocaleString(lang === 'th' ? 'th-TH' : 'en-US'), g.id)
+						? copy.members(fmt.number(g.memberCount), g.id)
 						: `ID ${g.id}`}
 				</div>
 			</div>
@@ -182,7 +185,7 @@ export default function ServersPage() {
 				)
 				: (
 					<div className="server-grid rise rise-2">
-						{guilds.map(g => <ServerCard key={g.id} g={g} copy={copy} lang={lang} />)}
+						{guilds.map(g => <ServerCard key={g.id} g={g} copy={copy} />)}
 					</div>
 				)}
 		</div>

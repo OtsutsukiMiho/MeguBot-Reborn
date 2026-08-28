@@ -11,42 +11,41 @@
 // that already existed. The key ("2026-08") is the fact; the label is a
 // rendering of it, and renderings belong here.
 
-const LANGS = ['en', 'th'];
-const DEFAULT_LANG = 'en';
-
-// Thai months are spelled out rather than taken from Intl because the runtime
-// the bot ships on is not guaranteed to carry full ICU data — a Node built
-// with small-icu silently falls back to English for th-TH, which is exactly
-// the failure this file exists to prevent.
-const THAI_MONTHS = [
-	'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-	'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
-];
-
-const THAI_MONTHS_SHORT = [
-	'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-	'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
-];
-
-const THAI_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
-const THAI_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
-
-const EN_MONTHS = [
-	'January', 'February', 'March', 'April', 'May', 'June',
-	'July', 'August', 'September', 'October', 'November', 'December',
-];
-const EN_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Which languages exist, and what makes each one different, lives in
+// `locales.js`. This file renders; that file is the registry. Nothing below may
+// name a language: a `lang === 'th'` here is a third language's bug, waiting.
+const { LANGS, DEFAULT_LANG, resolveLang, localeFor } = require('./locales.js');
 
 // Everything this product does happens in Thailand, including the months it
 // bills for. Left to the server's own clock, a period opened at 02:00 on the
 // first of September in Bangkok would be filed under August, because the
 // server is very likely running in UTC.
+//
+// This is a fact about the product, not about the reader's language, which is
+// why it is here and not in the registry. Nobody's choice of English moves the
+// billing month.
 const TIMEZONE = 'Asia/Bangkok';
-const BUDDHIST_OFFSET = 543;
 
-function resolveLang(input) {
-	const lang = String(input || '').slice(0, 2).toLowerCase();
-	return LANGS.includes(lang) ? lang : DEFAULT_LANG;
+/**
+ * Month and weekday names for a locale, falling back to Intl.
+ *
+ * A registry entry that spells them out is saying "do not trust Intl for this
+ * language here" — which Thai does, because a Node built with small-icu
+ * silently answers in English for th-TH. A locale that leaves them null gets
+ * Intl, which is right until somebody proves otherwise for that language.
+ */
+function calendarNames(locale, { long }) {
+	const months = long ? locale.months : locale.monthsShort;
+	const days = long ? locale.days : locale.daysShort;
+	if (months && days) return { months, days };
+
+	const monthFormat = new Intl.DateTimeFormat(locale.intl, { month: long ? 'long' : 'short', timeZone: 'UTC' });
+	const dayFormat = new Intl.DateTimeFormat(locale.intl, { weekday: long ? 'long' : 'short', timeZone: 'UTC' });
+	return {
+		months: months || Array.from({ length: 12 }, (_, i) => monthFormat.format(Date.UTC(2021, i, 15))),
+		// 2021-08-01 was a Sunday, which is index 0 the way `bangkokParts` counts.
+		days: days || Array.from({ length: 7 }, (_, i) => dayFormat.format(Date.UTC(2021, 7, 1 + i))),
+	};
 }
 
 /**
@@ -100,7 +99,7 @@ function formatMoney(minorUnits, currency = 'THB', lang = DEFAULT_LANG) {
 		currency = 'THB';
 	}
 	const code = String(currency || 'THB').toUpperCase();
-	const locale = resolveLang(lang) === 'th' ? 'th-TH' : 'en-US';
+	const locale = localeFor(lang).intl;
 	try {
 		return new Intl.NumberFormat(locale, {
 			style: 'currency',
@@ -133,12 +132,12 @@ function formatPeriod(key, lang = DEFAULT_LANG, { short = false } = {}) {
 	const [year, month] = String(key).split('-').map(Number);
 	if (!year || !month || month < 1 || month > 12) return String(key);
 
-	if (resolveLang(lang) === 'th') {
-		const names = short ? THAI_MONTHS_SHORT : THAI_MONTHS;
-		return `${names[month - 1]} ${year + BUDDHIST_OFFSET}`;
-	}
-	const name = EN_MONTHS[month - 1];
-	return short ? `${name.slice(0, 3)} ${year}` : `${name} ${year}`;
+	const locale = localeFor(lang);
+	const { months } = calendarNames(locale, { long: !short });
+	return locale.patterns.period({
+		month: months[month - 1],
+		year: year + locale.yearOffset,
+	});
 }
 
 /**
@@ -157,17 +156,16 @@ function formatWhen(input, lang = DEFAULT_LANG, { long = false, time = true } = 
 	const hh = String(hour).padStart(2, '0');
 	const mm = String(minute).padStart(2, '0');
 
-	if (resolveLang(lang) === 'th') {
-		const dayName = long ? THAI_DAYS[weekday] : THAI_DAYS_SHORT[weekday];
-		const monthName = long ? THAI_MONTHS[month - 1] : THAI_MONTHS_SHORT[month - 1];
-		const head = `${long ? 'วัน' : ''}${dayName} ${day} ${monthName} ${year + BUDDHIST_OFFSET}`;
-		return time ? `${head} ${hh}:${mm} น.` : head;
-	}
-
-	const dayName = long ? EN_DAYS[weekday] : EN_DAYS[weekday].slice(0, 3);
-	const monthName = long ? EN_MONTHS[month - 1] : EN_MONTHS[month - 1].slice(0, 3);
-	const head = `${dayName} ${day} ${monthName} ${year}`;
-	return time ? `${head}, ${hh}:${mm}` : head;
+	const locale = localeFor(lang);
+	const names = calendarNames(locale, { long });
+	return locale.patterns.when({
+		dayName: names.days[weekday],
+		day,
+		month: names.months[month - 1],
+		year: year + locale.yearOffset,
+		time: time ? `${hh}:${mm}` : null,
+		long,
+	});
 }
 
 /**
@@ -176,11 +174,8 @@ function formatWhen(input, lang = DEFAULT_LANG, { long = false, time = true } = 
 function formatDueDay(day, lang = DEFAULT_LANG) {
 	const n = Number(day);
 	if (!Number.isInteger(n) || n < 1 || n > 31) return '';
-	if (resolveLang(lang) === 'th') return `ทุกวันที่ ${n}`;
-
-	const suffix = (n % 100 >= 11 && n % 100 <= 13) ? 'th'
-		: ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th';
-	return `the ${n}${suffix} of every month`;
+	const locale = localeFor(lang);
+	return locale.patterns.dueDay({ day: n, ordinal: locale.ordinal ? locale.ordinal(n) : String(n) });
 }
 
 /**
@@ -192,7 +187,36 @@ function formatNames(names, lang = DEFAULT_LANG) {
 	if (list.length === 1) return String(list[0]);
 	const last = list[list.length - 1];
 	const rest = list.slice(0, -1).join(', ');
-	return resolveLang(lang) === 'th' ? `${rest} กับ ${last}` : `${rest} and ${last}`;
+	return `${rest} ${localeFor(lang).conjunction} ${last}`;
+}
+
+/**
+ * How many, said the way the language says it.
+ *
+ * `count === 1 ? 'participant' : 'participants'` is an English rule written
+ * into a dictionary that is not only English. Thai has one form, Polish has
+ * three, Arabic has six — so the choice is made by `Intl.PluralRules` and the
+ * dictionary supplies whichever forms its language actually needs.
+ *
+ * `forms` is keyed by CLDR category. `other` is required and is what any
+ * missing category falls back to, so a dictionary that only writes `other` is
+ * correct for every language that only needs one.
+ */
+function plural(count, forms, lang = DEFAULT_LANG) {
+	const n = Number(count);
+	if (!Number.isFinite(n)) return String(forms?.other ?? '');
+	// An ICU build without plural data falls through to `other`, which is the
+	// correct answer for every language that only has one form and a survivable
+	// one for the rest.
+	let category;
+	try {
+		category = new Intl.PluralRules(localeFor(lang).intl).select(n);
+	}
+	catch {
+		category = 'other';
+	}
+	const form = forms?.[category] ?? forms?.other ?? '';
+	return typeof form === 'function' ? form(n) : String(form);
 }
 
 module.exports = {
@@ -200,6 +224,8 @@ module.exports = {
 	DEFAULT_LANG,
 	TIMEZONE,
 	resolveLang,
+	localeFor,
+	plural,
 	bangkokParts,
 	periodKeyFor,
 	formatMoney,

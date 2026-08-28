@@ -5,12 +5,25 @@ const { useLang } = require('../components/LangProvider');
 const format = require('../../core/format.js');
 const en = require('./en.js');
 const th = require('./th.js');
+const { withFallback } = require('./fallback.js');
 
 const DICTIONARIES = { en, th };
 const CurrencyContext = createContext('THB');
 
+/**
+ * The locale's words, with English underneath every gap.
+ *
+ * Merged once per language rather than on every render. See `fallback.js` for
+ * why a missing translation must resolve to English rather than to nothing.
+ */
+const RESOLVED = new Map();
 function dictionaryFor(lang) {
-	return DICTIONARIES[format.resolveLang(lang)];
+	const code = format.resolveLang(lang);
+	if (!RESOLVED.has(code)) {
+		const base = DICTIONARIES[format.DEFAULT_LANG];
+		RESOLVED.set(code, code === format.DEFAULT_LANG ? base : withFallback(base, DICTIONARIES[code]));
+	}
+	return RESOLVED.get(code);
 }
 
 /**
@@ -41,6 +54,12 @@ function useCopy(defaultCurrency) {
 				period: (key, options) => format.formatPeriod(key, resolved, options),
 				dueDay: day => format.formatDueDay(day, resolved),
 				names: list => format.formatNames(list, resolved),
+				// `count === 1 ? 'x' : 'xs'` is an English rule. This asks the
+				// language, so a dictionary that needs one form writes one and a
+				// language that needs three can have three.
+				plural: (count, forms) => format.plural(count, forms, resolved),
+				// A plain number in the reader's own digits and separators.
+				number: value => new Intl.NumberFormat(format.localeFor(resolved).intl).format(Number(value) || 0),
 			},
 
 			/**
