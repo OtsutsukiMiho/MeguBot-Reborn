@@ -70,21 +70,21 @@ export default function ReceiptScreen({ params }) {
 			</Rise>
 
 			<Rise>
-				<LiftCard as="section" className="panel receipt-sheet">
-					<div className="receipt-amount">{fmt.money(payment.amountSatang)}</div>
+				<LiftCard as="section" className="panel payment-receipt-sheet">
+					<div className="payment-receipt-amount">{fmt.money(payment.amountSatang)}</div>
 
 					{from && to && (
-						<div className="receipt-parties">{t.receiptPage.fromTo(from, to)}</div>
+						<div className="payment-receipt-parties">{t.receiptPage.fromTo(from, to)}</div>
 					)}
-					<div className="receipt-activity">{activity.title}</div>
-					<div className="receipt-when">{fmt.when(payment.createdAt)}</div>
+					<div className="payment-receipt-activity">{activity.title}</div>
+					<div className="payment-receipt-when">{fmt.when(payment.createdAt)}</div>
 
-					<dl className="receipt-facts">
+					<dl className="payment-receipt-facts">
 						<div>
 							<dt>{t.receiptPage.status}</dt>
 							{/* The state is a word. A green tick alone tells somebody
 							    who cannot see green nothing at all. */}
-							<dd className={`receipt-status is-${payment.status}`}>{status}</dd>
+							<dd className={`payment-receipt-status is-${payment.status}`}>{status}</dd>
 						</div>
 						<div>
 							<dt>{t.receiptPage.method}</dt>
@@ -92,7 +92,7 @@ export default function ReceiptScreen({ params }) {
 						</div>
 						<div>
 							<dt>{t.receiptPage.reference}</dt>
-							<dd className="receipt-reference">{payment.reference}</dd>
+							<dd className="payment-receipt-reference">{payment.reference}</dd>
 						</div>
 						{payment.expectedSatang != null && payment.expectedSatang !== payment.amountSatang && (
 							<div>
@@ -112,12 +112,12 @@ export default function ReceiptScreen({ params }) {
 					    so on the receipt itself is the only place it cannot be
 					    missed — a printed page outlives the screen that explained
 					    it. */}
-					<p className="receipt-note">{t.receiptPage.disclaimer}</p>
+					<p className="payment-receipt-note">{t.receiptPage.disclaimer}</p>
 				</LiftCard>
 			</Rise>
 
 			<Rise className="no-print">
-				<div className="share-row receipt-actions">
+				<div className="share-row payment-receipt-actions">
 					<button type="button" className="btn btn-secondary" onClick={() => window.print()}>
 						{t.receiptPage.export}
 					</button>

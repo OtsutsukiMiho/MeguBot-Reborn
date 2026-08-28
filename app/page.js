@@ -164,7 +164,7 @@ export default function HomePage() {
 				</div>
 			</section>
 
-			<div className="flow reveal-stagger">
+			<div className="flow band reveal-stagger">
 				{t.steps.map((s, i) => (
 					<div className="flow-step reveal" key={s.word}>
 						<span className="flow-index">
@@ -195,7 +195,7 @@ export default function HomePage() {
 				<Link href="/servers" className="btn btn-secondary btn-lg reveal">{t.serverCta}</Link>
 			</section>
 
-			<section className="closing band band-dark reveal">
+			<section className="closing band band-dark reveal-stagger">
 				<h2><span className="wipe">{t.closeH2}</span></h2>
 				<p className="lede">{t.closeLede}</p>
 				<div className="hero-actions">

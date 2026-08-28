@@ -7,78 +7,98 @@
 
    So the page is neutrals almost everywhere. Colour appears only where it
    carries meaning: what you owe, what is settled, what still needs an answer.
-   Navy is the single accent. Gold survives as one small mark beside Megu's
-   name, because it is Megu's own, and nowhere else.
+   One accent per theme. Gold survives as one small mark beside Megu's name,
+   because it is Megu's own, and nowhere else.
+
+   The two themes are two materials rather than one palette inverted.
+
+   LIGHT is paper, honey and earth: a warm cream ground instead of a white
+   one, ink that is brown rather than black, and a forest green where the
+   accent goes. Nothing on this side is neutral-cold — a pure white surface
+   next to these warms reads as a hole punched in the page.
+
+   DARK is ink and sapphire: an almost-black ground with a blue undertone,
+   surfaces that rise out of it in small steps, and one luminous blue doing
+   the accent's work. Black is what makes blue look expensive; a mid navy
+   ground would flatten it back into a screenshot of itself.
 
    Thai leads the typography. A display face without Thai coverage is
    disqualified here no matter how it looks in Latin.
    ========================================================================== */
 
 :root {
-	/* ── สังคโลก · celadon ──────────────────────────────────────────────────
-	 *
-	 * Four roles, taken from a fired piece rather than from a colour picker:
-	 * the cream stoneware body, the jade glaze, the honey-brown iron at the
-	 * rim, and the dark pool the glaze makes where it gathers thick.
-	 *
-	 * The previous palette was greys "carrying a trace of navy", which is a
-	 * description of a colour nobody can see. Every value below is warm or
-	 * green on purpose, and the body itself drifts across the viewport, because
-	 * a celadon glaze is never one flat value anywhere on the piece — that
-	 * drift is the whole reason the surface reads as made rather than filled.
-	 */
-	/* Tinted neutrals, not pure zinc.
-	 *
-	 * Every value below carries a little of Megu's navy. Straight zinc was
-	 * correct against the brief and wrong for the product: it made the surface
-	 * indistinguishable from any well-built dark SaaS, which is exactly the
-	 * "ขาวดำพื้นๆ" complaint. The tint is small enough to stay matte and large
-	 * enough that the greys belong to her. */
-	--paper: #F1F3F7;
-	--surface: #FFFFFF;
-	--surface-2: #F7F9FC;
-	--sunk: #E5E9F0;
+	--paper: #F5F0E4;
+	--surface: #FDFAF3;
+	--surface-2: #F8F3E7;
+	--sunk: #EDE5D4;
 
-	--ink: #0F1320;
-	--ink-2: #3B4256;
-	--muted: #4F566B;
-	--faint: #5E6579;
+	/* Neutrals are browns, not greys. Warmth in the ink is what keeps a cream
+	   page from looking like a white page with a filter over it. */
+	--ink: #241E15;
+	--ink-2: #46392A;
+	--muted: #6A5A44;
+	--faint: #7E6E56;
 
-	--edge: #E1E5EE;
-	--line: #E7EAF1;
-	--line-2: #757D93;
+	--line: #E4DAC6;
 
+	/* Two line weights with two different jobs. --line-2 draws boundaries a
+	   person operates — the edge of a field, a button, a floating panel — so it
+	   owes WCAG 1.4.11's 3:1 against every ground it lands on. --ornament draws
+	   the things that are only ever decoration: the ghosted step numerals, the
+	   hairline joining them, a bullet. Holding those to 3:1 would make the
+	   quietest marks on the page shout, so they are named separately and left
+	   out of the audit on purpose rather than by omission. */
+	--line-2: #947C50;
+	--ornament: #BCA986;
 
-	/* The landing's full-bleed bands. They follow the theme rather than being
-	   fixed dark: with a 100vh dark hero and a dark server band, "light mode"
-	   was one pale strip between two dark ones and did not read as light at all. */
-	--band: #E6EBF6;
-	--band-ink: #0F1320;
-	--band-dim: #4F566B;
-	--band-gold: #7A5410;
-
-	--megu-body: #212862;
-	--megu-body-lit: #3D4795;
-
-	/* Megu's own, read straight off her artwork rather than picked: the navy of
-	   her coat and the gold of her crown. Unlike every other token these are
-	   her, not the surface, so the dark theme lifts them rather than inverting. */
-	--brand: #212862;
-	--brand-hover: #2E3780;
-	--brand-gold: #8A6410;
+	/* Megu's own colours: whatever is filled with these carries white text on
+	   top, so each theme picks the version of them that can hold it. */
+	--brand: #2F5340;
+	--brand-hover: #3B6650;
+	--brand-gold: #C8A24C;
 	--on-brand: #FFFFFF;
 
-	--accent: #2E3780;
-	--accent-soft: #E4E9F6;
-	--gold: #8A6410;
+	/* One accent and three signals, deliberately desaturated. These are read,
+	   not admired. Green for the accent, terracotta for what is owed, olive for
+	   what is settled — the same earth the page is printed on. */
+	--accent: #235C48;
+	--accent-soft: #E6EEE6;
+	--gold: #8A6212;
 
-	--due: #8A5E0B;
-	--due-soft: #F7EEDA;
-	--settled: #0F6B57;
-	--settled-soft: #E0F0EA;
+	--due: #9B3521;
+	--due-soft: #F7EAE3;
+	--settled: #4E6B1B;
+	--settled-soft: #EEF1E1;
 
-	--alarm: #9B3126;
-	--alarm-soft: #F7E9E5;
+	/* The full-bleed bands on the landing page, and the depth model that goes
+	   with them. Both themes get a dark band — light's is forest and honey,
+	   dark's is near-black and blue — so the landing page keeps its rhythm
+	   without either theme borrowing the other's colours. */
+	--band: #1E2A21;
+	--band-2: #18231C;
+	--band-light: #EDE5D4;
+	--band-plate: #6B3F14;
+	--band-ink: #F6F1E4;
+	--band-dim: #C6C6AE;
+	--band-accent: #E8B75C;
+	--band-glow-1: rgba(122, 160, 106, .34);
+	--band-glow-2: rgba(232, 183, 92, .24);
+
+	/* The filled button, one step brighter, for use on the band. --brand is
+	   picked to hold white text on the page's own ground; against the band it
+	   is another dark green and the call to action disappears into it. */
+	--band-cta: #458268;
+	--band-cta-hover: #4E9174;
+
+	/* Depth. A shadow the colour of the page's own dark rather than generic
+	   black, and a one-pixel sheen along the top of raised surfaces — the
+	   cheapest thing there is that makes a panel read as an object. */
+	--shadow: #3B2C18;
+	--sheen: rgba(255, 255, 255, .6);
+
+	/* The faintest possible light over the whole page, so the ground is lit
+	   rather than flat. Fixed to the viewport, so it never scrolls. */
+	--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(200, 162, 76, .18), transparent 72%);
 
 	/* The audit log labels twenty-odd event types that have to be told apart at
 	   a glance, which the neutral ramp cannot do. It is the one place hue is
@@ -107,28 +127,6 @@
 	--w-strong: 600;
 	--w-heavy: 600;
 
-	/* ── the scale ──────────────────────────────────────────────────────────
-	 *
-	 * Measured before this existed, the page ran 54 / 27 / 24 / 20 / 19 / 16 /
-	 * 15 / 15 / 14 / 14 / 14 / 13 / 12 / 12 — ten values inside seven pixels.
-	 * That is not a hierarchy, it is noise, and it is the actual reason the
-	 * design read as flat. Two palettes were replaced chasing it.
-	 *
-	 * Six steps now, with real gaps, and one inversion that matters: the figure
-	 * is bigger than the title. Somebody opening this link from a group chat
-	 * came to find out what they owe — they were at the badminton court
-	 * yesterday and do not need its name set in 54px.
-	 */
-	--t-figure: clamp(3rem, 12vw, 4.5rem);
-	--t-display: clamp(1.5rem, 4vw, 2.1rem);
-	--t-head: 1.25rem;
-	--t-body: 1rem;
-	--t-sub: .875rem;
-	/* The statement's field labels: small, tracked, uppercase in Latin. Thai has
-	   no case, so it leans on the tracking and the colour instead. */
-	--t-label: .75rem;
-	--track-label: .1em;
-
 	--r-sm: 6px;
 	--r: 10px;
 
@@ -136,47 +134,55 @@
 	--ease: cubic-bezier(.22, .61, .36, 1);
 }
 
+/* The dark side, stated twice: once for the device setting and once for the
+   explicit choice. CSS has no way to share one declaration between the two
+   selectors, so the pair has to be kept identical by hand — the audit script
+   reads the [data-theme='dark'] copy, which is the one to change first. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme='light']) {
-		--paper: #0D111B;
-		--surface: #161C29;
-		--surface-2: #1C2231;
-		--sunk: #10141F;
+		--paper: #07090F;
+		--surface: #0E121C;
+		--surface-2: #141926;
+		--sunk: #0A0D15;
 
-		--ink: #ECEEF5;
-		--ink-2: #C7CCDA;
-		--muted: #99A0B4;
-		--faint: #8A92A8;
+		--ink: #E9EDF7;
+		--ink-2: #BFC7DA;
+		--muted: #8D97AE;
+		--faint: #7C879F;
 
-		--edge: #242938;
-		--line: #232939;
-		--line-2: #6E7691;
+		--line: #1B2130;
+		--line-2: #5C6680;
+		--ornament: #374257;
 
+		--brand: #2B57E0;
+		--brand-hover: #3D68F0;
+		--brand-gold: #E3BE72;
 
-		--band: #131826;
-		--band-ink: #ECEEF5;
-		--band-dim: #99A0B4;
-		--band-gold: #F0B92A;
+		--accent: #8FAEFF;
+		--accent-soft: #131A2C;
+		--gold: #DFBE7C;
 
-		--megu-body: #5866C4;
-		--megu-body-lit: #7C88E4;
+		--due: #F2899C;
+		--due-soft: #2A161C;
+		--settled: #63CFA4;
+		--settled-soft: #0F231C;
 
-		--brand: #3D4795;
-		--brand-hover: #4A55AC;
-		--brand-gold: #F0B92A;
-		--on-brand: #FFFFFF;
+		--band: #0B1128;
+		--band-2: #090E20;
+		--band-light: #0E121C;
+		--band-plate: #16307A;
+		--band-ink: #F2F5FF;
+		--band-dim: #A9B4D6;
+		--band-accent: #F3CE85;
+		--band-glow-1: rgba(86, 118, 255, .42);
+		--band-glow-2: rgba(240, 200, 120, .2);
+		--band-cta: #3D68F0;
+		--band-cta-hover: #5077F5;
 
-		--accent: #9DA9E8;
-		--accent-soft: #1B2135;
-		--gold: #F0B92A;
+		--shadow: #000000;
+		--sheen: rgba(255, 255, 255, .045);
+		--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(60, 96, 220, .2), transparent 72%);
 
-		--due: #EFC05A;
-		--due-soft: #2A2317;
-		--settled: #7FE0C4;
-		--settled-soft: #12291F;
-
-		--alarm: #E8938A;
-		--alarm-soft: #2A1D1B;
 		--cat-pink: #F0A0C8;
 		--cat-purple: #C9A6F2;
 		--cat-violet: #B0A8F5;
@@ -194,53 +200,57 @@
 }
 
 :root[data-theme='dark'] {
-	--paper: #0D111B;
-	--surface: #161C29;
-	--surface-2: #1C2231;
-	--sunk: #10141F;
+	--paper: #07090F;
+	--surface: #0E121C;
+	--surface-2: #141926;
+	--sunk: #0A0D15;
 
-	--ink: #ECEEF5;
-	--ink-2: #C7CCDA;
-	--muted: #99A0B4;
-	--faint: #8A92A8;
+	--ink: #E9EDF7;
+	--ink-2: #BFC7DA;
+	--muted: #8D97AE;
+	--faint: #7C879F;
 
-	--edge: #242938;
-	--line: #232939;
-	--line-2: #6E7691;
+	--line: #1B2130;
+	--line-2: #5C6680;
+	--ornament: #374257;
 
+	--brand: #2B57E0;
+	--brand-hover: #3D68F0;
+	--brand-gold: #E3BE72;
 
-	--band: #131826;
-	--band-ink: #ECEEF5;
-	--band-dim: #99A0B4;
-	--band-gold: #F0B92A;
+	--accent: #8FAEFF;
+	--accent-soft: #131A2C;
+	--gold: #DFBE7C;
 
-	--megu-body: #5866C4;
-	--megu-body-lit: #7C88E4;
+	--due: #F2899C;
+	--due-soft: #2A161C;
+	--settled: #63CFA4;
+	--settled-soft: #0F231C;
 
-	--brand: #3D4795;
-	--brand-hover: #4A55AC;
-	--brand-gold: #F0B92A;
-	--on-brand: #FFFFFF;
+	--band: #0B1128;
+	--band-2: #090E20;
+	--band-light: #0E121C;
+	--band-plate: #16307A;
+	--band-ink: #F2F5FF;
+	--band-dim: #A9B4D6;
+	--band-accent: #F3CE85;
+	--band-glow-1: rgba(86, 118, 255, .42);
+	--band-glow-2: rgba(240, 200, 120, .2);
+	--band-cta: #3D68F0;
+	--band-cta-hover: #5077F5;
 
-	--accent: #9DA9E8;
-	--accent-soft: #1B2135;
-	--gold: #F0B92A;
+	--shadow: #000000;
+	--sheen: rgba(255, 255, 255, .045);
+	--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(60, 96, 220, .2), transparent 72%);
 
-	--due: #EFC05A;
-	--due-soft: #2A2317;
-	--settled: #7FE0C4;
-	--settled-soft: #12291F;
-
-	--alarm: #E8938A;
-	--alarm-soft: #2A1D1B;
-		--cat-pink: #F0A0C8;
-		--cat-purple: #C9A6F2;
-		--cat-violet: #B0A8F5;
-		--cat-blue: #9DB8F5;
-		--cat-cyan: #7FD0E0;
-		--cat-orange: #F0B183;
-		--cat-neutral: #A8ADBC;
-		--cat-tint: 18%;
+	--cat-pink: #F0A0C8;
+	--cat-purple: #C9A6F2;
+	--cat-violet: #B0A8F5;
+	--cat-blue: #9DB8F5;
+	--cat-cyan: #7FD0E0;
+	--cat-orange: #F0B183;
+	--cat-neutral: #A8ADBC;
+	--cat-tint: 18%;
 
 	--w-body: 350;
 	--w-medium: 450;
@@ -262,40 +272,11 @@ body {
 	   the headline. `clip`, not `hidden`: hidden would make the body a scroll
 	   container and strand the console's sticky sidebar. */
 	overflow-x: clip;
-
-	/* The glaze, not a background colour.
-	 *
-	 * A celadon piece is never one flat value: the glaze runs thin and pale
-	 * where the form turns, and pools deeper where it gathers. That is the
-	 * entire difference between a cream page and a fired one, and it is why the
-	 * old palette read as flat despite being perfectly pleasant hexes.
-	 *
-	 * The stock is the weather.
-	 *
-	 * Not a decorative blob behind the content: the paper itself is overcast
-	 * light. Two soft masses of Megu's own navy gather at opposing corners and
-	 * a wide pale break opens through the middle, the way cloud does when the
-	 * sun is somewhere behind it.
-	 *
-	 * Over that sits a grain plate — one inline feTurbulence at a few percent.
-	 * It is the cheapest and most reliable difference between a fill and a
-	 * sheet of paper: without it the mesh reads as a gradient, with it the same
-	 * mesh reads as light falling on stock. Both are `fixed`, so the weather
-	 * belongs to the sheet rather than scrolling past like decoration, and both
-	 * are `color-mix` off the palette so they follow the theme with no second
-	 * set of values to keep in step. */
-	/* One soft radial, centred high, and nothing else.
-	 *
-	 * The grain plate and the four-corner mesh are gone. They were doing real
-	 * damage: a texture under 14px Thai sub-lines lowers effective contrast, and
-	 * a ground whose luminance changes across the page means no two lines of the
-	 * same colour read the same. A matte surface with one gentle focus wash is
-	 * what a premium dark product actually does — the depth comes from the cards
-	 * and their shadows, not from the paper. */
-	background-color: var(--paper);
-	background-image: radial-gradient(120% 78% at 50% -12%, var(--surface-2), transparent 62%);
-	background-attachment: fixed;
-	background-repeat: no-repeat;
+	/* The wash is a single soft light over the ground, fixed to the viewport so
+	   it stays put while the page moves under it. It is deliberately below the
+	   threshold where anyone would call it a gradient — the point is only that
+	   a long page never reads as one flat fill. */
+	background: var(--wash) fixed, var(--paper);
 	color: var(--ink);
 	font-family: var(--font-body);
 	font-size: 16px;
@@ -387,10 +368,106 @@ input, textarea, select, button {
 	display: flex;
 	align-items: center;
 	padding: 0 1.5rem;
-	background: color-mix(in srgb, var(--paper) 72%, transparent);
-	-webkit-backdrop-filter: blur(18px) saturate(1.4);
-	backdrop-filter: blur(18px) saturate(1.4);
+	background: color-mix(in srgb, var(--paper) 92%, transparent);
+	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
 	border-bottom: 1px solid var(--line);
+	transition: background .25s var(--ease), border-color .25s var(--ease);
+}
+
+/* ------------------------------------------- the bar over the hero band */
+
+/* On the landing page the bar used to be the brightest thing on the screen: a
+   solid strip of paper laid across the top of a dark hero. While the hero is
+   still under it the bar has no ground of its own and every mark in it borrows
+   the band's ink; once the hero has scrolled past, it fades back to being a
+   bar. Navbar.js adds the class from an IntersectionObserver on .hero-field,
+   so it is the hero's actual position that decides, not a guessed scroll
+   distance — the hero is a full viewport tall on a laptop and much shorter on
+   a phone.
+
+   Everything here uses --band-ink rather than --band-dim, including the links
+   that are muted on the page. The hero's glow sits at the top left, directly
+   under the brand and the menu, and it lifts the ground there well above the
+   flat --band the tokens would be measured against; --band-dim over the
+   brightest part of that glow is around 3.5:1 in the dark theme. --band-ink
+   holds everywhere on the band, lit or not, and the current page is marked by
+   a tint and its weight instead of by colour.
+
+   The blur stays on in both states: it cannot be transitioned, and over a
+   solid ground it has nothing to do anyway. */
+.navbar.is-over-band {
+	background: transparent;
+	border-bottom-color: transparent;
+}
+
+.navbar.is-over-band .nav-brand,
+.navbar.is-over-band .brand-megubot,
+.navbar.is-over-band .user-name,
+.navbar.is-over-band .tab-btn,
+.navbar.is-over-band .btn-ghost {
+	color: var(--band-ink);
+}
+
+.navbar.is-over-band .tab-btn:hover,
+.navbar.is-over-band .btn-ghost:hover:not(:disabled) {
+	color: var(--band-ink);
+	background: color-mix(in srgb, var(--band-ink) 12%, transparent);
+}
+
+.navbar.is-over-band .tab-btn.active {
+	background: color-mix(in srgb, var(--band-ink) 14%, transparent);
+}
+
+.navbar.is-over-band .lang-switch {
+	background: color-mix(in srgb, var(--band-ink) 10%, transparent);
+	border-color: color-mix(in srgb, var(--band-ink) 20%, transparent);
+}
+
+.navbar.is-over-band .lang-switch button {
+	color: var(--band-ink);
+}
+
+.navbar.is-over-band .lang-switch button[aria-pressed='true'] {
+	background: color-mix(in srgb, var(--band-ink) 20%, transparent);
+	color: var(--band-ink);
+	box-shadow: none;
+}
+
+.navbar.is-over-band .theme-toggle {
+	color: var(--band-ink);
+	border-color: color-mix(in srgb, var(--band-ink) 28%, transparent);
+}
+
+.navbar.is-over-band .theme-toggle:hover {
+	border-color: var(--band-ink);
+}
+
+.navbar.is-over-band .btn-primary {
+	background: var(--band-cta);
+	color: var(--on-brand);
+}
+
+.navbar.is-over-band .btn-primary:hover:not(:disabled) {
+	background: var(--band-cta-hover);
+}
+
+.navbar.is-over-band .user-avatar {
+	background: color-mix(in srgb, var(--band-ink) 12%, transparent);
+	border-color: color-mix(in srgb, var(--band-ink) 24%, transparent);
+}
+
+/* The bar's own contents fade with it rather than snapping at the boundary. */
+.navbar .nav-brand,
+.navbar .brand-megubot,
+.navbar .user-name,
+.navbar .tab-btn,
+.navbar .btn-ghost,
+.navbar .lang-switch,
+.navbar .lang-switch button,
+.navbar .theme-toggle,
+.navbar .user-avatar {
+	transition: background .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease);
 }
 
 .navbar-inner {
@@ -528,14 +605,6 @@ input, textarea, select, button {
 	color: var(--on-brand);
 }
 
-/* Every filled control carries the iron rim, not just the pay button. Without
-   it a navy rectangle on a fired surface reads as a stray blue chip — most
-   obviously on the dark theme, where the ground is a deep glaze pool and the
-   only cool thing on screen was the button. */
-.btn-primary {
-	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 70%, transparent);
-}
-
 .btn-primary:hover:not(:disabled),
 .btn-discord:hover:not(:disabled) {
 	background: var(--brand-hover);
@@ -595,32 +664,22 @@ input, textarea, select, button {
 }
 
 .btn-danger {
-	color: var(--alarm);
-	background: var(--alarm-soft);
-	border-color: color-mix(in srgb, var(--alarm) 35%, transparent);
+	color: var(--due);
+	background: var(--due-soft);
+	border-color: color-mix(in srgb, var(--due) 35%, transparent);
 }
 
 .btn-danger:hover:not(:disabled) {
-	border-color: var(--alarm);
+	border-color: var(--due);
 	text-decoration: none;
 }
 
 /* The one emphatic control, and only where money is actually owed. Its gold
    hairline is the same mark that sits beside Megu's name. */
-/* The dark body with the iron rim painted on.
- *
- * Navy stays the ground because navy is Megu's own — it is the one thing on the
- * page that is her rather than the world she sits in. What it lacked was any
- * relationship to that world, so it read as a stray blue rectangle dropped on a
- * fired surface. The honey rim is the join: on a celadon piece the iron edge is
- * the single deliberate, applied mark a person made, which is exactly what a
- * primary control is. */
 .btn-pay {
 	background: var(--brand);
 	color: var(--on-brand);
-	box-shadow:
-		inset 0 0 0 1px color-mix(in srgb, var(--gold) 85%, transparent),
-		0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-gold) 60%, transparent);
 }
 
 .btn-pay:hover:not(:disabled) {
@@ -674,7 +733,7 @@ input, textarea, select, button {
 }
 
 .link-btn.danger {
-	color: var(--alarm);
+	color: var(--due);
 }
 
 /* ----------------------------------------------------------------- forms */
@@ -747,7 +806,7 @@ textarea.form-control {
 }
 
 .field-hint.error-text {
-	color: var(--alarm);
+	color: var(--due);
 }
 
 /* Said once, quietly, on the label. A required field is the norm here, so
@@ -788,7 +847,7 @@ textarea.form-control {
 	display: grid;
 	place-items: center;
 	padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
-	background: color-mix(in srgb, var(--ink) 56%, transparent);
+	background: color-mix(in srgb, var(--shadow) 62%, transparent);
 	backdrop-filter: blur(5px);
 }
 
@@ -800,7 +859,7 @@ textarea.form-control {
 	border: 1px solid var(--line-2);
 	border-radius: var(--r);
 	padding: 1.25rem;
-	box-shadow: 0 24px 70px color-mix(in srgb, var(--ink) 28%, transparent);
+	box-shadow: 0 24px 70px color-mix(in srgb, var(--shadow) 34%, transparent);
 }
 
 .action-dialog-head {
@@ -812,7 +871,7 @@ textarea.form-control {
 }
 
 .action-dialog-head h2 {
-	font-size: var(--t-head);
+	font-size: 1.18rem;
 	line-height: 1.35;
 }
 
@@ -872,7 +931,7 @@ textarea.form-control {
 	background: var(--surface);
 	color: var(--ink);
 	font-weight: var(--w-strong);
-	box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 18%, transparent);
+	box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 22%, transparent);
 }
 
 /* The input itself is off-screen, so the ring has to be drawn on the label. */
@@ -942,7 +1001,7 @@ textarea.form-control {
 	width: 4px;
 	height: 4px;
 	border-radius: 50%;
-	background: var(--line-2);
+	background: var(--ornament);
 	flex: none;
 	transform: translateY(-.25em);
 }
@@ -963,17 +1022,15 @@ textarea.form-control {
 }
 
 .page-head h1 {
-	font-size: var(--t-display);
-	letter-spacing: -.025em;
-	line-height: 1.12;
+	font-size: clamp(1.75rem, 4.4vw, 2.5rem);
 	margin-bottom: .3rem;
 }
 
 .page-meta {
 	display: flex;
 	flex-wrap: wrap;
-	gap: .15rem 1.1rem;
-	font-size: var(--t-sub);
+	gap: .1rem .8rem;
+	font-size: .95rem;
 	color: var(--muted);
 }
 
@@ -1043,10 +1100,10 @@ textarea.form-control {
 
 .megu-says p {
 	font-family: var(--font-display);
-	font-size: var(--t-body);
-	font-weight: var(--w-body);
-	line-height: 1.6;
-	color: var(--ink-2);
+	font-size: clamp(1.15rem, 2.6vw, 1.5rem);
+	font-weight: var(--w-strong);
+	line-height: 1.45;
+	color: var(--ink);
 	letter-spacing: -.005em;
 }
 
@@ -1077,7 +1134,7 @@ textarea.form-control {
 	width: 6px;
 	height: 6px;
 	border-radius: 50%;
-	background: var(--line-2);
+	background: var(--ornament);
 	flex: none;
 }
 
@@ -1114,6 +1171,23 @@ textarea.form-control {
 	border: 1px solid var(--line);
 	border-radius: var(--r);
 	padding: 1.15rem 1.3rem 1.25rem;
+}
+
+/* Every raised surface, lifted the same way: a hairline of light along the top
+   edge and a shadow that is almost not there. Two very cheap effects, and
+   together they are most of the difference between a bordered rectangle and
+   something that looks made. The shadow is the theme's own dark — on the dark
+   theme it is true black, which is the only shadow that reads on a near-black
+   ground. */
+.panel,
+.card-panel,
+.capability,
+.server-card,
+.sidebar-menu {
+	box-shadow:
+		inset 0 1px 0 var(--sheen),
+		0 1px 2px color-mix(in srgb, var(--shadow) 5%, transparent),
+		0 14px 30px -24px color-mix(in srgb, var(--shadow) 45%, transparent);
 }
 
 .panel-head {
@@ -1405,7 +1479,7 @@ textarea.form-control {
 }
 
 .slot-tally .down {
-	color: var(--alarm);
+	color: var(--due);
 }
 
 .slot-vote {
@@ -1447,9 +1521,9 @@ textarea.form-control {
 }
 
 .vote-btn.on-no {
-	background: var(--alarm-soft);
-	border-color: color-mix(in srgb, var(--alarm) 35%, transparent);
-	color: var(--alarm);
+	background: var(--due-soft);
+	border-color: color-mix(in srgb, var(--due) 35%, transparent);
+	color: var(--due);
 	font-weight: var(--w-strong);
 }
 
@@ -1594,9 +1668,9 @@ textarea.form-control {
 }
 
 .error-note {
-	background: var(--alarm-soft);
-	color: var(--alarm);
-	border: 1px solid color-mix(in srgb, var(--alarm) 25%, transparent);
+	background: var(--due-soft);
+	color: var(--due);
+	border: 1px solid color-mix(in srgb, var(--due) 25%, transparent);
 	border-radius: var(--r-sm);
 	padding: .7rem .9rem;
 	font-size: .9rem;
@@ -1849,7 +1923,7 @@ textarea.form-control {
 	flex: none;
 	max-width: 100%;
 	height: auto;
-	filter: drop-shadow(0 24px 40px rgba(22, 24, 31, .13));
+	filter: drop-shadow(0 24px 40px color-mix(in srgb, var(--shadow) 22%, transparent));
 }
 
 @media (max-width: 780px) {
@@ -1899,7 +1973,7 @@ textarea.form-control {
 	font-weight: 600;
 	letter-spacing: -.05em;
 	line-height: 1;
-	color: var(--line-2);
+	color: var(--ornament);
 	display: block;
 	margin-bottom: .75rem;
 }
@@ -2022,9 +2096,9 @@ textarea.form-control {
 }
 
 .page-head h1 {
-	font-size: var(--t-display);
-	letter-spacing: -.025em;
-	line-height: 1.12;
+	font-size: clamp(2.1rem, 6vw, 3.4rem);
+	letter-spacing: -.04em;
+	line-height: 1.02;
 }
 
 /* Megu is present on the activity page too, at a size that reads as a
@@ -2050,6 +2124,14 @@ textarea.form-control {
 	--text-muted: var(--faint);
 	--border-color: var(--line);
 	--color-accent: var(--accent);
+
+	/* These three were never aliased, so every rule using them — the Google
+	   button, the account notice, the notification cards — resolved to an
+	   invalid value and fell back to transparent backgrounds and currentColor
+	   borders. */
+	--surface-raised: var(--surface-2);
+	--border: var(--line);
+	--border-strong: var(--line-2);
 }
 
 /* ------------------------------------------------------- console layout */
@@ -2184,9 +2266,9 @@ textarea.form-control {
 }
 
 .server-status-badge.status-offline {
-	background: var(--alarm-soft);
-	border-color: color-mix(in srgb, var(--alarm) 25%, transparent);
-	color: var(--alarm);
+	background: var(--due-soft);
+	border-color: color-mix(in srgb, var(--due) 25%, transparent);
+	color: var(--due);
 }
 
 .status-dot {
@@ -2213,7 +2295,7 @@ textarea.form-control {
 	border: 1px solid var(--line-2);
 	border-radius: var(--r);
 	padding: .75rem 1rem;
-	box-shadow: 0 12px 32px rgba(22, 24, 31, .16);
+	box-shadow: 0 12px 32px color-mix(in srgb, var(--shadow) 20%, transparent);
 }
 
 /* The container had no rule at all, so every save confirmation in the console
@@ -2232,7 +2314,7 @@ textarea.form-control {
 	border: 1px solid var(--line-2);
 	border-radius: var(--r);
 	padding: .7rem .95rem;
-	box-shadow: 0 12px 32px rgba(22, 24, 31, .18);
+	box-shadow: 0 12px 32px color-mix(in srgb, var(--shadow) 24%, transparent);
 	animation: rise .28s var(--ease) backwards;
 }
 
@@ -2241,7 +2323,7 @@ textarea.form-control {
 }
 
 .toast-error {
-	color: var(--alarm);
+	color: var(--due);
 }
 
 .toast-dot {
@@ -2396,7 +2478,7 @@ textarea.form-control {
 .lang-switch button[aria-pressed='true'] {
 	background: var(--surface);
 	color: var(--ink);
-	box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 18%, transparent);
+	box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 22%, transparent);
 }
 
 /* The two scripts do not sit on the line the same way — Thai carries marks
@@ -2409,15 +2491,25 @@ textarea.form-control {
 
    Three ideas, and none of them is an effect.
 
-   ONE — the page has a rhythm. Dark, light, dark, dark. A landing page that is
-   one colour for four screens reads as a document; alternating bands give the
-   reader a sense of having travelled, which is most of what "immersive"
-   actually means.
+   ONE — the page has a rhythm. Dark, light, dark, colour. A landing page that
+   is one colour for four screens reads as a document; alternating bands give
+   the reader a sense of having travelled, which is most of what "immersive"
+   actually means. Every junction between them is an edge between two solid
+   grounds. Fading a band into the page reads as a soft landing in the dark
+   theme and as a long grey smear in the light one, because cream over forest
+   passes through every muddy value on the way — and the smear is most of the
+   band, not a detail at its edge.
 
-   TWO — the bands own their palettes. Each dark band carries fixed cream on
-   fixed navy in both themes, so its contrast is decided once and never
-   re-litigated against a flipping background. Only the light band follows the
-   theme. Nothing is ever left in the low-contrast middle.
+   TWO — the bands own their palettes. Each one paints itself from the --band-*
+   tokens rather than from the page's surface tokens, so its contrast is
+   settled inside its own set: forest, honey and amber under the light theme;
+   near-black, slate and sapphire under the dark one. That includes the light
+   band in the middle, which is a ground of its own a step off the paper rather
+   than a gap where the page shows through — which is also what gives the dark
+   theme a rhythm at all, since its paper and its bands are otherwise all dark.
+   The last band is the one surface allowed to be a colour rather than a
+   ground, and it takes its own inverted button with it. Nothing is ever left
+   in the low-contrast middle.
 
    THREE — motion answers the reader. Everything below the fold is driven by
    `animation-timeline`, so it arrives because they scrolled, not because a
@@ -2440,32 +2532,34 @@ textarea.form-control {
 /* ------------------------------------------------------------ the hero */
 
 .hero-field {
-	/* The dark end of the same neutral ramp the app uses, not a second world.
-	   It was #171D4A — a saturated indigo that shared nothing with the matte
-	   surface every other screen now sits on, so the landing and the product
-	   read as two different companies. */
 	--hero-ground: var(--band);
 	--hero-ink: var(--band-ink);
 	--hero-dim: var(--band-dim);
-	--hero-gold: var(--band-gold);
+	--hero-gold: var(--band-accent);
 
 	position: relative;
 	isolation: isolate;
-	/* Full height, minus the bar it sits under. `svh` rather than `vh` so a
-	   phone's collapsing address bar does not crop the buttons. */
-	min-height: calc(100svh - var(--nav-h));
+
+	/* The hero runs up behind the navbar rather than starting below it. The bar
+	   is transparent over this band, and a bar with nothing behind it would
+	   otherwise show a 64px strip of the page's own ground above the hero —
+	   which is the bright seam this whole section exists to remove. `body`
+	   still carries the padding for every other page; only this one takes it
+	   back. `svh` rather than `vh` so a phone's collapsing address bar does not
+	   crop the buttons. */
+	margin-top: calc(var(--nav-h) * -1);
+	min-height: 100svh;
 	display: grid;
 	align-content: center;
-	padding-block: clamp(3rem, 7vw, 6rem) clamp(5rem, 9vw, 8rem);
+	padding-block: calc(var(--nav-h) + clamp(3rem, 7vw, 6rem)) clamp(5rem, 9vw, 8rem);
 	color: var(--hero-ink);
 	overflow: hidden;
 
-	/* A clean edge, not a dissolve.
-	   Fading a near-black band into `--paper` works in dark mode and produces a
-	   long grey smear in light mode, where paper is near-white — the fade has to
-	   travel the whole way from black to white and every value in between is a
-	   dead grey nobody chose. A dark band meeting a light page at a hard line is
-	   an ordinary editorial move and reads as deliberate. */
+	/* One flat colour. The band used to fade into `--paper` at its foot, which
+	   reads as a soft landing in the dark theme and as a long grey smear in the
+	   light one — the fade is most of the band's last quarter, and cream over
+	   forest goes through every muddy value on the way. Every junction on this
+	   page is now an edge between two solid grounds. */
 	background: var(--hero-ground);
 }
 
@@ -2485,7 +2579,7 @@ textarea.form-control {
 	height: 38rem;
 	top: -16rem;
 	left: -12rem;
-	background: radial-gradient(closest-side, color-mix(in oklab, var(--brand) 12%, transparent), transparent);
+	background: radial-gradient(closest-side, var(--band-glow-1), transparent);
 }
 
 .hero-field::after {
@@ -2493,7 +2587,7 @@ textarea.form-control {
 	height: 30rem;
 	right: -10rem;
 	bottom: -6rem;
-	background: radial-gradient(closest-side, color-mix(in oklab, var(--gold) 9%, transparent), transparent);
+	background: radial-gradient(closest-side, var(--band-glow-2), transparent);
 }
 
 .hero-field .hero-block {
@@ -2525,19 +2619,28 @@ textarea.form-control {
 	color: var(--hero-dim);
 }
 
-/* On a dark band the outline button has to borrow the band's ink, not the
-   theme's, or it inverts into invisibility when the theme flips. */
-/* The bands follow the theme now, so a fixed pale border is invisible on the
-   light one. Mixed off the band's own ink, it reads on both. */
+/* Both buttons on a dark band answer to the band rather than to the page. */
+.band-dark .btn-primary,
+.band-dark .btn-discord {
+	background: var(--band-cta);
+}
+
+.band-dark .btn-primary:hover:not(:disabled),
+.band-dark .btn-discord:hover:not(:disabled) {
+	background: var(--band-cta-hover);
+}
+
+/* The outline button has to borrow the band's ink, not the theme's, or it
+   inverts into invisibility when the theme flips. */
 .band-dark .btn-secondary {
 	background: transparent;
-	border-color: color-mix(in srgb, var(--hero-ink) 34%, transparent);
+	border-color: color-mix(in srgb, var(--band-ink) 34%, transparent);
 	color: var(--hero-ink);
 }
 
 .band-dark .btn-secondary:hover:not(:disabled) {
 	border-color: var(--hero-ink);
-	background: color-mix(in srgb, var(--hero-ink) 9%, transparent);
+	background: color-mix(in srgb, var(--band-ink) 9%, transparent);
 }
 
 /* ------------------------------------------------------------- scroll cue */
@@ -2631,7 +2734,14 @@ textarea.form-control {
 
 /* ------------------------------------------------------------ light band */
 
+/* The one light band, and it is a band now rather than a gap where the page
+   shows through: a honey a step deeper than the paper, so it reads as a
+   deliberate stop between the two dark ones instead of a hole. The dark theme
+   gets the same treatment in reverse — a ground one step lighter than its
+   paper — which is what gives that theme the dark/light/dark rhythm it never
+   had when this section was simply the page. */
 .flow {
+	background: var(--band-light);
 	padding-block: clamp(4rem, 9vw, 7rem) clamp(3rem, 7vw, 5rem);
 	gap: 0 1.5rem;
 }
@@ -2653,13 +2763,13 @@ textarea.form-control {
 	right: .7rem;
 	width: 100%;
 	height: 1px;
-	background: linear-gradient(to right, var(--line-2), transparent);
+	background: linear-gradient(to right, var(--ornament), transparent);
 	z-index: -1;
 }
 
 .flow-step .flow-index {
 	font-size: clamp(2.4rem, 5vw, 3.4rem);
-	color: var(--line-2);
+	color: var(--ornament);
 }
 
 .flow-step h3 {
@@ -2683,7 +2793,7 @@ textarea.form-control {
 	overflow: hidden;
 	padding-block: clamp(4rem, 9vw, 7rem);
 	color: var(--hero-ink);
-	background: var(--band);
+	background: var(--band-2);
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
@@ -2700,7 +2810,7 @@ textarea.form-control {
 	top: -8rem;
 	border-radius: 50%;
 	filter: blur(80px);
-	background: radial-gradient(closest-side, color-mix(in oklab, var(--brand) 10%, transparent), transparent);
+	background: radial-gradient(closest-side, var(--band-glow-1), transparent);
 }
 
 .server-side h2,
@@ -2726,8 +2836,9 @@ textarea.form-control {
 }
 
 .server-side .capability {
-	background: var(--surface);
-	border: 1px solid var(--edge);
+	background: color-mix(in srgb, var(--band-ink) 6%, transparent);
+	border: 1px solid color-mix(in srgb, var(--band-ink) 13%, transparent);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--band-ink) 10%, transparent);
 	border-radius: 14px;
 	-webkit-backdrop-filter: blur(14px);
 	backdrop-filter: blur(14px);
@@ -2737,8 +2848,8 @@ textarea.form-control {
 
 .server-side .capability:hover {
 	transform: translateY(-3px);
-	background: var(--surface-2);
-	border-color: var(--line-2);
+	background: color-mix(in srgb, var(--band-ink) 9%, transparent);
+	border-color: color-mix(in srgb, var(--band-ink) 26%, transparent);
 }
 
 .server-side .capability h3 {
@@ -2752,8 +2863,8 @@ textarea.form-control {
 /* ---------------------------------------------------------- closing band */
 
 .closing {
-	--hero-ink: #F6F4ED;
-	--hero-dim: #B3BADB;
+	--hero-ink: var(--band-ink);
+	--hero-dim: var(--band-dim);
 
 	position: relative;
 	isolation: isolate;
@@ -2761,14 +2872,13 @@ textarea.form-control {
 	padding-block: clamp(4rem, 9vw, 7rem);
 	margin-bottom: -3rem;
 	color: var(--hero-ink);
-	/* The one place the page commits to colour.
-	 *
-	 * It used to fade from --paper into indigo over 22%, which in light mode is a
-	 * long grey ramp arriving at a colour nobody chose. Now it is a plate: a deep
-	 * navy taken from Megu's own coat, matte, no blur, meeting the section above
-	 * it at a hard line. One committed band on a page of tinted neutrals reads as
-	 * a decision; three of them read as wallpaper. */
-	background: #161C46;
+
+	/* The last thing on the page, and the only surface allowed to be a colour
+	   rather than a ground. It sits directly against `.server-side`, and the
+	   two dark grounds are 1.05:1 apart — which is to say the same colour, with
+	   a seam nobody would read as intentional. Either they differ or they are
+	   one band; this one differs. */
+	background: var(--band-plate);
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
@@ -2777,6 +2887,22 @@ textarea.form-control {
 
 .closing h2 {
 	color: var(--hero-ink);
+}
+
+/* --band-cta is picked to carry white text and to hold 3:1 against the two
+   dark grounds; against this plate it is 2.0:1 in the light theme and 2.6:1 in
+   the dark one, so the last button on the page would be the one that
+   disappears. On a plate the filled button inverts instead: the band's own
+   cream, with the plate's colour as its label. */
+.closing.band-dark .btn-primary,
+.closing.band-dark .btn-discord {
+	background: var(--band-ink);
+	color: var(--band-plate);
+}
+
+.closing.band-dark .btn-primary:hover:not(:disabled),
+.closing.band-dark .btn-discord:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--band-ink) 82%, #FFFFFF);
 }
 
 .closing .lede {
@@ -2800,6 +2926,13 @@ textarea.form-control {
 	from { opacity: 0; transform: translateY(16px); }
 	to { opacity: 1; transform: none; }
 }
+
+/* A note on where these go. `.reveal` translates the element it is on, so it
+   must never sit on a band: a band that slides up into place is a band that
+   leaves a 30px strip of the page's own ground above it for the length of the
+   animation — a bright line sliding down the seam, which is precisely what the
+   flat grounds are here to remove. On a band, `.reveal-stagger` goes on the
+   band and the children do the moving. */
 
 /* On load, in order. `--i` is the position in the sequence, so a block can be
    moved in the markup without re-timing every delay by hand. */
@@ -2845,7 +2978,7 @@ textarea.form-control {
 .lift:hover {
 	transform: translateY(-3px);
 	border-color: var(--line-2);
-	box-shadow: 0 18px 30px -18px color-mix(in srgb, var(--ink) 45%, transparent);
+	box-shadow: 0 18px 30px -18px color-mix(in srgb, var(--shadow) 50%, transparent);
 }
 
 /* ------------------------------------------------------------------ quiet */
@@ -2874,7 +3007,8 @@ textarea.form-control {
 @media (max-width: 780px) {
 	.hero-field {
 		min-height: auto;
-		padding-block: clamp(2.5rem, 8vw, 4rem) clamp(4rem, 12vw, 6rem);
+		/* Still has to clear the bar it is sitting behind. */
+		padding-block: calc(var(--nav-h) + clamp(2.5rem, 8vw, 4rem)) clamp(4rem, 12vw, 6rem);
 	}
 
 	.hero-field::before,
@@ -2913,7 +3047,7 @@ textarea.form-control {
 	opacity: 0;
 	transform: translate3d(0, var(--travel, 0), 0) rotate(var(--spin, 0deg)) scale(.86);
 	transition: opacity .5s var(--ease), scale .5s var(--ease);
-	filter: drop-shadow(0 14px 22px color-mix(in srgb, var(--ink) 30%, transparent));
+	filter: drop-shadow(0 14px 22px color-mix(in srgb, var(--shadow) 40%, transparent));
 	will-change: transform;
 }
 
@@ -2981,7 +3115,7 @@ textarea.form-control {
 	transition: opacity .35s var(--ease);
 	background: radial-gradient(
 		14rem circle at var(--mx, -20%) var(--my, -20%),
-		rgba(255, 255, 255, .12),
+		color-mix(in srgb, var(--band-ink) 12%, transparent),
 		transparent 70%
 	);
 }
@@ -3239,7 +3373,7 @@ textarea.form-control {
 }
 
 .pp-missing {
-	color: var(--alarm);
+	color: var(--due);
 }
 
 .pp-form {
@@ -3313,64 +3447,6 @@ textarea.form-control {
 
 .payment-option-list .pay-copy-row {
 	min-height: 42px;
-}
-
-/* Choosing which of two people to pay.
-
-   This is the first thing on the pay screen when a trip had more than one
-   person fronting cash, so it is sized like the primary action it is: full
-   width, a real touch target, the amount as prominent as the name. Anything
-   smaller reads as a filter, and somebody would tap past it. */
-.creditor-choices {
-	display: flex;
-	flex-direction: column;
-	gap: .5rem;
-	margin-top: .7rem;
-}
-
-.creditor-choice {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
-	width: 100%;
-	min-height: 52px;
-	padding: .7rem .9rem;
-	text-align: left;
-}
-
-.creditor-choice-name {
-	font-weight: 600;
-	overflow-wrap: anywhere;
-}
-
-/* Tabular figures so a column of amounts lines up on the decimal, and `due`
-   because that is what this money is — the same colour it carries everywhere
-   else on the roster. */
-.creditor-choice-amount {
-	flex: none;
-	font-variant-numeric: tabular-nums;
-	color: var(--due);
-}
-
-/* Leaving a chosen creditor to go back to the list. Deliberately the quietest
-   control on the screen: it sits above a QR somebody is about to scan. */
-.btn-quiet {
-	align-self: flex-start;
-	min-height: 40px;
-	margin-bottom: .6rem;
-	padding: .35rem .1rem;
-	border: 0;
-	background: none;
-	color: var(--muted);
-	font-size: .85rem;
-	text-decoration: underline;
-	text-underline-offset: 3px;
-	cursor: pointer;
-}
-
-.btn-quiet:hover:not(:disabled) {
-	color: var(--ink);
 }
 
 .payment-option-form {
@@ -3499,8 +3575,8 @@ textarea.form-control {
 }
 
 .receipt-check.off {
-	color: var(--alarm);
-	background: var(--alarm-soft);
+	color: var(--due);
+	background: var(--due-soft);
 }
 
 .receipt-extras {
@@ -3590,6 +3666,117 @@ textarea.form-control {
 	accent-color: var(--accent);
 }
 
+.schedule-needed > div:last-child {
+	display: grid;
+	gap: .8rem;
+}
+
+.attendance-hint {
+	padding: .75rem 1.25rem .25rem;
+}
+
+.attendance-actions {
+	display: flex;
+	gap: .4rem;
+	flex-wrap: wrap;
+}
+
+.attendance-actions .vote-btn {
+	min-height: 38px;
+}
+
+@media (max-width: 520px) {
+	.expense-split-list {
+		grid-template-columns: 1fr;
+	}
+
+	.attendance-row {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Settlement, payment methods and receipts.
+
+   Appended rather than woven in: every selector below is new to this file,
+   and appending puts each one after the base it extends.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Choosing which of two people to pay.
+
+   This is the first thing on the pay screen when a trip had more than one
+   person fronting cash, so it is sized like the primary action it is: full
+   width, a real touch target, the amount as prominent as the name. Anything
+   smaller reads as a filter, and somebody would tap past it. */
+.creditor-choices {
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+	margin-top: .7rem;
+}
+
+.creditor-choice {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	width: 100%;
+	min-height: 52px;
+	padding: .7rem .9rem;
+	text-align: left;
+}
+
+.creditor-choice-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* Tabular figures so a column of amounts lines up on the decimal, and `due`
+   because that is what this money is — the same colour it carries everywhere
+   else on the roster. */
+.creditor-choice-amount {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	color: var(--due);
+}
+
+/* Leaving a chosen creditor to go back to the list. Deliberately the quietest
+   control on the screen: it sits above a QR somebody is about to scan. */
+.btn-quiet {
+	align-self: flex-start;
+	min-height: 40px;
+	margin-bottom: .6rem;
+	padding: .35rem .1rem;
+	border: 0;
+	background: none;
+	color: var(--muted);
+	font-size: .85rem;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.btn-quiet:hover:not(:disabled) {
+	color: var(--ink);
+}
+
+.payment-receipt-amount {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.payment-receipt-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .5rem;
+}
+
+.payment-receipt-actions .btn {
+	min-height: 44px;
+}
+
 /* One person's amount, percentage or weight, sitting beside their name.
 
    The list goes to one column the moment these appear: a name and a number
@@ -3647,33 +3834,32 @@ textarea.form-control {
 }
 
 /* ------------------------------------------------------------- the receipt */
-
 /* The amount is the whole point of the page, so it is the size of one. */
-.receipt-amount {
+.payment-receipt-amount {
 	font-size: clamp(2rem, 8vw, 2.9rem);
 	font-weight: 700;
 	line-height: 1.1;
 	font-variant-numeric: tabular-nums;
 }
 
-.receipt-parties {
+.payment-receipt-parties {
 	margin-top: .3rem;
 	font-size: 1.05rem;
 	overflow-wrap: anywhere;
 }
 
-.receipt-activity {
+.payment-receipt-activity {
 	margin-top: .5rem;
 	color: var(--ink-2);
 	overflow-wrap: anywhere;
 }
 
-.receipt-when {
+.payment-receipt-when {
 	color: var(--muted);
 	font-size: .9rem;
 }
 
-.receipt-facts {
+.payment-receipt-facts {
 	display: grid;
 	gap: .6rem;
 	margin: 1.1rem 0 0;
@@ -3681,7 +3867,7 @@ textarea.form-control {
 	border-top: 1px solid var(--line);
 }
 
-.receipt-facts > div {
+.payment-receipt-facts > div {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: baseline;
@@ -3689,12 +3875,12 @@ textarea.form-control {
 	gap: .5rem .9rem;
 }
 
-.receipt-facts dt {
+.payment-receipt-facts dt {
 	color: var(--muted);
 	font-size: .85rem;
 }
 
-.receipt-facts dd {
+.payment-receipt-facts dd {
 	margin: 0;
 	text-align: right;
 	overflow-wrap: anywhere;
@@ -3702,36 +3888,36 @@ textarea.form-control {
 
 /* The reference is read down a phone and typed into a bank's box, so it gets
    digits that line up and characters that cannot be confused for each other. */
-.receipt-reference {
+.payment-receipt-reference {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 	letter-spacing: .02em;
 }
 
-.receipt-status {
+.payment-receipt-status {
 	font-weight: 600;
 }
 
-.receipt-status.is-confirmed {
+.payment-receipt-status.is-confirmed {
 	color: var(--settled);
 }
 
-.receipt-status.is-rejected,
-.receipt-status.is-reversed {
+.payment-receipt-status.is-rejected,
+.payment-receipt-status.is-reversed {
 	color: var(--alarm);
 }
 
-.receipt-status.is-pending {
+.payment-receipt-status.is-pending {
 	color: var(--due);
 }
 
-.receipt-note {
+.payment-receipt-note {
 	margin: 1rem 0 0;
 	color: var(--faint);
 	font-size: .78rem;
 	line-height: 1.5;
 }
 
-.receipt-actions {
+.payment-receipt-actions {
 	margin-top: .9rem;
 }
 
@@ -3759,7 +3945,7 @@ textarea.form-control {
 		color: #000;
 	}
 
-	.receipt-sheet {
+	.payment-receipt-sheet {
 		box-shadow: none;
 		border: 1px solid #999;
 		border-radius: 0;
@@ -3768,13 +3954,13 @@ textarea.form-control {
 		break-inside: avoid;
 	}
 
-	.receipt-facts dt,
-	.receipt-when,
-	.receipt-note {
+	.payment-receipt-facts dt,
+	.payment-receipt-when,
+	.payment-receipt-note {
 		color: #444;
 	}
 
-	.receipt-status {
+	.payment-receipt-status {
 		color: #000 !important;
 	}
 
@@ -3784,7 +3970,6 @@ textarea.form-control {
 }
 
 /* ------------------------------------------------ where people can pay you */
-
 .method-list {
 	display: flex;
 	flex-direction: column;
@@ -3904,585 +4089,4 @@ textarea.form-control {
 
 .split-unbalanced {
 	color: var(--due);
-}
-
-.schedule-needed > div:last-child {
-	display: grid;
-	gap: .8rem;
-}
-
-.attendance-hint {
-	padding: .75rem 1.25rem .25rem;
-}
-
-.attendance-actions {
-	display: flex;
-	gap: .4rem;
-	flex-wrap: wrap;
-}
-
-.attendance-actions .vote-btn {
-	min-height: 38px;
-}
-
-@media (max-width: 520px) {
-	.expense-split-list {
-		grid-template-columns: 1fr;
-	}
-
-	.attendance-row {
-		align-items: flex-start;
-		flex-direction: column;
-	}
-}
-
-/* ── "not now, and here is why" ──────────────────────────────────────────────
- *
- * The second answer a reminder offers. Everything here is deliberately quieter
- * than paying: a link rather than a button under the pay panel, a small chip
- * beside the name, and the reason itself in the same voice as the rest of the
- * row. It is an escape hatch, not a choice competing with the ฿ figure above
- * it — but it is visible, because the reader who cannot pay today is exactly
- * the reader the organizer needs to hear from. */
-
-.pay-defer {
-	display: block;
-	margin: .7rem auto 0;
-	font-size: .9rem;
-	color: var(--muted);
-}
-
-.pay-defer-note {
-	margin-top: .7rem;
-	text-align: center;
-}
-
-.chip-sm {
-	font-size: .74rem;
-	padding: .12rem .5rem;
-	margin-left: .45rem;
-	vertical-align: middle;
-}
-
-.chip-sm::before {
-	width: 5px;
-	height: 5px;
-}
-
-/* The sentence somebody typed, quoted back. Wrapping is on because an excuse
-   is a sentence and not a label, and a truncated reason is worse than none. */
-.defer-reason {
-	margin-top: .25rem;
-	color: var(--faint);
-	font-style: italic;
-	white-space: normal;
-	max-width: 46ch;
-}
-
-/* ── one activity, four screens ──────────────────────────────────────────────
- *
- * The activity page used to answer every question anybody could have, for every
- * role, in one scroll: pay, RSVP, vote, review a slip, edit the roster, copy the
- * invite link. A participant who came to send ฿100 passed two and a half screens
- * of other people's business to reach a QR code.
- *
- * Each task now has its own route, and these are the two shapes that split
- * needs: a narrow column for a screen with one job, and a card at the top of the
- * summary that names the single thing waiting on this reader. */
-
-.focus-screen {
-	display: flex;
-	flex-direction: column;
-	gap: 1.2rem;
-	/* Narrower than the summary on purpose. A screen with one job should not
-	   spread to fill a desktop window — a payment QR floating in the middle of
-	   1,200px of empty page reads as unfinished, not as focused. */
-	max-width: 34rem;
-	margin: 0 auto;
-	padding-bottom: 5rem;
-}
-
-/* The organizer's screen is a workbench rather than a single task, so it keeps
-   the two-column layout and the room to hold it. */
-.focus-screen-wide {
-	max-width: none;
-}
-
-.screen-head {
-	padding: 2.2rem 0 .2rem;
-}
-
-.screen-head h1 {
-	font-size: clamp(1.5rem, 3.6vw, 2rem);
-	margin-bottom: .2rem;
-}
-
-.screen-sub {
-	font-size: .95rem;
-	color: var(--muted);
-}
-
-/* Back is a link to the summary, not history.back() — half the traffic here
-   arrives from an email or a Discord DM with nothing behind it. */
-.back-link {
-	display: inline-flex;
-	align-items: center;
-	gap: .25rem;
-	margin-bottom: .7rem;
-	font-size: .92rem;
-}
-
-/* ── the one thing that needs you ─────────────────────────────────────────── */
-
-.next-step {
-	background: var(--surface);
-	border: 1px solid var(--line);
-	border-radius: var(--r-lg, 16px);
-	padding: 1.3rem 1.4rem;
-}
-
-.next-step-eyebrow {
-	display: block;
-	font-size: .78rem;
-	letter-spacing: .08em;
-	text-transform: uppercase;
-	color: var(--faint);
-	margin-bottom: .45rem;
-}
-
-.next-step h2 {
-	font-size: clamp(1.25rem, 3vw, 1.7rem);
-	line-height: 1.25;
-}
-
-.next-step-body {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: .9rem;
-}
-
-.next-step-figure {
-	font-family: var(--font-mono, ui-monospace, monospace);
-	font-size: 1.4rem;
-	color: var(--muted);
-}
-
-/* The amount owed is the loudest thing on the page, which is the whole reason
-   the card exists — but the tint stays on the border and the label, never
-   behind the text, so the contrast ratios above keep holding. */
-.next-step-due {
-	border-color: color-mix(in srgb, var(--due) 34%, transparent);
-}
-
-.next-step-due h2 {
-	color: var(--due);
-}
-
-.next-step-pending {
-	border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-}
-
-.next-step-clear h2 {
-	font-size: 1.1rem;
-	font-weight: var(--w-medium);
-	color: var(--muted);
-}
-
-.next-step .names {
-	margin-top: .8rem;
-}
-
-/* Nothing to do here, said out loud. An empty focused screen reads as something
-   that failed to load. */
-.settled-note {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: .9rem;
-	padding: 1.3rem 1.4rem;
-}
-
-/* ══ the statement ═════════════════════════════════════════════════════════
- *
- * Megu already calls what she sends "a statement, not a pile of pokes" — the
- * phrase is in core/reminders.js. The page had never been one. It was a large
- * activity title, a chat bubble, and a stack of rounded rectangles of equal
- * weight, which is why no palette fixed it.
- *
- * Editorial, so hierarchy comes from size and weight rather than from boxes.
- * A receipt where the money is, because a receipt is the most legible object
- * ever designed for "who owes what". Rules instead of card borders. The figure
- * larger than the title, because the figure is why the link was opened.
- */
-
-.statement {
-	padding: .25rem 0 0;
-}
-
-/* Field labels, as a printed form sets them. Small, tracked, quiet — they name
-   the value beneath without competing with it. */
-.statement-label,
-.field-label,
-.panel-count {
-	font-size: var(--t-label);
-	letter-spacing: var(--track-label);
-	text-transform: uppercase;
-	color: var(--faint);
-	font-weight: var(--w-medium);
-}
-
-/* The payload. Deliberately the largest thing on the page — larger than the
-   activity's own name, which the reader already knows because they were
-   there. */
-.statement-figure {
-	display: block;
-	font-family: var(--font-mono);
-	font-variant-numeric: tabular-nums;
-	font-size: var(--t-figure);
-	font-weight: 600;
-	letter-spacing: -.05em;
-	line-height: .95;
-	margin: .1rem 0 .35rem;
-	color: var(--due);
-}
-
-.statement-figure.is-clear { color: var(--settled); }
-
-.statement-note {
-	font-size: var(--t-sub);
-	color: var(--muted);
-}
-
-.statement-actions {
-	display: flex;
-	align-items: center;
-	gap: 1rem;
-	flex-wrap: wrap;
-	margin-top: 1.1rem;
-}
-
-/* Where the receipt tears. A dashed rule is the one ornament this design
-   allows itself, and it earns its place by marking a real boundary: above it
-   is what you owe, below it is everything else. */
-.tear {
-	border: 0;
-	border-top: 1px dashed var(--line-2);
-	margin: 1.6rem 0 .2rem;
-}
-
-/* ── the ledger ─────────────────────────────────────────────────────────── */
-
-/* A statement table, not a card. One hairline between rows, figures on a
-   common right axis so they can be compared by running an eye down them —
-   which is the entire reason a receipt is laid out this way. */
-.ledger {
-	/* A bounded section, not text floating on the ground.
-	 *
-	 * The first pass removed the cards and let hairlines do the dividing, but
-	 * those hairlines measured 1.21:1 against the page — below the threshold at
-	 * which a boundary is visible at all. The result read, accurately, as "a
-	 * sheet of paper with some text on it". Editorial layout is not the absence
-	 * of structure; it is structure made of rules and rhythm instead of chrome,
-	 * and rules you cannot see are not structure.
-	 *
-	 * The surface also gives body text a flat ground to sit on, which the
-	 * drifting weather behind it does not: luminance that changes underneath a
-	 * 14px sub-line is the other half of why this was hard to read. */
-	background: var(--surface);
-	border: 1px solid var(--line-2);
-	border-radius: var(--r);
-	padding: 0 1.25rem .35rem;
-}
-
-.ledger-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 1rem;
-	padding: 1.15rem 0 .6rem;
-	border-bottom: 1px solid var(--line-2);
-	margin-bottom: .15rem;
-}
-
-.ledger-head h2 {
-	font-family: var(--font-display);
-	font-size: var(--t-head);
-	font-weight: var(--w-heavy);
-	letter-spacing: -.015em;
-}
-
-.ledger .row,
-.ledger form.row {
-	border-bottom: 1px solid var(--line);
-	padding: .8rem 0;
-}
-
-.ledger .row:last-child { border-bottom: 0; }
-
-/* ── Megu, demoted ─────────────────────────────────────────────────────────
- *
- * Her line was 24px/600 — within three pixels of the amount, so a friendly
- * aside outranked the money. She is a voice beside the statement now, not a
- * headline on it. */
-.megu-aside {
-	display: flex;
-	gap: .7rem;
-	align-items: flex-start;
-	padding: .9rem 0 0;
-	max-width: 62ch;
-}
-
-.megu-aside p {
-	font-size: var(--t-body);
-	line-height: 1.6;
-	color: var(--ink-2);
-}
-
-.megu-aside .who {
-	display: block;
-	font-size: var(--t-label);
-	letter-spacing: var(--track-label);
-	text-transform: uppercase;
-	color: var(--gold);
-	font-weight: var(--w-medium);
-	margin-bottom: .1rem;
-}
-
-/* The sentence, when there is no figure to state. Set at display size so it
-   holds the same position in the hierarchy the money would have. */
-.statement-line {
-	display: block;
-	font-family: var(--font-display);
-	font-size: var(--t-display);
-	font-weight: var(--w-heavy);
-	letter-spacing: -.022em;
-	line-height: 1.18;
-	margin: .1rem 0 .3rem;
-	max-width: 22ch;
-}
-
-.statement-line.is-quiet {
-	font-size: var(--t-head);
-	font-weight: var(--w-medium);
-	color: var(--muted);
-}
-
-/* Five facts run together at one size is a wall, and this line carries the
-   date, the place, the deadline, the headcount and the code. A thin rule
-   between them is what a printed masthead does, and it costs nothing. */
-.page-meta > *:not(:last-child)::after {
-	content: '';
-	display: inline-block;
-	width: 1px;
-	height: .85em;
-	margin-left: 1.1rem;
-	vertical-align: -.08em;
-	background: var(--line-2);
-}
-
-/* The invite block stops being a floating card next to a ledger. Editorial
-   pages do not put one boxed thing beside one unboxed thing. */
-.aside-block {
-	border-top: 1px solid var(--line);
-	padding-top: 1rem;
-}
-
-.aside-block h2 {
-	font-family: var(--font-display);
-	font-size: var(--t-head);
-	font-weight: var(--w-heavy);
-	letter-spacing: -.015em;
-	margin-bottom: .35rem;
-}
-
-/* The masthead rule. A statement separates who and what it is about from the
-   figure it is stating — the top of the page was three unrelated blocks
-   (title, amount, Megu) sharing one undifferentiated run of space. */
-.page-head {
-	border-bottom: 1px solid var(--line-2);
-	padding-bottom: .9rem;
-}
-
-/* Megu speaks after the figure, and the space above her says so. */
-.megu-aside {
-	border-top: 1px solid var(--line);
-	margin-top: .3rem;
-	padding-top: 1rem;
-}
-
-/* ── depth without glow ────────────────────────────────────────────────────
- *
- * Three layers: a contact shadow that seats the card, a mid shadow that gives
- * it height, and a wide soft one that separates it from the ground. All pure
- * black at low alpha — a coloured shadow is a glow wearing a shadow's name,
- * and the brief rules those out.
- */
-:root {
-	--shadow-card:
-		0 1px 2px rgb(0 0 0 / .05),
-		0 4px 10px rgb(0 0 0 / .05),
-		0 16px 32px rgb(0 0 0 / .06);
-	--shadow-lift:
-		0 2px 4px rgb(0 0 0 / .07),
-		0 8px 18px rgb(0 0 0 / .08),
-		0 24px 48px rgb(0 0 0 / .09);
-}
-
-:root[data-theme='dark'] {
-	--shadow-card:
-		0 1px 2px rgb(0 0 0 / .5),
-		0 4px 12px rgb(0 0 0 / .38),
-		0 18px 40px rgb(0 0 0 / .34);
-	--shadow-lift:
-		0 2px 6px rgb(0 0 0 / .58),
-		0 10px 24px rgb(0 0 0 / .46),
-		0 28px 60px rgb(0 0 0 / .42);
-}
-
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme='light']) {
-		--shadow-card:
-			0 1px 2px rgb(0 0 0 / .5),
-			0 4px 12px rgb(0 0 0 / .38),
-			0 18px 40px rgb(0 0 0 / .34);
-		--shadow-lift:
-			0 2px 6px rgb(0 0 0 / .58),
-			0 10px 24px rgb(0 0 0 / .46),
-			0 28px 60px rgb(0 0 0 / .42);
-	}
-}
-
-/* The bento card. One shape, used for every section, so the page reads as a
-   set rather than as a pile of differently-treated blocks. */
-.bento,
-.ledger,
-.aside-block,
-.panel {
-	background: var(--surface);
-	border: 1px solid var(--edge);
-	border-radius: 14px;
-	box-shadow: var(--shadow-card);
-	padding: 1.6rem 1.5rem;
-}
-
-.ledger-head {
-	border-bottom: 1px solid var(--line);
-	padding: 0 0 .9rem;
-	margin-bottom: .3rem;
-}
-
-.ledger .row,
-.ledger form.row {
-	border-bottom: 1px solid var(--line);
-	padding: .95rem 0;
-}
-
-/* The statement is the focal card and says so: more room, a deeper shadow. */
-.statement {
-	background: var(--surface);
-	border: 1px solid var(--edge);
-	border-radius: 16px;
-	box-shadow: var(--shadow-lift);
-	padding: 1.9rem 1.6rem 1.7rem;
-	margin-top: 0;
-}
-
-.page-head {
-	border-bottom: 0;
-	padding-bottom: .2rem;
-}
-
-.megu-aside {
-	border-top: 0;
-	background: var(--surface);
-	border: 1px solid var(--edge);
-	border-radius: 14px;
-	box-shadow: var(--shadow-card);
-	padding: 1.15rem 1.3rem;
-	margin-top: 0;
-	max-width: none;
-}
-
-.tear { display: none; }
-
-/* ── the landing joins the product ─────────────────────────────────────────
- *
- * The hero and the server band used to be saturated indigo fields lit by two
- * big coloured blurs. Beside the matte surface every other screen now uses,
- * they read as a different company's site — and the coloured blur is a glow,
- * which this design does not use anywhere else.
- *
- * They stay dark bands, because a Persuade surface is allowed to commit where
- * the app is quiet, but they are dark in the same neutral the app is, and the
- * light in them is white at a few percent rather than blue at fifty.
- */
-
-/* Capability cards take the same bento treatment as every card in the app. */
-.capability {
-	border-radius: 14px;
-	border-color: var(--edge);
-	box-shadow: var(--shadow-card);
-	padding: 1.4rem 1.4rem 1.5rem;
-}
-
-.server-side .capability {
-	background: var(--surface);
-	border: 1px solid var(--edge);
-	box-shadow:
-		0 1px 2px rgb(0 0 0 / .4),
-		0 6px 16px rgb(0 0 0 / .3);
-}
-
-/* The numbered flow keeps its numbers: this sequence is the product's actual
-   claim — Megu carries a plan from "เอาไงดี" to "ทุกคนจ่ายครบ" — so the order
-   is information, not decoration. What it loses is the borrowed rule colour. */
-.flow-index {
-	color: var(--faint);
-}
-
-
-/* A dark band keeps its own copy of Megu.
- *
- * The hero and the server band are dark in *both* themes, but `--megu-body` is
- * a theme token — so in light mode the mark would paint the light-theme navy
- * (#212862) onto a near-black field and disappear, which is precisely the bug
- * already fixed once in the navbar. The hero and the server band follow the
- * theme now, so only the closing plate — dark navy in both themes — still has
- * to carry her values itself. */
-.closing {
-	--megu-body: #5866C4;
-	--megu-body-lit: #7C88E4;
-}
-
-/* The gold only appears where the page is asking for something. On the closing
-   plate that is the primary button — Megu's crown, used once, on the one band
-   that committed to colour. */
-.closing .btn-primary {
-	background: var(--hero-gold, #F0B92A);
-	color: #17141F;
-	box-shadow: none;
-	font-weight: var(--w-heavy);
-}
-
-.closing .btn-primary:hover:not(:disabled) {
-	background: #FFC93F;
-}
-
-.closing .btn-secondary {
-	background: rgb(255 255 255 / .06);
-	border-color: rgb(255 255 255 / .18);
-	color: var(--hero-ink);
-}
-
-/* Under the hero buttons: who has to sign up, and who does not. It is the
-   product's central promise and it used to appear only in the last paragraph
-   on the page, under a heading about Discord servers. */
-.hero-note {
-	margin-top: 1rem;
-	font-size: .85rem;
-	line-height: 1.6;
-	color: var(--hero-dim);
-	max-width: 46ch;
 }

@@ -1672,6 +1672,85 @@ app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/
 	}
 });
 
+// --- Nickname Management Endpoints ---
+
+// Get all custom nicknames for a guild
+app.get('/api/guilds/:guildId/nicknames', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const nicknames = await database.getAllGuildNicks(guildId);
+		res.json({ success: true, nicknames: nicknames || {} });
+	} catch (err) {
+		res.status(500).json({ error: 'Failed to fetch guild nicknames.' });
+	}
+});
+
+// Set / update a user's custom nickname
+app.post('/api/guilds/:guildId/nicknames/:userId', requireAdminGuild, async (req, res) => {
+	const { guildId, userId } = req.params;
+	const { nickname } = req.body || {};
+	const trimmed = typeof nickname === 'string' ? nickname.trim() : '';
+
+	if (!trimmed) {
+		return res.status(400).json({ error: 'Nickname cannot be empty.' });
+	}
+	if (trimmed.length > 100) {
+		return res.status(400).json({ error: 'Nickname must be 100 characters or less.' });
+	}
+
+	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
+	const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+	const matchedGuild = (req.session && req.session.adminGuilds && req.session.adminGuilds.find(g => g.id === guildId));
+	const gName = matchedGuild ? matchedGuild.name : 'Discord Server';
+
+	try {
+		const previousNick = await database.getUserNick(guildId, userId);
+		await database.setUserNick(guildId, userId, trimmed);
+
+		const oldLabel = (previousNick && previousNick !== 'ใครไม่รู้') ? `"${previousNick}"` : 'Default';
+		await database.logAuditEvent(
+			guildId,
+			'NICKNAME_UPDATE',
+			uId,
+			uName,
+			`Updated custom TTS nickname for <@${userId}> from ${oldLabel} to "${trimmed}"`,
+			gName,
+		).catch(() => undefined);
+
+		res.json({ success: true, userId, nickname: trimmed });
+	} catch (err) {
+		res.status(500).json({ error: 'Failed to update custom nickname.' });
+	}
+});
+
+// Delete / reset a user's custom nickname
+app.delete('/api/guilds/:guildId/nicknames/:userId', requireAdminGuild, async (req, res) => {
+	const { guildId, userId } = req.params;
+	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
+	const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+	const matchedGuild = (req.session && req.session.adminGuilds && req.session.adminGuilds.find(g => g.id === guildId));
+	const gName = matchedGuild ? matchedGuild.name : 'Discord Server';
+
+	try {
+		const previousNick = await database.getUserNick(guildId, userId);
+		await database.deleteUserNick(guildId, userId);
+
+		const oldLabel = (previousNick && previousNick !== 'ใครไม่รู้') ? `"${previousNick}"` : 'None';
+		await database.logAuditEvent(
+			guildId,
+			'NICKNAME_RESET',
+			uId,
+			uName,
+			`Reset custom TTS nickname for <@${userId}> (was ${oldLabel}) back to default`,
+			gName,
+		).catch(() => undefined);
+
+		res.json({ success: true, userId });
+	} catch (err) {
+		res.status(500).json({ error: 'Failed to reset custom nickname.' });
+	}
+});
+
 app.post('/api/guilds/:guildId/automod', requireAdminGuild, async (req, res) => {
 	const { guildId } = req.params;
 	let automodConfig = req.body || {};

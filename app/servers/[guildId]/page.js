@@ -7,6 +7,7 @@ import WelcomeTab from '../../components/Tabs/WelcomeTab';
 import AutoroleTab from '../../components/Tabs/AutoroleTab';
 import RoleManagerTab from '../../components/Tabs/RoleManagerTab';
 import MemberManagerTab from '../../components/Tabs/MemberManagerTab';
+import NicknameManagerTab from '../../components/Tabs/NicknameManagerTab';
 import VoiceTtsTab from '../../components/Tabs/VoiceTtsTab';
 import HoneypotTab from '../../components/Tabs/HoneypotTab';
 import AutomodTab from '../../components/Tabs/AutomodTab';
@@ -269,6 +270,9 @@ export default function ServerConfigPage({ params }) {
 					<button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>
 						Member Manager
 					</button>
+					<button className={`tab-btn ${activeTab === 'nicknames' ? 'active' : ''}`} onClick={() => setActiveTab('nicknames')}>
+						Nickname Manager
+					</button>
 					<button className={`tab-btn ${activeTab === 'tts' ? 'active' : ''}`} onClick={() => setActiveTab('tts')}>
 						Voice TTS Channel
 					</button>
@@ -307,6 +311,14 @@ export default function ServerConfigPage({ params }) {
 						<MemberManagerTab
 							guildId={guildId}
 							roles={roles}
+							initialMembers={guildData?.members || []}
+							showToast={showToast}
+							onRefresh={fetchServerData}
+						/>
+					)}
+					{activeTab === 'nicknames' && (
+						<NicknameManagerTab
+							guildId={guildId}
 							initialMembers={guildData?.members || []}
 							showToast={showToast}
 							onRefresh={fetchServerData}

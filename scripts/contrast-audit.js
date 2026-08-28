@@ -14,6 +14,8 @@ const CSS = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'u
 
 const AA_BODY = 4.5;
 const AA_LARGE = 3;
+// Non-text contrast: the boundary of a control, per WCAG 1.4.11.
+const AA_UI = 3;
 
 // foreground, background, minimum, what it is
 const PAIRS = [
@@ -34,35 +36,41 @@ const PAIRS = [
 	['settled', 'paper', AA_BODY, 'settled amounts'],
 	['settled', 'surface', AA_BODY, 'settled amounts on a panel'],
 	['settled', 'settled-soft', AA_BODY, 'settled text on its own tint'],
-
-	// The failure colour, kept apart from `due` since the celadon palette
-	// separated them. It is rare on screen, which is exactly why it has to be
-	// legible the once it appears.
-	['alarm', 'paper', AA_BODY, 'a rejected slip or a reversed payment'],
-	['alarm', 'surface', AA_BODY, 'the same, on a panel'],
-	['alarm', 'alarm-soft', AA_BODY, 'failure text on its own tint'],
-
 	['on-brand', 'brand', AA_BODY, 'button text'],
-	// Boundaries carry two different jobs and only one of them is structural.
-	//
-	// `line-2` is what separates one section from the next — a panel edge, a
-	// section rule — so it is held to the 3:1 WCAG 1.4.11 asks of a non-text UI
-	// boundary. The table used to accept 1.5 there, which is exactly how a
-	// redesign could delete every card, replace them with rules measuring
-	// 1.21:1, and still pass: the page was left with no visible divisions at all
-	// and the audit called it green.
-	//
-	// `line` is the softer separator *inside* something already bounded, between
-	// rows of one table. It may stay quiet, and it may never be the only thing
-	// dividing two sections.
-	['line-2', 'paper', AA_LARGE, 'a section boundary'],
-	['line-2', 'surface', AA_LARGE, 'a panel edge'],
-	['line', 'surface', 1.15, 'a row separator inside a table'],
-	// The card hairline. It is deliberately quiet because it never carries the
-	// boundary alone — the card also has a background lift off the ground and a
-	// layered shadow, and those three together are what makes the edge read.
-	// Anything that divides two sections on its own uses `line-2` and its 3:1.
-	['edge', 'paper', 1.1, 'the hairline on a card that also lifts and casts'],
+	// A border a person operates is a non-text UI boundary, which WCAG 1.4.11
+	// puts at 3:1 — the same bar as an icon, not the courtesy 1.5 this used to
+	// ask for. What that floor deliberately does not cover is --ornament: the
+	// ghosted step numerals, the hairline that joins them and the bullets, none
+	// of which bound anything. Those are absent from this table on purpose.
+	['line-2', 'paper', AA_UI, 'borders and control outlines'],
+	['line-2', 'surface', AA_UI, 'borders on a panel'],
+	['line-2', 'band-light', AA_UI, 'borders on the light band'],
+
+	// The light band between the two dark ones carries the same body copy the
+	// page does, so it is measured like a page ground.
+	['ink', 'band-light', AA_BODY, 'body text on the light band'],
+	['muted', 'band-light', AA_BODY, 'meta on the light band'],
+	['faint', 'band-light', AA_LARGE, 'captions on the light band'],
+
+	// The landing page's full-bleed bands. They carry their own ground in both
+	// themes, so their contrast has to be measured inside their own set — the
+	// page tokens say nothing about what is readable on top of a band.
+	['band-ink', 'band', AA_BODY, 'headings and copy on a band'],
+	['band-dim', 'band', AA_BODY, 'the lede and eyebrow on a band'],
+	['band-accent', 'band', AA_BODY, 'the one accented word in the headline'],
+	['band-ink', 'band-2', AA_BODY, 'copy on the second band'],
+	['band-dim', 'band-2', AA_BODY, 'the lede on the second band'],
+	// A filled control is not text: AA asks 3:1 of it against what it sits on.
+	['band-cta', 'band', AA_UI, 'the call to action against the band'],
+	['on-brand', 'band-cta', AA_BODY, 'its label'],
+
+	// The closing plate is the one surface that commits to a colour, and it
+	// takes the whole set with it: the copy, and the inverted button that
+	// replaces --band-cta there because --band-cta cannot be seen on it.
+	['band-ink', 'band-plate', AA_BODY, 'the closing headline on its plate'],
+	['band-dim', 'band-plate', AA_BODY, 'the closing lede on its plate'],
+	['band-ink', 'band-plate', AA_UI, 'the inverted button against the plate'],
+	['band-plate', 'band-ink', AA_BODY, 'that button\'s label'],
 
 	// Audit-log category badges. Measured against the panel they sit on rather
 	// than their own tint, because the tint is only ~12–18% of the same hue and
