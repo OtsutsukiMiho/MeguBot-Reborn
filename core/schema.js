@@ -320,6 +320,26 @@ const STATEMENTS = [
 		created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
 	'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS period_id TEXT REFERENCES periods(id) ON DELETE CASCADE;',
+
+	// How this expense was divided, kept alongside the division itself.
+	//
+	// `shares` remains the truth — it is what every balance is computed from —
+	// and these two columns are the instruction that produced it. They exist
+	// because of what happens on the second edit: a bill split 70/30 and then
+	// corrected from ฿1,000 to ฿1,200 has to come back 70/30, and with only the
+	// amounts stored there is nothing to say it ever was. The old code
+	// recomputed an even split on every edit, which was correct while an even
+	// split was the only kind.
+	//
+	// `even` for everything that already exists, which is what all of it is.
+	'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_mode TEXT NOT NULL DEFAULT \'even\';',
+	'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_values JSONB;',
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_split_mode_check') THEN
+			ALTER TABLE expenses ADD CONSTRAINT expenses_split_mode_check
+				CHECK (split_mode IN ('even', 'exact', 'percent', 'shares'));
+		END IF;
+	END $$;`,
 	'CREATE INDEX IF NOT EXISTS expenses_activity_idx ON expenses (activity_id);',
 	'CREATE INDEX IF NOT EXISTS expenses_period_idx ON expenses (period_id);',
 

@@ -1,6 +1,6 @@
 const { query, transaction } = require('./db.js');
 const { newId, newActivityCode } = require('./ids.js');
-const { splitEvenlyBy } = require('./money.js');
+const { resolveSplit } = require('./split.js');
 const { assessSlip, validateAllocations } = require('./payment-evidence.js');
 const { pairwiseObligations, obligationsFor, paymentAmountInScope } = require('./obligations.js');
 
@@ -270,6 +270,10 @@ async function loadActivity(where, value) {
 		label: r.label,
 		amountSatang: Number(r.amount_satang),
 		paidBy: r.paid_by,
+		// The instruction that produced the shares, so an edit screen can offer
+		// the division back rather than making somebody retype it.
+		splitMode: r.split_mode || 'even',
+		splitValues: r.split_values || null,
 		createdAt: r.created_at,
 	}));
 	activity.shares = shares.rows.map(r => ({
@@ -959,7 +963,7 @@ async function ensurePeriod(activityId, date = new Date()) {
 // ── money axis ──────────────────────────────────────────────────────────────
 
 async function addExpense(activityId, input) {
-	const { label, amountSatang, paidBy, shareParticipantIds = null, periodId = null } = input;
+	const { label, amountSatang, paidBy, shareParticipantIds = null, periodId = null, split: splitSpec = null } = input;
 
 	if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
 		throw codedError('amount_invalid');
@@ -994,14 +998,21 @@ async function addExpense(activityId, input) {
 		}
 		if (!known.has(paidBy)) throw codedError('participant_not_in_activity');
 
+		// Resolved before anything is written, so an unbalanced split is a
+		// refusal rather than half an expense with shares that do not add up.
+		const resolved = resolveSplit(amountSatang, ids, splitSpec);
+
 		const expenseId = newId('exp');
 		await client.query(
-			`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			[expenseId, activityId, periodId, String(label || 'Expense').trim(), amountSatang, paidBy],
+			`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by, split_mode, split_values)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+			[
+				expenseId, activityId, periodId, String(label || 'Expense').trim(), amountSatang, paidBy,
+				resolved.mode, resolved.values ? JSON.stringify(resolved.values) : null,
+			],
 		);
 
-		const split = splitEvenlyBy(amountSatang, ids);
+		const split = resolved.split;
 		for (const [participantId, share] of Object.entries(split)) {
 			await client.query(
 				'INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)',
@@ -1010,7 +1021,7 @@ async function addExpense(activityId, input) {
 		}
 
 		await client.query('UPDATE activities SET updated_at = now() WHERE id = $1', [activityId]);
-		return { id: expenseId, activityId, periodId, label, amountSatang, paidBy, split };
+		return { id: expenseId, activityId, periodId, label, amountSatang, paidBy, split, splitMode: resolved.mode };
 	});
 }
 
@@ -1051,13 +1062,32 @@ async function updateExpense(expenseId, input) {
 		}
 		if (!known.has(paidBy)) throw codedError('participant_not_in_activity');
 
+		// A correction keeps the division it was given unless the caller sends a
+		// new one. Correcting ฿1,000 to ฿1,200 on a bill split 70/30 has to come
+		// back 70/30; recomputing an even split — which is what this did while
+		// even was the only kind — would quietly move money between people who
+		// had already agreed how it was divided.
+		//
+		// Changing who shares the expense without saying how is the one case
+		// that cannot honour the old instruction: a stored 70/30 names two
+		// people, and there is nothing sensible it can mean once a third joins.
+		// That falls back to even, which is at least a rule everybody can see.
+		const rosterChanged = Array.isArray(input.shareParticipantIds) && input.shareParticipantIds.length > 0;
+		const storedSpec = expense.split_mode && expense.split_mode !== 'even' && expense.split_values
+			? { mode: expense.split_mode, values: expense.split_values }
+			: null;
+		const wantedSpec = input.split !== undefined
+			? input.split
+			: (rosterChanged ? null : storedSpec);
+		const resolved = resolveSplit(amountSatang, ids, wantedSpec);
+
 		await client.query(
-			'UPDATE expenses SET label = $2, amount_satang = $3, paid_by = $4 WHERE id = $1',
-			[expenseId, label, amountSatang, paidBy],
+			'UPDATE expenses SET label = $2, amount_satang = $3, paid_by = $4, split_mode = $5, split_values = $6::jsonb WHERE id = $1',
+			[expenseId, label, amountSatang, paidBy, resolved.mode, resolved.values ? JSON.stringify(resolved.values) : null],
 		);
 		await client.query('DELETE FROM shares WHERE expense_id = $1', [expenseId]);
 
-		const split = splitEvenlyBy(amountSatang, ids);
+		const split = resolved.split;
 		for (const [participantId, share] of Object.entries(split)) {
 			await client.query(
 				'INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)',
@@ -1065,7 +1095,7 @@ async function updateExpense(expenseId, input) {
 			);
 		}
 
-		return { id: expenseId, label, amountSatang, paidBy, split };
+		return { id: expenseId, label, amountSatang, paidBy, split, splitMode: resolved.mode };
 	});
 }
 

@@ -3589,6 +3589,72 @@ textarea.form-control {
 	accent-color: var(--accent);
 }
 
+/* One person's amount, percentage or weight, sitting beside their name.
+
+   The list goes to one column the moment these appear: a name and a number
+   field side by side in a half-width cell leaves about eight characters for
+   each, which is not enough for either. */
+.expense-split-list:has(.expense-split-value) {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.expense-split-value {
+	width: 6.5rem;
+	min-height: 40px;
+	margin-left: auto;
+	padding: .3rem .5rem;
+	font-size: .9rem;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.expense-split-modes {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35rem;
+	margin-top: .6rem;
+}
+
+/* A chip that is also a control. `chip` alone is a label, so the pressed state
+   has to be visible on its own and not only by colour — the border thickens
+   and the weight goes up with it. */
+/* Taller than a plain chip because this one is tapped, not read. The label
+   chips around it stay where they are — they are not targets. */
+.chip-choice {
+	min-height: 40px;
+	padding-inline: .7rem;
+	border: 1px solid var(--line-2);
+	background: none;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+
+.chip-choice::before {
+	content: none;
+}
+
+.chip-choice:hover:not(:disabled) {
+	border-color: var(--accent);
+	color: var(--ink);
+}
+
+.chip-choice.is-on {
+	border-color: var(--accent);
+	background: var(--accent-soft, var(--surface));
+	color: var(--ink);
+	font-weight: 600;
+}
+
+/* Whether the numbers add up yet. Words carry this, not colour — the colour is
+   confirmation for people who can use it. */
+.split-balanced {
+	color: var(--settled);
+}
+
+.split-unbalanced {
+	color: var(--due);
+}
+
 .schedule-needed > div:last-child {
 	display: grid;
 	gap: .8rem;

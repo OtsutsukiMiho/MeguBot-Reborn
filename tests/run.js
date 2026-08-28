@@ -13,6 +13,7 @@ const {
 const SUITES = [
 	['rate-limit.test.js', 'the Discord block guard — recognise it, hold it, share it'],
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
+	['split.test.js', 'dividing an expense — exact, percentage and weighted, always reconciling'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
 	['obligations.test.js', 'who owes whom — several payers, late joiners, money sent to the wrong person'],
 	['promptpay.test.js', 'the PromptPay payload — checksum, accounts, amounts'],
@@ -34,6 +35,7 @@ const SUITES = [
 	['payment-due.test.js', 'the deadline — announced once, deferrable with a reason, never a mute'],
 	['payment-lifecycle.test.js', 'multi-period transfers, private evidence, auto-confirmation and reversal'],
 	['poll.test.js', 'the time poll — proposing, voting, and Megu deciding'],
+	['split-expenses.test.js', 'split modes against Postgres — the division survives a correction'],
 	['corrections.test.js', 'editing, deleting and undoing — the ledger must be correctable'],
 	['creditor.test.js', 'the creditor column — two people collecting, and the rows written before it existed'],
 	['api.test.js', 'HTTP layer — roles, redaction, claim and payment flow'],

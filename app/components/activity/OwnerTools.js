@@ -60,14 +60,59 @@ function bangkokDateInput(value) {
 	return bangkok.toISOString().slice(0, 10);
 }
 
+/**
+ * Whether the numbers typed so far add up, and by how much they miss.
+ *
+ * Returned rather than rendered so the submit button and the running total read
+ * the same answer. `ready` false with `gap` zero is the empty form — nothing
+ * typed yet, which is not an error worth shouting about.
+ */
+function splitStanding(mode, sharing, values, amountText) {
+	if (mode === 'even') return { ready: true, gap: 0, target: 0, assigned: 0 };
+
+	const target = mode === 'percent' ? 100 : Number(amountText || 0);
+	let assigned = 0;
+	let typed = 0;
+	for (const person of sharing) {
+		const raw = values[person.id];
+		if (raw === undefined || raw === '') continue;
+		const value = Number(raw);
+		if (!Number.isFinite(value) || value < 0) return { ready: false, gap: null, target, assigned };
+		assigned += value;
+		typed += 1;
+	}
+
+	// Weights do not have to add up to anything — 2:1:1 is complete as it is.
+	if (mode === 'shares') {
+		return { ready: typed === sharing.length && assigned > 0, gap: 0, target: 0, assigned };
+	}
+
+	// Rounded because 33.33 + 33.33 + 33.34 arrives as 100.00000000000001.
+	const gap = Math.round((target - assigned) * 100) / 100;
+	return { ready: typed === sharing.length && gap === 0 && target > 0, gap, target, assigned };
+}
+
 export function OwnerControls({ activity, busy, call, participants, requestAction }) {
-	const { t } = useCopy();
+	const { t, fmt } = useCopy();
 	const [label, setLabel] = useState('');
 	const [amount, setAmount] = useState('');
 	const [paidBy, setPaidBy] = useState(participants[0]?.id || '');
 	const recurring = activity.kind === 'recurring';
 	const defaultShares = participants.filter(p => recurring || p.rsvp !== 'no').map(p => p.id);
 	const [shareParticipantIds, setShareParticipantIds] = useState(defaultShares.length > 0 ? defaultShares : participants.map(p => p.id));
+
+	// Dividing it by something other than "everybody the same".
+	//
+	// Even stays the default and stays one tap, because it is what most bills
+	// are. The rest appears only once somebody asks for it: a row of inputs
+	// beside the names, and a line saying whether they add up yet. The running
+	// total is the point — an expense that does not reconcile is refused by the
+	// server, and finding that out after pressing the button is the version of
+	// this that people give up on.
+	const [splitMode, setSplitMode] = useState('even');
+	const [splitValues, setSplitValues] = useState({});
+	const sharing = participants.filter(p => shareParticipantIds.includes(p.id));
+	const splitBalance = splitStanding(splitMode, sharing, splitValues, amount);
 
 	const nextPlan = {
 		open: { planState: 'confirmed', label: t.owner.confirmTime },
@@ -131,10 +176,17 @@ export function OwnerControls({ activity, busy, call, participants, requestActio
 						// Bill the month being looked at, not whichever one
 						// happens to be current on the server.
 						periodId: activity.period?.id || undefined,
+						split: splitMode === 'even' ? undefined : {
+							mode: splitMode,
+							values: Object.fromEntries(sharing.map(p => [p.id, Number(splitValues[p.id])])),
+						},
 					})
-						.then(() => {
+						.then((result) => {
+							if (!result) return;
 							setLabel('');
 							setAmount('');
+							setSplitMode('even');
+							setSplitValues({});
 						});
 				}}
 				style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}
@@ -157,11 +209,53 @@ export function OwnerControls({ activity, busy, call, participants, requestActio
 									onChange={e => setShareParticipantIds(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))}
 								/>
 								<span>{p.displayName}</span>
+								{/* The input appears next to the name it belongs to
+								    rather than in a second list below, so nobody has
+								    to hold two orderings in their head at once. */}
+								{splitMode !== 'even' && shareParticipantIds.includes(p.id) && (
+									<input
+										className="form-control expense-split-value"
+										type="number"
+										min="0"
+										step={splitMode === 'shares' ? '1' : '0.01'}
+										inputMode="decimal"
+										value={splitValues[p.id] ?? ''}
+										placeholder={t.expenses.splitModes[splitMode]}
+										aria-label={t.expenses.splitValueFor(p.displayName, t.expenses.splitModes[splitMode])}
+										onChange={e => setSplitValues(v => ({ ...v, [p.id]: e.target.value }))}
+									/>
+								)}
 							</label>
 						))}
 					</div>
+
+					<div className="expense-split-modes" role="group" aria-label={t.expenses.splitHow}>
+						{['even', 'exact', 'percent', 'shares'].map(mode => (
+							<button
+								key={mode}
+								type="button"
+								className={`chip chip-choice ${splitMode === mode ? 'is-on' : ''}`}
+								aria-pressed={splitMode === mode}
+								onClick={() => { setSplitMode(mode); setSplitValues({}); }}
+							>
+								{t.expenses.splitModes[mode]}
+							</button>
+						))}
+					</div>
+
+					{/* Said in words as well as colour: a red number nobody can
+					    see is not an error message. */}
+					{splitMode !== 'even' && (
+						<p className={`quiet-note ${splitBalance.ready ? 'split-balanced' : 'split-unbalanced'}`}>
+							{splitBalance.gap === null ? t.expenses.splitNotANumber
+								: splitMode === 'shares' ? (splitBalance.ready ? t.expenses.splitSharesReady : t.expenses.splitSharesMissing)
+									: splitBalance.ready ? t.expenses.splitBalanced
+										: splitBalance.gap > 0 ? t.expenses.splitLeft(splitMode === 'percent' ? `${splitBalance.gap}%` : fmt.money(Math.round(splitBalance.gap * 100)))
+											: t.expenses.splitOver(splitMode === 'percent' ? `${-splitBalance.gap}%` : fmt.money(Math.round(-splitBalance.gap * 100)))}
+						</p>
+					)}
 				</fieldset>
-				<button type="submit" className="btn btn-secondary btn-block" disabled={busy || !amount || shareParticipantIds.length === 0}>
+				<button type="submit" className="btn btn-secondary btn-block" disabled={busy || !amount || shareParticipantIds.length === 0 || !splitBalance.ready}>
 					{t.owner.addAndSplit}
 				</button>
 			</form>

@@ -46,6 +46,27 @@ function requestAmountMinor(body = {}) {
 	return undefined;
 }
 
+/**
+ * A split as the browser sends it, in the units the browser uses.
+ *
+ * Exact amounts arrive in baht like every other amount on the wire, and are
+ * converted here so there is one place where a major unit becomes satang —
+ * `requestAmountMinor` does the same job for the expense total. Percentages and
+ * share weights are not money and pass through untouched.
+ */
+function requestSplit(split) {
+	if (split === undefined) return undefined;
+	if (!split || typeof split !== 'object') return null;
+	if (split.mode !== 'exact' || !split.values || typeof split.values !== 'object') return split;
+
+	return {
+		mode: 'exact',
+		values: Object.fromEntries(
+			Object.entries(split.values).map(([id, value]) => [id, money.toSatang(value)]),
+		),
+	};
+}
+
 const DEVICE_COOKIE = 'megu_pt';
 const DEVICE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
 
@@ -523,6 +544,10 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				label: e.label,
 				amountSatang: e.amountSatang,
 				paidBy: e.paidBy,
+				// How it was divided, not just what the division came to, so an
+				// edit screen can offer the rule back instead of the outcome.
+				splitMode: e.splitMode,
+				splitValues: e.splitValues,
 				// The ledger already stores the exact split. Returning it with the
 				// expense lets the page answer "whose dish was this?" without
 				// recomputing from today's roster or RSVP state.
@@ -1597,6 +1622,9 @@ function router(deps = {}) {
 				amountSatang,
 				paidBy: req.body?.paidBy,
 				shareParticipantIds: req.body?.shareParticipantIds,
+				// Absent means "leave the division alone", which is what keeps a
+				// bill split 70/30 at 70/30 when only its amount is corrected.
+				split: requestSplit(req.body?.split),
 			});
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: expense.periodId }) });
@@ -1653,6 +1681,7 @@ function router(deps = {}) {
 				paidBy: req.body?.paidBy,
 				shareParticipantIds: req.body?.shareParticipantIds || null,
 				periodId: period ? period.id : null,
+				split: requestSplit(req.body?.split) || null,
 			});
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: period?.id }) });
