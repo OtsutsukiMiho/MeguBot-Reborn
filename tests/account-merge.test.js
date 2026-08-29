@@ -125,6 +125,17 @@ async function main() {
 	await core.users.setNotificationPreferences(discord.user.id, { mode: 'discord', locale: 'th' });
 	await core.users.setNotificationPreferences(google.user.id, { mode: 'email', locale: 'en' });
 
+	// One way of being paid saved under each login. These are the rows most
+	// likely to be lost quietly: payment_methods.user_id is ON DELETE CASCADE,
+	// so a merge that does not move them deletes them with the old account and
+	// says nothing.
+	await core.paymentMethods.create(discord.user.id, {
+		type: 'promptpay', label: 'PromptPay', destination: '0812345678',
+	});
+	await core.paymentMethods.create(google.user.id, {
+		type: 'payment_link', label: 'PayPal', url: 'https://example.test/pay',
+	});
+
 	// --- the plan, which writes nothing ------------------------------------
 	const plan = await core.accountMerge.planMerge(google.user.id, discord.user.id);
 	assert.strictEqual(plan.blockedBy, null, 'disjoint providers must not block');
@@ -198,6 +209,15 @@ async function main() {
 	assert.strictEqual(survivor.displayName, 'Merge Google', 'the chosen provider supplies the profile');
 
 	assert.strictEqual((await core.users.getNotificationPreferences(discord.user.id)).mode, 'both');
+
+	// How somebody gets paid belongs to the person, not to the login they
+	// happened to save it under, so both accounts' methods are now the
+	// survivor's. Neither may be dropped: the cascade would take them silently.
+	assert.deepStrictEqual(
+		(await core.paymentMethods.listForUser(discord.user.id)).map(m => m.label).sort(),
+		['PayPal', 'PromptPay'],
+		'both accounts\' payment methods follow the person through the merge',
+	);
 
 	// Signing in through the account that no longer exists lands on the survivor
 	// rather than creating a third account.

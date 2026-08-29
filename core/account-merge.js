@@ -66,6 +66,16 @@ const REPOINT = [
 	// audit rows forward, so a chain of merges still resolves in one hop.
 	['user_aliases', 'user_id'],
 	['account_merges', 'survivor_user_id'],
+	// A person's ways of being paid belong to the person, not to whichever of
+	// their two logins happened to save them, so both accounts' methods move to
+	// the survivor. The foreign key is ON DELETE CASCADE, which is why this one
+	// cannot simply be left out: an unmoved row would not fail the merge, it
+	// would take somebody's PromptPay number down with the deleted account.
+	// There is no uniqueness constraint on (user_id, position) — the index is
+	// plain — so two methods can land on the same position and merely sort
+	// arbitrarily against each other, which is a cosmetic outcome rather than a
+	// failed merge.
+	['payment_methods', 'user_id'],
 ];
 
 // Handled by hand further down, because moving the row would collide with a
