@@ -392,6 +392,56 @@ paymentDueSweep.start({
 	intervalMs: Number(process.env.MEGU_PAYMENT_DUE_INTERVAL_MS) || undefined,
 });
 
+// The guild list only ever entered the session at the moment of signing in, so
+// a Discord identity linked from /account worked for that session and no other:
+// signing in with Google the next day arrived at the console with no
+// adminGuilds and was told to sign in — while the bar above the message showed
+// the user's avatar. So the console asks for the guild list on demand.
+//
+// It asks at most once every RESTORE_COOLDOWN_MS per session. The credential
+// can be permanently unusable (linked before MEGU_OAUTH_CREDENTIAL_KEY existed,
+// refresh token revoked), and this runs on every visit to the console — three
+// Discord calls per page load into a dead credential is precisely the steady,
+// pointless load rule 1 of DISCORD-RATE-LIMITS.md is about. restoreDiscordConnection
+// asks the block guard itself and reports failures to it.
+const RESTORE_COOLDOWN_MS = 5 * 60 * 1000;
+
+async function ensureDiscordGuilds(session) {
+	if (!session?.meguUserId || session.adminGuilds) return;
+	const last = session.discordRestoreAttemptedAt || 0;
+	if (Date.now() - last < RESTORE_COOLDOWN_MS) return;
+	session.discordRestoreAttemptedAt = Date.now();
+	await restoreDiscordConnection(session.meguUserId, session);
+}
+
+// Which of the three reasons the console is closed. They need different
+// buttons: a sign-in, a Discord link, and a reconnect are three different
+// journeys, and only one of them was ever offered.
+async function discordConsoleDenial(session) {
+	// The guild list first, and on its own. The legacy Discord callback writes
+	// adminGuilds even when the Megu account behind it could not be created —
+	// meguUserId is null there — and asking for that id first would close a
+	// console that has everything it needs open in front of it.
+	if (session?.adminGuilds) return null;
+
+	if (!session?.meguUserId) {
+		return { status: 401, body: { error: 'Sign in to see the servers you manage.', reason: 'signed-out' } };
+	}
+
+	let linked = false;
+	try {
+		const identities = await core.users.getIdentities(session.meguUserId);
+		linked = identities.some(identity => identity.provider === 'discord');
+	}
+	catch (error) {
+		BotLogs('Web', `Could not read identities for ${session.meguUserId}: ${error.message}`);
+	}
+
+	return linked
+		? { status: 401, body: { error: 'Megu could not reach Discord with your linked account. Connect Discord again.', reason: 'discord-reconnect' } }
+		: { status: 401, body: { error: 'This is the Discord bot console. Connect Discord to use it.', reason: 'discord-not-linked' } };
+}
+
 function requireAdminGuild(req, res, next) {
 	if (!req.session || !req.session.user || !req.session.adminGuilds) {
 		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
@@ -1114,10 +1164,23 @@ app.post('/api/auth/logout', (req, res) => {
 	}
 });
 
-app.get('/api/guilds', async (req, res) => {
-	if (!req.session || !req.session.user || !req.session.adminGuilds) {
-		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+// Mounted on the whole console prefix rather than on the list route alone: the
+// cards on that page link straight to /api/guilds/:guildId, and restoring the
+// list for the page but not for what the page links to would draw a console
+// where every Configure button 401s.
+app.use('/api/guilds', async (req, res, next) => {
+	try {
+		await ensureDiscordGuilds(req.session);
 	}
+	catch (error) {
+		BotLogs('Web', `Discord guild restore failed: ${error.message}`);
+	}
+	next();
+});
+
+app.get('/api/guilds', async (req, res) => {
+	const denial = await discordConsoleDenial(req.session);
+	if (denial) return res.status(denial.status).json(denial.body);
 
 	const userGuilds = req.session.adminGuilds;
 	const guildIds = userGuilds.map(g => g.id);

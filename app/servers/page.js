@@ -96,9 +96,13 @@ function ServerCard({ g, copy }) {
 }
 
 export default function ServersPage() {
-	const { t, lang } = useCopy();
+	const { t } = useCopy();
 	const copy = t.servers;
-	const [loggedIn, setLoggedIn] = useState(null);
+	// Not a boolean. Being signed in to Megu and having authorised Discord are
+	// two different things, and this console needs the second one — so `denial`
+	// carries which of them is missing rather than collapsing both into "signed
+	// out" and showing a Sign in button to somebody already signed in.
+	const [denial, setDenial] = useState(null);
 	const [guilds, setGuilds] = useState([]);
 	const [botOnline, setBotOnline] = useState(true);
 	const [loading, setLoading] = useState(true);
@@ -107,10 +111,16 @@ export default function ServersPage() {
 		fetch('/api/guilds', { credentials: 'same-origin' })
 			.then(r => {
 				if (r.status === 401) {
-					setLoggedIn(false);
-					return null;
+					// An older deploy answers 401 with no reason at all; treat that
+					// as the signed-out case it always used to mean.
+					return r.json()
+						.catch(() => ({}))
+						.then(body => {
+							setDenial(body.reason || 'signed-out');
+							return null;
+						});
 				}
-				setLoggedIn(true);
+				setDenial(null);
 				return r.ok ? r.json() : null;
 			})
 			.then(data => {
@@ -135,17 +145,47 @@ export default function ServersPage() {
 		);
 	}
 
-	if (loggedIn === false) {
+	if (denial) {
+		// Three states, three different things to do next. The Discord ones send
+		// the reader to /account rather than straight at Discord: linking is done
+		// from there, and a signed-in person bounced through an OAuth round trip
+		// they did not ask for lands back where they started.
+		const gate = {
+			'signed-out': {
+				title: copy.signedOutTitle,
+				lede: copy.signedOutLede,
+				action: t.nav.signIn,
+				href: '/api/auth/login',
+			},
+			'discord-not-linked': {
+				title: copy.discordNeededTitle,
+				lede: copy.discordNeededLede,
+				action: copy.discordNeededAction,
+				href: '/account',
+			},
+			'discord-reconnect': {
+				title: copy.discordExpiredTitle,
+				lede: copy.discordExpiredLede,
+				action: copy.discordExpiredAction,
+				href: '/account',
+			},
+		}[denial] || {
+			title: copy.signedOutTitle,
+			lede: copy.signedOutLede,
+			action: t.nav.signIn,
+			href: '/api/auth/login',
+		};
+
 		return (
 			<div className="center-screen">
-				<MeguMark size={110} />
+				<MeguMark size={110} mood={denial === 'signed-out' ? 'calm' : 'asking'} />
 				<h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.9rem, 5vw, 2.8rem)', letterSpacing: '-.03em' }}>
-					{copy.signedOutTitle}
+					{gate.title}
 				</h1>
 				<p className="quiet-note" style={{ maxWidth: '42ch' }}>
-					{copy.signedOutLede}
+					{gate.lede}
 				</p>
-				<a href="/api/auth/login" className="btn btn-primary btn-lg">{t.nav.signIn}</a>
+				<a href={gate.href} className="btn btn-primary btn-lg">{gate.action}</a>
 			</div>
 		);
 	}
