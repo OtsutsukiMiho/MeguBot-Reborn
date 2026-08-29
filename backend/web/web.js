@@ -16,6 +16,7 @@ const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
 const googleOAuth = require('../../adapters/google/oauth.js');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
+const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
 const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
 
@@ -361,19 +362,35 @@ const notificationDispatcher = createDispatcher({
 	// bot that is blocked or not running will succeed later, whereas a member
 	// with DMs closed will not, and retrying that one eight times is eight
 	// pointless requests.
-	sendDiscord: async ({ recipients, message }) => {
-		// Longer than the default: opening a DM and sending it is two round
-		// trips to Discord, and timing out at three seconds would report a
-		// delivery as failed while it was still on its way.
-		const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message }, 10_000);
-		if (!reply) throw new Error('The bot process did not answer');
-		if (reply.blocked) throw new Error('Discord is blocking this server, delivery deferred');
-		return reply;
-	},
+	sendDiscord: sendDiscordNotice,
 	log: message => BotLogs('Megu', message),
 });
 const notificationTimer = setInterval(() => notificationDispatcher.drain().catch(error => BotLogs('Megu', `Notification dispatcher failed: ${error.message}`)), 15_000);
 notificationTimer.unref();
+
+async function sendDiscordNotice({ recipients, message, cta = null, defer = null }) {
+	// Longer than the default: opening a DM and sending it is two round
+	// trips to Discord, and timing out at three seconds would report a
+	// delivery as failed while it was still on its way.
+	const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message, cta, defer }, 10_000);
+	if (!reply) throw new Error('The bot process did not answer');
+	if (reply.blocked) throw new Error('Discord is blocking this server, delivery deferred');
+	return reply;
+}
+
+// The deadline sweep. It reads Postgres every five minutes and writes into the
+// outbox above; the only thing here that reaches Discord is the dispatcher, on
+// deliveries that already exist. A roster row that came from Discord and never
+// became a Megu account has no outbox row to hold a channel preference, so it
+// is DMed straight through the same guarded path.
+const paymentDueSweep = createPaymentDueSweep({
+	baseUrl: process.env.FRONTEND_URL || '',
+	sendDiscord: sendDiscordNotice,
+	log: message => BotLogs('Megu', message),
+});
+paymentDueSweep.start({
+	intervalMs: Number(process.env.MEGU_PAYMENT_DUE_INTERVAL_MS) || undefined,
+});
 
 // The guild list only ever entered the session at the moment of signing in, so
 // a Discord identity linked from /account worked for that session and no other:
@@ -655,6 +672,63 @@ app.get(['/api/auth/login', '/api/auth/discord'], beginOAuth('discord', 'login')
 app.get('/api/auth/discord/link', beginOAuth('discord', 'link'));
 app.get('/api/auth/google', beginOAuth('google', 'login'));
 app.get('/api/auth/google/link', beginOAuth('google', 'link'));
+
+// ── signing in without OAuth, on a scratch workspace ────────────────────────
+//
+// A cloud environment has no Discord or Google client secret — and should not,
+// because the box those go in is visible to anyone with access to it. Without
+// one, every owner surface is unreachable and half the product cannot be looked
+// at. This route closes that gap and nothing else: `scripts/dev-login.js` writes
+// a session row and prints a link, and opening the link adopts that row.
+//
+// It is a route that grants an account without proof, so it is gated four ways
+// and mounts only when all of them hold. The environment flag is the important
+// one: absent — which is every real deployment — the route does not exist at
+// all, and the check runs once at boot rather than per request, so it cannot be
+// switched on by anything arriving over the wire.
+if (process.env.MEGU_DEV_LOGIN === '1'
+	&& process.env.NODE_ENV !== 'production'
+	&& isLocalDatabase()) {
+	BotLogs('SYSTEM', `${COLOR.yellow}MEGU_DEV_LOGIN is on: /api/auth/dev-login can sign in without OAuth. Never set this in production.`);
+
+	app.get('/api/auth/dev-login', async (req, res) => {
+		const sid = String(req.query.sid || '');
+		if (!/^[a-f0-9]{36}$/.test(sid)) return res.status(400).send('Bad dev-login token.');
+
+		try {
+			// One use. The row is consumed here, so a link that leaks after the
+			// fact is a link that no longer works.
+			const row = await core.db.query(
+				'DELETE FROM web_sessions WHERE sid = $1 AND expires_at > now() RETURNING data',
+				[sid],
+			);
+			const userId = row.rows[0]?.data?.meguUserId;
+			if (!userId) return res.status(410).send('That dev-login link has expired or was already used.');
+
+			// express-session mints and signs the real cookie, so nothing here
+			// hand-rolls crypto or has to match the server's secret.
+			req.session.meguUserId = userId;
+			req.session.loginTimestamp = Date.now();
+			req.session.lastActivity = Date.now();
+			req.session.save(() => res.redirect('/activities'));
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}dev-login failed: ${error.message}`);
+			res.status(500).send('dev-login failed.');
+		}
+	});
+}
+
+/** Whether the database this process talks to is a local, disposable one. */
+function isLocalDatabase() {
+	const raw = process.env.MEGU_DATABASE_URL || process.env.DATABASE_URL || '';
+	try {
+		return ['localhost', '127.0.0.1', 'host.docker.internal', 'megu-db'].includes(new URL(raw).hostname);
+	}
+	catch {
+		return false;
+	}
+}
 
 async function finishOAuth(req, res, provider) {
 	const request = req.session?.oauth2Request;
@@ -1658,6 +1732,85 @@ app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/
 	}
 	else {
 		res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to modify member role.' });
+	}
+});
+
+// --- Nickname Management Endpoints ---
+
+// Get all custom nicknames for a guild
+app.get('/api/guilds/:guildId/nicknames', requireAdminGuild, async (req, res) => {
+	const { guildId } = req.params;
+	try {
+		const nicknames = await database.getAllGuildNicks(guildId);
+		res.json({ success: true, nicknames: nicknames || {} });
+	} catch (err) {
+		res.status(500).json({ error: 'Failed to fetch guild nicknames.' });
+	}
+});
+
+// Set / update a user's custom nickname
+app.post('/api/guilds/:guildId/nicknames/:userId', requireAdminGuild, async (req, res) => {
+	const { guildId, userId } = req.params;
+	const { nickname } = req.body || {};
+	const trimmed = typeof nickname === 'string' ? nickname.trim() : '';
+
+	if (!trimmed) {
+		return res.status(400).json({ error: 'Nickname cannot be empty.' });
+	}
+	if (trimmed.length > 100) {
+		return res.status(400).json({ error: 'Nickname must be 100 characters or less.' });
+	}
+
+	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
+	const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+	const matchedGuild = (req.session && req.session.adminGuilds && req.session.adminGuilds.find(g => g.id === guildId));
+	const gName = matchedGuild ? matchedGuild.name : 'Discord Server';
+
+	try {
+		const previousNick = await database.getUserNick(guildId, userId);
+		await database.setUserNick(guildId, userId, trimmed);
+
+		const oldLabel = (previousNick && previousNick !== 'ใครไม่รู้') ? `"${previousNick}"` : 'Default';
+		await database.logAuditEvent(
+			guildId,
+			'NICKNAME_UPDATE',
+			uId,
+			uName,
+			`Updated custom TTS nickname for <@${userId}> from ${oldLabel} to "${trimmed}"`,
+			gName,
+		).catch(() => undefined);
+
+		res.json({ success: true, userId, nickname: trimmed });
+	} catch (err) {
+		res.status(500).json({ error: 'Failed to update custom nickname.' });
+	}
+});
+
+// Delete / reset a user's custom nickname
+app.delete('/api/guilds/:guildId/nicknames/:userId', requireAdminGuild, async (req, res) => {
+	const { guildId, userId } = req.params;
+	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
+	const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
+	const matchedGuild = (req.session && req.session.adminGuilds && req.session.adminGuilds.find(g => g.id === guildId));
+	const gName = matchedGuild ? matchedGuild.name : 'Discord Server';
+
+	try {
+		const previousNick = await database.getUserNick(guildId, userId);
+		await database.deleteUserNick(guildId, userId);
+
+		const oldLabel = (previousNick && previousNick !== 'ใครไม่รู้') ? `"${previousNick}"` : 'None';
+		await database.logAuditEvent(
+			guildId,
+			'NICKNAME_RESET',
+			uId,
+			uName,
+			`Reset custom TTS nickname for <@${userId}> (was ${oldLabel}) back to default`,
+			gName,
+		).catch(() => undefined);
+
+		res.json({ success: true, userId });
+	} catch (err) {
+		res.status(500).json({ error: 'Failed to reset custom nickname.' });
 	}
 });
 

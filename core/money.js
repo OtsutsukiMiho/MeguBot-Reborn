@@ -60,4 +60,58 @@ function splitEvenlyBy(totalSatang, participantIds) {
 	return out;
 }
 
-module.exports = { toSatang, toBaht, formatTHB, splitEvenly, splitEvenlyBy };
+/**
+ * Split a total across weighted claims, so the parts always sum back to it.
+ *
+ * Largest remainder, which is the only part of this worth arguing about. Every
+ * share gets `floor(total × weight / totalWeight)`, which leaves a few satang
+ * unassigned; those go one each to the shares whose discarded fraction was
+ * biggest. Handing them to the first shares instead — the rule `splitEvenly`
+ * uses, where every fraction is identical anyway — would give ฿100 across
+ * weights 1:1:8 an extra satang to a person owing ฿10 rather than the one
+ * owing ฿80.
+ *
+ * Ties are broken by participant id, sorted, so a recomputation lands on the
+ * same answer as the original rather than drifting by a satang every time an
+ * unrelated field is edited.
+ *
+ * All integer arithmetic: `total × weight` is a whole number of satang-weights
+ * and never leaves the safe range for any amount a group of friends will ever
+ * split. No part of this may be done in floating point — that is what the
+ * whole satang representation exists to avoid.
+ */
+function allocateByWeight(totalSatang, weightsById) {
+	if (!Number.isInteger(totalSatang)) throw new TypeError('totalSatang must be an integer');
+
+	const ids = Object.keys(weightsById).sort();
+	if (ids.length === 0) throw new RangeError('need at least one share to split between');
+
+	let totalWeight = 0;
+	for (const id of ids) {
+		const weight = weightsById[id];
+		if (!Number.isInteger(weight) || weight < 0) throw new RangeError(`weight for ${id} must be a non-negative integer`);
+		totalWeight += weight;
+	}
+	if (totalWeight <= 0) throw new RangeError('at least one weight must be greater than zero');
+
+	const out = {};
+	const remainders = [];
+	let assigned = 0;
+	for (const id of ids) {
+		const exact = totalSatang * weightsById[id];
+		const base = Math.floor(exact / totalWeight);
+		out[id] = base;
+		assigned += base;
+		remainders.push({ id, remainder: exact - (base * totalWeight) });
+	}
+
+	let left = totalSatang - assigned;
+	remainders.sort((a, b) => (b.remainder - a.remainder) || a.id.localeCompare(b.id));
+	for (let i = 0; i < remainders.length && left > 0; i++) {
+		out[remainders[i].id] += 1;
+		left -= 1;
+	}
+	return out;
+}
+
+module.exports = { toSatang, toBaht, formatTHB, splitEvenly, splitEvenlyBy, allocateByWeight };

@@ -3695,3 +3695,398 @@ textarea.form-control {
 		flex-direction: column;
 	}
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Settlement, payment methods and receipts.
+
+   Appended rather than woven in: every selector below is new to this file,
+   and appending puts each one after the base it extends.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Choosing which of two people to pay.
+
+   This is the first thing on the pay screen when a trip had more than one
+   person fronting cash, so it is sized like the primary action it is: full
+   width, a real touch target, the amount as prominent as the name. Anything
+   smaller reads as a filter, and somebody would tap past it. */
+.creditor-choices {
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+	margin-top: .7rem;
+}
+
+.creditor-choice {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	width: 100%;
+	min-height: 52px;
+	padding: .7rem .9rem;
+	text-align: left;
+}
+
+.creditor-choice-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* Tabular figures so a column of amounts lines up on the decimal, and `due`
+   because that is what this money is — the same colour it carries everywhere
+   else on the roster. */
+.creditor-choice-amount {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	color: var(--due);
+}
+
+/* Leaving a chosen creditor to go back to the list. Deliberately the quietest
+   control on the screen: it sits above a QR somebody is about to scan. */
+.btn-quiet {
+	align-self: flex-start;
+	min-height: 40px;
+	margin-bottom: .6rem;
+	padding: .35rem .1rem;
+	border: 0;
+	background: none;
+	color: var(--muted);
+	font-size: .85rem;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.btn-quiet:hover:not(:disabled) {
+	color: var(--ink);
+}
+
+.payment-receipt-amount {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.payment-receipt-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .5rem;
+}
+
+.payment-receipt-actions .btn {
+	min-height: 44px;
+}
+
+/* One person's amount, percentage or weight, sitting beside their name.
+
+   The list goes to one column the moment these appear: a name and a number
+   field side by side in a half-width cell leaves about eight characters for
+   each, which is not enough for either. */
+.expense-split-list:has(.expense-split-value) {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.expense-split-value {
+	width: 6.5rem;
+	min-height: 40px;
+	margin-left: auto;
+	padding: .3rem .5rem;
+	font-size: .9rem;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.expense-split-modes {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35rem;
+	margin-top: .6rem;
+}
+
+/* A chip that is also a control. `chip` alone is a label, so the pressed state
+   has to be visible on its own and not only by colour — the border thickens
+   and the weight goes up with it. */
+/* Taller than a plain chip because this one is tapped, not read. The label
+   chips around it stay where they are — they are not targets. */
+.chip-choice {
+	min-height: 40px;
+	padding-inline: .7rem;
+	border: 1px solid var(--line-2);
+	background: none;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+
+.chip-choice::before {
+	content: none;
+}
+
+.chip-choice:hover:not(:disabled) {
+	border-color: var(--accent);
+	color: var(--ink);
+}
+
+.chip-choice.is-on {
+	border-color: var(--accent);
+	background: var(--accent-soft, var(--surface));
+	color: var(--ink);
+	font-weight: 600;
+}
+
+/* ------------------------------------------------------------- the receipt */
+/* The amount is the whole point of the page, so it is the size of one. */
+.payment-receipt-amount {
+	font-size: clamp(2rem, 8vw, 2.9rem);
+	font-weight: 700;
+	line-height: 1.1;
+	font-variant-numeric: tabular-nums;
+}
+
+.payment-receipt-parties {
+	margin-top: .3rem;
+	font-size: 1.05rem;
+	overflow-wrap: anywhere;
+}
+
+.payment-receipt-activity {
+	margin-top: .5rem;
+	color: var(--ink-2);
+	overflow-wrap: anywhere;
+}
+
+.payment-receipt-when {
+	color: var(--muted);
+	font-size: .9rem;
+}
+
+.payment-receipt-facts {
+	display: grid;
+	gap: .6rem;
+	margin: 1.1rem 0 0;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+}
+
+.payment-receipt-facts > div {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: .5rem .9rem;
+}
+
+.payment-receipt-facts dt {
+	color: var(--muted);
+	font-size: .85rem;
+}
+
+.payment-receipt-facts dd {
+	margin: 0;
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+/* The reference is read down a phone and typed into a bank's box, so it gets
+   digits that line up and characters that cannot be confused for each other. */
+.payment-receipt-reference {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	letter-spacing: .02em;
+}
+
+.payment-receipt-status {
+	font-weight: 600;
+}
+
+.payment-receipt-status.is-confirmed {
+	color: var(--settled);
+}
+
+.payment-receipt-status.is-rejected,
+.payment-receipt-status.is-reversed {
+	color: var(--alarm);
+}
+
+.payment-receipt-status.is-pending {
+	color: var(--due);
+}
+
+.payment-receipt-note {
+	margin: 1rem 0 0;
+	color: var(--faint);
+	font-size: .78rem;
+	line-height: 1.5;
+}
+
+.payment-receipt-actions {
+	margin-top: .9rem;
+}
+
+/* Print, which is also how a PDF gets made.
+
+   Nothing is regenerated for paper: the sheet on screen is the sheet that
+   comes out, which is why Thai cannot break here. The browser already has the
+   fonts and already shapes the script — the failure a server-side PDF has, of
+   rendering the numbers perfectly and the Thai as boxes, has no way to happen
+   when the renderer is the one the reader was already looking at.
+
+   Colour is dropped rather than trusted; a status that reads correctly only in
+   colour would not survive a black-and-white printer, and it does not have to
+   — every state is a word as well. */
+@media print {
+	.no-print,
+	.navbar,
+	.footer,
+	nav {
+		display: none !important;
+	}
+
+	body {
+		background: #fff;
+		color: #000;
+	}
+
+	.payment-receipt-sheet {
+		box-shadow: none;
+		border: 1px solid #999;
+		border-radius: 0;
+		background: #fff;
+		color: #000;
+		break-inside: avoid;
+	}
+
+	.payment-receipt-facts dt,
+	.payment-receipt-when,
+	.payment-receipt-note {
+		color: #444;
+	}
+
+	.payment-receipt-status {
+		color: #000 !important;
+	}
+
+	@page {
+		margin: 16mm;
+	}
+}
+
+/* ------------------------------------------------ where people can pay you */
+.method-list {
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.method-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: .6rem;
+	padding: .7rem .85rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--sunk);
+}
+
+.method-row-main {
+	min-width: 0;
+	flex: 1 1 12rem;
+}
+
+.method-row-label {
+	display: flex;
+	align-items: center;
+	gap: .45rem;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* An account number is not a heading. It is the line somebody checks against
+   their banking app, so it is legible and monospaced-by-numerals rather than
+   loud. */
+.method-row-detail {
+	margin-top: .15rem;
+	color: var(--muted);
+	font-size: .85rem;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* One of these deletes a bank account, on a phone, next to two other controls.
+   `btn-sm` is 30px everywhere else in the app and that is fine for a toolbar;
+   it is not fine for a row where the mis-tap removes somebody's payment
+   details, so every button here gets a real target. */
+.method-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .4rem;
+}
+
+.method-row-actions .btn {
+	min-height: 40px;
+}
+
+.method-types {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35rem;
+}
+
+.method-form {
+	padding-top: .3rem;
+}
+
+/* The preview is the check, so it has to read as the thing being previewed and
+   not as another field. Bordered and inset, with the tag small enough to get
+   out of the way of what it is labelling. */
+.method-preview {
+	margin-top: .2rem;
+	padding: .75rem .85rem;
+	border: 1px dashed var(--line-2);
+	border-radius: var(--r-sm);
+	background: var(--paper);
+}
+
+.method-preview-tag {
+	display: block;
+	margin-bottom: .45rem;
+	color: var(--faint);
+	font-size: .75rem;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+}
+
+.method-preview-label {
+	font-weight: 600;
+}
+
+.method-preview-name {
+	color: var(--ink-2);
+	font-size: .9rem;
+}
+
+.method-preview-line {
+	margin-top: .2rem;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+.method-preview-note {
+	margin: .4rem 0 0;
+	color: var(--muted);
+	font-size: .85rem;
+}
+
+/* Whether the numbers add up yet. Words carry this, not colour — the colour is
+   confirmation for people who can use it. */
+.split-balanced {
+	color: var(--settled);
+}
+
+.split-unbalanced {
+	color: var(--due);
+}

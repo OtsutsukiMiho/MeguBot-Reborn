@@ -44,7 +44,10 @@ function ServerCardAvatar({ guild }) {
 	);
 }
 
-function ServerCard({ g, copy, lang }) {
+function ServerCard({ g, copy }) {
+	// `fmt` rather than a `lang` prop: the member count is formatted by the
+	// reader's locale, and asking the hook is one less thing to thread through.
+	const { fmt } = useCopy();
 	const banner = guildBannerUrl(g);
 
 	return (
@@ -76,7 +79,7 @@ function ServerCard({ g, copy, lang }) {
 				<div className="server-card-title" title={g.name}>{g.name}</div>
 				<div className="server-card-details">
 					{typeof g.memberCount === 'number'
-						? copy.members(g.memberCount.toLocaleString(lang === 'th' ? 'th-TH' : 'en-US'), g.id)
+						? copy.members(fmt.number(g.memberCount), g.id)
 						: `ID ${g.id}`}
 				</div>
 			</div>
@@ -93,7 +96,7 @@ function ServerCard({ g, copy, lang }) {
 }
 
 export default function ServersPage() {
-	const { t, lang } = useCopy();
+	const { t } = useCopy();
 	const copy = t.servers;
 	// Not a boolean. Being signed in to Megu and having authorised Discord are
 	// two different things, and this console needs the second one — so `denial`
@@ -222,7 +225,7 @@ export default function ServersPage() {
 				)
 				: (
 					<div className="server-grid rise rise-2">
-						{guilds.map(g => <ServerCard key={g.id} g={g} copy={copy} lang={lang} />)}
+						{guilds.map(g => <ServerCard key={g.id} g={g} copy={copy} />)}
 					</div>
 				)}
 		</div>

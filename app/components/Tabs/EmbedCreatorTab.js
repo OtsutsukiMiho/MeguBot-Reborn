@@ -145,7 +145,7 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 					{/* Author Section */}
 					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem' }}>
 						<span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)', display: 'block', marginBottom: '0.75rem' }}>
-							👤 Author Options (Optional)
+							Author Options (Optional)
 						</span>
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 							<div>
@@ -186,7 +186,7 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 					{/* Title & URL */}
 					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem' }}>
 						<span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)', display: 'block', marginBottom: '0.75rem' }}>
-							📌 Title & Hyperlink
+							Title & Hyperlink
 						</span>
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 							<div>
@@ -271,7 +271,7 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem' }}>
 						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
 							<span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)' }}>
-								📋 Custom Fields ({fields.length}/25)
+								Custom Fields ({fields.length}/25)
 							</span>
 							<button
 								type="button"
@@ -380,7 +380,7 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 					{/* Footer & Timestamp */}
 					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1rem' }}>
 						<span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)', display: 'block', marginBottom: '0.75rem' }}>
-							🏷️ Footer & Timestamp
+							Footer & Timestamp
 						</span>
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 							<div>
@@ -425,7 +425,7 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 						onClick={handleSendEmbed}
 						disabled={sending}
 					>
-						{sending ? 'Dispatching Embed to Discord...' : '🚀 Send Embed to Discord Channel'}
+						{sending ? 'Dispatching Embed to Discord...' : 'Send Embed to Discord Channel'}
 					</button>
 				</div>
 

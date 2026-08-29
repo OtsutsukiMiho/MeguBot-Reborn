@@ -44,6 +44,10 @@ function getBadgeStyle(eventType) {
 	case 'REACTION_ROLE_CONFIG':
 	case 'REACTION_ROLE_ASSIGN':
 		return { background: 'color-mix(in srgb, var(--settled) var(--cat-tint), transparent)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 30%, transparent)' };
+	case 'NICKNAME_UPDATE':
+	case 'NICKNAME_RESET':
+	case 'NICKNAME':
+		return { background: 'color-mix(in srgb, var(--cat-violet) var(--cat-tint), transparent)', color: 'var(--cat-violet)', border: '1px solid color-mix(in srgb, var(--cat-violet) 30%, transparent)' };
 	case 'COMMAND_EXEC':
 		return { background: 'color-mix(in srgb, var(--cat-violet) var(--cat-tint), transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--cat-violet) 30%, transparent)' };
 	default:
@@ -159,6 +163,7 @@ export default function AuditLogsTab({ guildId }) {
 							{ value: 'VOICE_TTS', label: 'Voice TTS Suite', icon: '🗣️' },
 							{ value: 'HONEYPOT', label: 'Honeypot Trap', icon: '🍯' },
 							{ value: 'REACTION_ROLE', label: 'Reaction Roles', icon: '⚡' },
+							{ value: 'NICKNAME', label: 'Nickname Updates & Resets', icon: '📝' },
 						]}
 						placeholder="Filter event types..."
 						searchable={false}

@@ -30,7 +30,7 @@ export default function SlipReading({ slip, expectedSatang }) {
 
 	return (
 		<div className="slip-reading">
-			{bank && <span className="chip chip-clear">{t.slip.sentFrom(lang === 'th' ? bank.th : bank.en)}</span>}
+			{bank && <span className="chip chip-clear">{t.slip.sentFrom(bank[lang] || bank.en)}</span>}
 
 			{read != null && (
 				<span className={`chip ${matches === false ? 'chip-due' : 'chip-clear'}`}>
