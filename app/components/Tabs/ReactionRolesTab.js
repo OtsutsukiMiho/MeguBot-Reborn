@@ -21,8 +21,20 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 
 		let targetMessageId = messageIdInput.trim();
 		let messageLink = null;
+		let effectiveChannelId = channelId;
+
 		if (targetMessageId.includes('discord.com/channels/')) {
 			messageLink = targetMessageId;
+			const match = targetMessageId.match(/discord\.com\/channels\/\d+\/(\d+)\/(\d+)/i);
+			if (match) {
+				effectiveChannelId = match[1];
+				targetMessageId = match[2];
+			}
+		}
+
+		if (!effectiveChannelId) {
+			showToast('Please select a Target Channel or paste a full Discord Message Link.', true);
+			return;
 		}
 
 		setSaving(true);
@@ -31,7 +43,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					channelId,
+					channelId: effectiveChannelId,
 					messageId: targetMessageId,
 					messageLink,
 					emoji: emoji.trim(),
@@ -173,19 +185,19 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 
 				<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
 					<div className="form-group" style={{ marginBottom: 0 }}>
-						<label className="form-label">Channel (Optional)</label>
+						<label className="form-label">Target Channel</label>
 						<CustomSelect
 							value={channelId}
 							onChange={(val) => setChannelId(val)}
 							options={[
-								{ value: '', label: 'Auto-Detect Channel', icon: '🔍' },
+								{ value: '', label: 'Select Target Channel...', icon: '💬' },
 								...(channels || []).map(c => ({
 									value: c.id,
 									label: `# ${c.name}`,
 									icon: '💬',
 								})),
 							]}
-							placeholder="Auto-Detect Channel"
+							placeholder="Select Target Channel..."
 							searchable={true}
 						/>
 					</div>

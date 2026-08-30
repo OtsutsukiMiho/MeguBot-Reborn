@@ -280,6 +280,54 @@ function mapGuildMembers(guild, query = '') {
 		});
 }
 
+// In-flight deduplication and 5-minute cooldown for Gateway member fetches
+const MEMBER_FETCH_COOLDOWN_MS = 5 * 60 * 1000;
+const memberFetchCooldownMap = new Map();
+const pendingMemberFetches = new Map();
+
+async function ensureGuildMembersCached(guild, { limit = 100, query = '' } = {}) {
+	if (!guild) return;
+	if (discordBlock.blocked()) return;
+
+	const guildId = guild.id;
+	const isSearch = Boolean(query && query.trim());
+	const key = isSearch ? `${guildId}:search:${query.trim().toLowerCase()}` : guildId;
+
+	// Cooldown check: do not re-request from Discord if fetched within last 5 minutes
+	const lastFetch = memberFetchCooldownMap.get(key);
+	if (lastFetch && (Date.now() - lastFetch < MEMBER_FETCH_COOLDOWN_MS)) {
+		return;
+	}
+
+	// In-flight Deduplication: share the same running promise across concurrent callers
+	if (pendingMemberFetches.has(key)) {
+		try {
+			await pendingMemberFetches.get(key);
+		} catch {}
+		return;
+	}
+
+	const fetchPromise = (async () => {
+		try {
+			await discordCall(
+				isSearch ? 'searching server members over gateway' : 'caching server members for dashboard',
+				() => (isSearch
+					? guild.members.fetch({ query: query.trim(), limit: Math.min(limit, 50), time: 3000 })
+					: guild.members.fetch({ limit: Math.min(limit, 100), time: 3000 })),
+				null,
+			);
+			memberFetchCooldownMap.set(key, Date.now());
+		} finally {
+			pendingMemberFetches.delete(key);
+		}
+	})();
+
+	pendingMemberFetches.set(key, fetchPromise);
+	try {
+		await fetchPromise;
+	} catch {}
+}
+
 // The online-ping status message. Boot-time Discord work has to be cheap enough
 // to survive a restart loop, and this used to be four calls every single boot:
 // fetch the channel, fetch ten messages, `bulkDelete` them, post a new one.
@@ -2212,16 +2260,9 @@ process.on('message', async (msg) => {
 		// on every page load.
 		let members = mapGuildMembers(guild);
 
-		// Only an empty cache — a fresh boot, before the gateway has filled it —
-		// is worth a request, and even then a capped one. It goes through the
-		// guard, so while Discord is refusing us this returns nothing and the
-		// dashboard renders an empty roster instead of holding the block open.
+		// If cache is empty on cold boot, populate it using deduplicated 5-min cooldown helper
 		if (members.length === 0) {
-			await discordCall(
-				'filling the member cache for the dashboard',
-				() => guild.members.fetch({ limit: 100, time: 3000 }),
-				null,
-			);
+			await ensureGuildMembersCached(guild, { limit: 100 });
 			members = mapGuildMembers(guild);
 		}
 
@@ -2452,17 +2493,9 @@ process.on('message', async (msg) => {
 			// refresh, on one of the tightest per-guild buckets there is.
 			let members = mapGuildMembers(guild, queryText);
 
-			// Nothing matched in cache. One capped request, through the guard —
-			// so a search performed while Discord is refusing us returns empty
-			// rather than becoming more traffic against a live block.
+			// If query not found in cache, perform search with in-flight deduplication and cooldown
 			if (members.length === 0) {
-				await discordCall(
-					'searching server members over the gateway',
-					() => (queryText
-						? guild.members.fetch({ query: queryText, limit: 50, time: 3000 })
-						: guild.members.fetch({ limit: 100, time: 3000 })),
-					null,
-				);
+				await ensureGuildMembersCached(guild, { limit: 100, query: queryText });
 				members = mapGuildMembers(guild, queryText);
 			}
 
@@ -2892,39 +2925,13 @@ process.on('message', async (msg) => {
 	else if (msg.type === 'add_reaction_role_react') {
 		const { guildId, channelId, messageId, emoji } = msg;
 		const guild = client.guilds.cache.get(guildId);
-		if (guild) {
+		if (guild && channelId && messageId && emoji) {
 			try {
-				let channel = channelId ? guild.channels.cache.get(channelId) : null;
-				if (!channel) {
-					// No channel id, so the message has to be hunted for — one
-					// request per text channel, as fast as the loop can issue
-					// them. On a large server that is a burst of a hundred
-					// requests for a single reaction-role setup, which is the
-					// exact shape that earns a 429 and then a block.
-					//
-					// The cap bounds the burst, and stopping the moment we are
-					// refused stops it being a burst into a closed door. Pasting
-					// the full message link on the web side supplies the channel
-					// id and skips all of this.
-					const SEARCH_LIMIT = 25;
-					const textChannels = [...guild.channels.cache.filter(c => c.type === 0).values()];
-					if (textChannels.length > SEARCH_LIMIT) {
-						BotLogs(guild.name, `${COLOR.yellow}Searching only the first ${SEARCH_LIMIT} of ${textChannels.length} text channels for message ${messageId}. Paste the message link to name the channel directly.`);
-					}
-
-					for (const ch of textChannels.slice(0, SEARCH_LIMIT)) {
-						if (discordBlock.blocked()) break;
-						const targetMsg = await discordCall('fetching a reaction-role message', () => ch.messages.fetch(messageId));
-						if (targetMsg) {
-							channel = ch;
-							break;
-						}
-					}
-				}
-				if (channel) {
-					const targetMsg = await discordCall('fetching a reaction-role message', () => channel.messages.fetch(messageId));
+				const channel = guild.channels.cache.get(channelId);
+				if (channel && channel.isTextBased()) {
+					const targetMsg = await discordCall('fetching a reaction-role message', () => channel.messages.fetch(messageId), null);
 					if (targetMsg) {
-						await discordCall('adding a reaction-role reaction', () => targetMsg.react(emoji));
+						await discordCall('adding a reaction-role reaction', () => targetMsg.react(emoji), null);
 						BotLogs(guild.name, `${COLOR.green}Auto-reacted ${emoji} to target message ${messageId} in #${channel.name}`);
 					}
 				}
