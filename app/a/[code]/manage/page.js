@@ -99,6 +99,14 @@ export default function ManageScreen() {
 	const totalOutstanding = participants.reduce((sum, p) => sum + Math.max(0, p.outstanding || 0), 0);
 	const roster = rosterOrder(participants, { payeeParticipantId: payTo?.participantId, totalOutstanding });
 
+	// Whether the strip below has a single thing to print. Listed in the same
+	// order it renders them, so a stat added there and forgotten here shows up
+	// as a missing line rather than as an empty box.
+	const showStatus = activity.moneyState !== 'none'
+		|| pending.length > 0
+		|| Boolean(!recurring && activity.paymentDueAt)
+		|| Boolean(recurring && period);
+
 	if (role !== 'owner') {
 		return (
 			<Stagger className="focus-screen">
@@ -138,7 +146,13 @@ export default function ManageScreen() {
 			{/* The state of the thing, in one line. The panel this replaces
 			    carried a count of who had answered an RSVP, printed beside the
 			    payout settings, which measured nothing anyone opens this screen
-			    to find out. */}
+			    to find out.
+
+			    Drawn only when it has something to say. A brand-new activity has
+			    no money, nobody waiting and no dates, and this rendered as an
+			    empty 29px box above the tabs — the state every activity passes
+			    through on its way to the states this was designed against. */}
+			{showStatus && (
 			<Rise as="section" className="console-status" aria-label={t.screens.manageTitle}>
 				{activity.moneyState !== 'none' && (
 					stillToMove > 0
@@ -153,6 +167,7 @@ export default function ManageScreen() {
 				)}
 				{recurring && period && <span className="console-stat">{fmt.period(period.key)}</span>}
 			</Rise>
+			)}
 
 			<Rise as="nav" className="console-tabs" aria-label={t.screens.manageTitle}>
 				{TABS.map(name => (

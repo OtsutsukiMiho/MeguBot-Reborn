@@ -169,7 +169,7 @@ async function createActivity(input) {
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb) RETURNING *`,
 			[
 				activityId, newActivityCode(), ownerUserId, title.trim(), kind,
-				location, startsAt, storedCurrency, guildId, channelId, recurrence, dueDay,
+				location, cleanStartsAt(startsAt), storedCurrency, guildId, channelId, recurrence, dueDay,
 				// A monthly agreement already answers "when is it due" once per
 				// month through `dueDay` → `periods.due_at`. Giving it a second,
 				// activity-wide deadline would be two answers to one question.
@@ -504,6 +504,32 @@ function cleanPaymentDueAt(value) {
 	}
 	const at = value instanceof Date ? value : new Date(value);
 	if (Number.isNaN(at.getTime())) throw codedError('payment_due_at_invalid');
+	return at;
+}
+
+/**
+ * When the activity starts, or nothing.
+ *
+ * `<input type="datetime-local">` sends back "2026-09-05T19:00" with no zone,
+ * and `new Date` reads that as the *server's* local time. On a box running UTC
+ * — which is every deploy of this — an organizer in Bangkok typing seven in the
+ * evening gets two in the morning the next day, told to the whole group.
+ *
+ * A bare wall clock is therefore read as Bangkok, exactly as `cleanPaymentDueAt`
+ * already reads a bare date. Anything carrying its own offset is trusted as
+ * sent, so a caller that knows what it means keeps saying it.
+ */
+function cleanStartsAt(value) {
+	if (value === null || value === undefined || value === '') return null;
+	if (typeof value === 'string') {
+		const bare = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+		if (bare) {
+			const [, year, month, day, hour, minute, second = '00'] = bare;
+			return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+07:00`);
+		}
+	}
+	const at = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(at.getTime())) throw codedError('starts_at_invalid');
 	return at;
 }
 
@@ -1170,7 +1196,10 @@ async function updateActivity(activityId, input) {
 
 	for (const [key, column] of [['title', 'title'], ['location', 'location'], ['startsAt', 'starts_at'], ['dueDay', 'due_day']]) {
 		if (input[key] === undefined) continue;
-		values.push(key === 'title' ? String(input[key]).trim() : input[key]);
+		const value = key === 'title' ? String(input[key]).trim()
+			: key === 'startsAt' ? cleanStartsAt(input[key])
+				: input[key];
+		values.push(value);
 		fields.push(`${column} = $${values.length}`);
 	}
 	// Checked against undefined rather than truthiness: clearing the deadline is

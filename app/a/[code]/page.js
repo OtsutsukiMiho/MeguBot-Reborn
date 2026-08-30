@@ -87,6 +87,23 @@ export default function ActivitySummary() {
 	return (
 		<Stagger className="stack-lg">
 			<Rise as="header" className="page-head">
+				{/* The way out. Every screen under this one has had a way back
+				    to here since they were split off; this one had nothing above
+				    it but the navbar, so arriving from the activity list was a
+				    one-way trip.
+
+				    Owners only, deliberately: a participant usually arrives from
+				    a link pasted in a group chat with no account at all, and
+				    "Activities" would send them to a sign-in wall they did not
+				    ask for. */}
+				{isOwner && (
+					<Link className="back-link" href="/activities">
+						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+							<path d="M15 18l-6-6 6-6" />
+						</svg>
+						{t.nav.activities}
+					</Link>
+				)}
 				<h1>{activity.title}</h1>
 				<div className="page-meta">
 					{recurring
@@ -307,6 +324,19 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 	}
 	if (isOwner && pending.length > 0) {
 		return <Statement line={t.next.review(pending.length)} action={{ href: `/a/${code}/manage`, label: t.next.reviewAction }} />;
+	}
+
+	// An event with no time and no poll. Every branch above needs one or the
+	// other — the RSVP branch cannot ask "are you coming?" about a date that
+	// does not exist — so this state fell all the way through to "nothing needs
+	// you right now", on an activity where the one outstanding thing was the
+	// time itself. The organizer is sent to set it; everyone else is told what
+	// is being waited on, which is the difference between a quiet page and a
+	// broken one.
+	if (!recurring && !activity.startsAt && !poll && planState === 'open') {
+		return isOwner
+			? <Statement line={t.next.setTime} action={{ href: `/a/${code}/rsvp`, label: t.next.setTimeAction }} />
+			: <Statement line={t.next.waitingForTime} quiet />;
 	}
 
 	return <Statement line={t.next.clear} quiet />;

@@ -46,6 +46,25 @@ async function main() {
 	P['นัท'] = P['นััท'];
 	ok('a misspelt title and a misspelt name are both fixable');
 
+	// The time, typed the way a browser sends it.
+	//
+	// `<input type="datetime-local">` posts "2026-09-05T19:00" with no offset,
+	// and `new Date` reads that as the *server's* local time — so on a box
+	// running UTC, which is every deploy of this, an organizer in Bangkok
+	// typing seven in the evening told the whole group two in the morning the
+	// next day. A bare wall clock is Bangkok, the same way a bare date already
+	// is for the payment deadline.
+	await activities.updateActivity(act.id, { startsAt: '2026-09-05T19:00' });
+	full = await activities.getActivity(act.id);
+	assert.strictEqual(new Date(full.startsAt).toISOString(), '2026-09-05T12:00:00.000Z');
+	ok('a bare wall clock is read as Bangkok, whatever timezone the server runs in');
+
+	// Anything that says what it means keeps saying it.
+	await activities.updateActivity(act.id, { startsAt: '2026-09-05T19:00+09:00' });
+	full = await activities.getActivity(act.id);
+	assert.strictEqual(new Date(full.startsAt).toISOString(), '2026-09-05T10:00:00.000Z');
+	ok('an explicit offset is trusted as sent');
+
 	console.log('\nremoving people');
 
 	const extra = await activities.addParticipant(act.id, { displayName: 'คนที่ใส่ผิด' });
