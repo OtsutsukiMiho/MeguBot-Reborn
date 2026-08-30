@@ -4,8 +4,8 @@ import { useRef, useState } from 'react';
 import Link from 'next/link';
 import MeguMark from '../../components/MeguMark';
 import CountUp from '../../components/activity/CountUp';
-import { LiftCard, Rise, Stagger } from '../../components/activity/Motion';
-import { PersonRow } from '../../components/activity/Rows';
+import { Rise, Stagger } from '../../components/activity/Motion';
+import { PersonAccount, rosterOrder } from '../../components/activity/Ledger';
 import { useActivity } from '../../components/activity/ActivityShell';
 import { useCopy } from '../../copy';
 
@@ -42,6 +42,7 @@ export default function ActivitySummary() {
 	const going = participants.filter(p => p.rsvp === 'yes').length;
 	const totalOutstanding = participants.reduce((sum, p) => sum + Math.max(0, p.outstanding || 0), 0);
 	const nameOf = id => participants.find(p => p.id === id)?.displayName || '—';
+	const roster = rosterOrder(participants, { payeeParticipantId: payTo?.participantId, totalOutstanding });
 	const disputedMine = me
 		? payments.filter(p => p.participantId === me.id && ['rejected', 'reversed'].includes(p.status))
 		: [];
@@ -160,32 +161,35 @@ export default function ActivitySummary() {
 					    figures on one right axis, so the roster can be read by
 					    running an eye down the column — which is the entire
 					    reason a receipt has ever been laid out this way. */}
-					<LiftCard as="section" className="ledger">
+					<Rise as="section" className="ledger">
 						<div className="ledger-head">
 							<h2>{recurring ? t.roster.titleRecurring : t.roster.titleEvent}</h2>
 							<span className="panel-count">{recurring ? participants.length : `${going}/${participants.length}`}</span>
 						</div>
 						<div>
-							{participants.map(p => (
-								<PersonRow
+							{/* Not expandable: the summary is orientation, and one
+							    person opening another's breakdown here is the
+							    kind of length this page was split up to lose.
+							    The figures and the named transfers are the same
+							    ones the organizer sees, from the same component,
+							    so the two screens cannot drift apart again. */}
+							{roster.map(p => (
+								<PersonAccount
 									key={p.id}
 									p={p}
+									activity={activity}
 									recurring={recurring}
-									editing={false}
+									expandable={false}
 									canSeeMoney={canSeeMoney}
-									moneyState={activity.moneyState}
-									planState={activity.planState}
 									totalOutstanding={totalOutstanding}
 									payeeParticipantId={payTo?.participantId}
-									busy={busy}
-									call={call}
 								/>
 							))}
 						</div>
-					</LiftCard>
+					</Rise>
 
 					{canSeeMoney && expenses.length > 0 && (
-						<LiftCard as="section" className="ledger">
+						<Rise as="section" className="ledger">
 							<div className="ledger-head">
 								<h2>{t.expenses.title}</h2>
 							</div>
@@ -204,12 +208,12 @@ export default function ActivitySummary() {
 									<span className="amount">{fmt.money(totals.total)}</span>
 								</div>
 							</div>
-						</LiftCard>
+						</Rise>
 					)}
 				</div>
 
 				<aside className="stack-lg" style={{ paddingBottom: 0 }}>
-					<LiftCard as="section" className="aside-block">
+					<Rise as="section" className="aside-block">
 						<h2>{t.invite.title}</h2>
 						<div>
 							<p className="quiet-note" style={{ paddingTop: '.3rem', paddingBottom: '.6rem' }}>{t.invite.hint}</p>
@@ -223,7 +227,7 @@ export default function ActivitySummary() {
 							{activity.shareReachability === 'device' && <p className="field-hint error-text">{t.invite.deviceOnly}</p>}
 							{copyFailed && <p className="field-hint error-text" role="alert">{t.invite.copyFailed}</p>}
 						</div>
-					</LiftCard>
+					</Rise>
 
 					{isOwner && (
 						<Link className="btn btn-secondary btn-block" href={`/a/${code}/manage`}>

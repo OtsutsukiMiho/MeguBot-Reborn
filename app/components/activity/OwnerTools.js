@@ -5,9 +5,19 @@ import ReceiptScanner from '../ReceiptScanner';
 import { ProposeSlots } from './Scheduling';
 import { useCopy } from '../../copy';
 
-// Everything only the organizer can do. It used to sit in a sidebar beside
-// the payment panel, which meant a participant scrolled past an entire
-// column of controls they could not use to reach the QR they came for.
+// Everything only the organizer can do.
+//
+// It used to sit in a sidebar beside the payment panel, which meant a
+// participant scrolled past an entire column of controls they could not use to
+// reach the QR they came for. Then it became one `OwnerControls` component in
+// the organizer's own right-hand rail — which fixed the participant's problem
+// and gave the organizer a different one: a single 2,200px column holding the
+// payout details, the schedule, the receipt scanner, the expense form and the
+// button that cancels the whole activity, in that order, with nothing between
+// them but a run of field labels.
+//
+// So they are separate exports now, one per job, and the screen decides where
+// each one belongs. Nothing here knows about the others.
 
 /**
  * When the money is due.
@@ -92,7 +102,16 @@ function splitStanding(mode, sharing, values, amountText) {
 	return { ready: typed === sharing.length && gap === 0 && target > 0, gap, target, assigned };
 }
 
-export function OwnerControls({ activity, busy, call, participants, requestAction }) {
+/**
+ * Getting a cost into the activity, by camera or by keyboard.
+ *
+ * The two belong together because they produce the same thing and share the
+ * same answer to "who is splitting this" — the tick boxes below are the ones
+ * the scanner hands its rows to. They were together before; what has changed is
+ * that they are no longer wedged into a 343px rail between the payout details
+ * and the button that cancels the activity.
+ */
+export function AddExpense({ activity, participants, busy, call }) {
 	const { t, fmt } = useCopy();
 	const [label, setLabel] = useState('');
 	const [amount, setAmount] = useState('');
@@ -114,43 +133,8 @@ export function OwnerControls({ activity, busy, call, participants, requestActio
 	const sharing = participants.filter(p => shareParticipantIds.includes(p.id));
 	const splitBalance = splitStanding(splitMode, sharing, splitValues, amount);
 
-	const nextPlan = {
-		open: { planState: 'confirmed', label: t.owner.confirmTime },
-		confirmed: { planState: 'done', label: t.owner.finish },
-		done: null,
-		cancelled: null,
-	}[activity.planState];
-
 	return (
-		<div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', paddingTop: '.5rem' }}>
-			{!recurring && activity.planState === 'open' && activity.poll && (
-				<div>
-					<span className="field-label">{activity.poll ? t.owner.proposeAgain : t.owner.findTime}</span>
-					<ProposeSlots busy={busy} call={call} />
-				</div>
-			)}
-
-			{/* Set once, and the chasing takes care of itself. A monthly
-			    agreement answers the same question through its collection day,
-			    so this belongs to one-off activities only. */}
-			{!recurring && <PaymentDeadline activity={activity} busy={busy} call={call} />}
-
-			{!recurring && nextPlan && (
-				<button type="button" className="btn btn-primary btn-block" disabled={busy || (nextPlan.planState === 'confirmed' && !activity.startsAt)} onClick={() => call('POST', '/plan', { planState: nextPlan.planState })}>
-					{nextPlan.label}
-				</button>
-			)}
-
-			{/* Opening a month must not read the amount out of the expense form
-			    below it. They used to share one field, so an empty form opened
-			    an unbilled month and a half-typed expense billed the wrong
-			    figure — both silently. */}
-			{recurring && (
-				<button type="button" className="btn btn-secondary btn-block" disabled={busy} onClick={() => call('POST', '/periods')}>
-					{t.owner.openMonth}
-				</button>
-			)}
-
+		<div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
 			{/* Reading the bill sits above typing it, because on the evening it
 			    matters somebody is holding the receipt and eleven people are
 			    waiting. Typing stays exactly where it was for the ฿60 court
@@ -191,7 +175,7 @@ export function OwnerControls({ activity, busy, call, participants, requestActio
 				}}
 				style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}
 			>
-				<span className="field-label">{t.owner.addExpense}</span>
+				<span className="field-label">{t.owner.typeItIn}</span>
 				<input className="form-control" placeholder={t.expenses.labelField} value={label} onChange={e => setLabel(e.target.value)} aria-label={t.expenses.labelField} />
 				<input className="form-control" type="number" min="0.01" step="0.01" placeholder={t.expenses.amountField} value={amount} onChange={e => setAmount(e.target.value)} aria-label={t.expenses.amountField} />
 				<select className="form-control" value={paidBy} onChange={e => setPaidBy(e.target.value)} aria-label={t.expenses.payerField}>
@@ -259,37 +243,116 @@ export function OwnerControls({ activity, busy, call, participants, requestActio
 					{t.owner.addAndSplit}
 				</button>
 			</form>
+		</div>
+	);
+}
 
-			{activity.planState !== 'cancelled' && !recurring && (
-				<button
-					type="button"
-					className="link-btn danger"
-					style={{ alignSelf: 'flex-start' }}
-					disabled={busy}
-					onClick={() => requestAction({
-						title: t.owner.cancelActivity,
-						message: t.owner.confirmCancel,
-						submitLabel: t.owner.cancelActivity,
-						method: 'POST',
-						path: '/plan',
-						body: { planState: 'cancelled' },
-					})}
-				>
-					{t.owner.cancelActivity}
+/**
+ * Where the activity is in its life: finding a time, confirming it, finishing
+ * it — or, for a monthly agreement, opening the next month.
+ */
+export function PlanControls({ activity, busy, call }) {
+	const { t } = useCopy();
+	const recurring = activity.kind === 'recurring';
+
+	const nextPlan = {
+		open: { planState: 'confirmed', label: t.owner.confirmTime },
+		confirmed: { planState: 'done', label: t.owner.finish },
+		done: null,
+		cancelled: null,
+	}[activity.planState];
+
+	// A finished or cancelled one-off has no next state and no poll to reopen,
+	// so every branch below draws nothing. Say so rather than leaving a headed
+	// panel with an empty body under it.
+	const proposing = !recurring && activity.planState === 'open' && activity.poll;
+	if (!recurring && !proposing && !nextPlan) {
+		return <p className="quiet-note">{t.owner.planNothing}</p>;
+	}
+
+	return (
+		<div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+			{!recurring && activity.planState === 'open' && activity.poll && (
+				<div>
+					<span className="field-label">{activity.poll ? t.owner.proposeAgain : t.owner.findTime}</span>
+					<ProposeSlots busy={busy} call={call} />
+				</div>
+			)}
+
+			{!recurring && nextPlan && (
+				<button type="button" className="btn btn-primary btn-block" disabled={busy || (nextPlan.planState === 'confirmed' && !activity.startsAt)} onClick={() => call('POST', '/plan', { planState: nextPlan.planState })}>
+					{nextPlan.label}
+				</button>
+			)}
+
+			{/* Opening a month must not read the amount out of the expense form
+			    below it. They used to share one field, so an empty form opened
+			    an unbilled month and a half-typed expense billed the wrong
+			    figure — both silently. */}
+			{recurring && (
+				<button type="button" className="btn btn-secondary btn-block" disabled={busy} onClick={() => call('POST', '/periods')}>
+					{t.owner.openMonth}
 				</button>
 			)}
 		</div>
 	);
 }
 
-export function CashPaymentForm({ participants, period, busy, call }) {
+/**
+ * The one action here that cannot be taken back.
+ *
+ * It used to be a link directly under the submit button of the expense form,
+ * in the same scroll, styled as a slightly redder version of every other link
+ * on the page. Its own block, at the bottom of the settings tab and nowhere
+ * near a form, is the least this deserves.
+ */
+export function CancelActivity({ activity, busy, requestAction }) {
 	const { t } = useCopy();
-	const eligible = participants
+	if (activity.kind === 'recurring' || activity.planState === 'cancelled') return null;
+
+	return (
+		<div className="danger-zone">
+			<span className="field-label">{t.owner.cancelActivity}</span>
+			<p className="quiet-note">{t.owner.cancelHint}</p>
+			<button
+				type="button"
+				className="btn btn-danger btn-sm"
+				style={{ alignSelf: 'flex-start' }}
+				disabled={busy}
+				onClick={() => requestAction({
+					title: t.owner.cancelActivity,
+					message: t.owner.confirmCancel,
+					submitLabel: t.owner.cancelActivity,
+					method: 'POST',
+					path: '/plan',
+					body: { planState: 'cancelled' },
+				})}
+			>
+				{t.owner.cancelActivity}
+			</button>
+		</div>
+	);
+}
+
+/**
+ * Who there is anything to record a cash payment against.
+ *
+ * Exported because the screen has to know before it draws the panel around the
+ * form: the form returns null when nobody is eligible, and a panel wrapped
+ * around null is an empty bordered box.
+ */
+export function cashRecipients(participants) {
+	return participants
 		.map(participant => ({
 			...participant,
 			available: Math.max(0, (participant.outstanding || 0) - (participant.pending || 0)),
 		}))
 		.filter(participant => participant.available > 0);
+}
+
+export function CashPaymentForm({ participants, period, busy, call }) {
+	const { t } = useCopy();
+	const eligible = cashRecipients(participants);
 	const [participantId, setParticipantId] = useState('');
 	const [amount, setAmount] = useState('');
 

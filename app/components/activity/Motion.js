@@ -29,7 +29,9 @@ function useCanAnimate() {
 
 /**
  * The page's one authored moment: cards arrive in sequence rather than all at
- * once, and interactive things answer the pointer with spring physics.
+ * once. That is the whole of it — the arrival, and nothing after it. Motion
+ * that continues to answer the pointer once the page has settled is the subject
+ * of the note at the bottom of this file.
  *
  * Two rules keep it from becoming decoration. Nothing here animates a value —
  * the figure counts, the cards move, and those are separate concerns — and
@@ -39,9 +41,6 @@ function useCanAnimate() {
  */
 
 const EASE = [0.22, 0.61, 0.36, 1];
-
-/** Spring, not duration. Responsive on the way out, no wobble on the way back. */
-export const HOVER_SPRING = { type: 'spring', stiffness: 420, damping: 32, mass: 0.7 };
 
 export function Stagger({ children, className, delay = 0 }) {
 	const reduced = useReducedMotion();
@@ -87,19 +86,19 @@ export function Rise({ children, className, as = 'div', ...rest }) {
 	);
 }
 
-/**
- * A card that answers the pointer. The lift is two pixels — enough to register
- * as a response, small enough that a grid of them does not appear to breathe.
+/*
+ * There is deliberately no hover-lift component here.
+ *
+ * Every section on every activity screen used to be one: a `LiftCard` that
+ * translated 3px on pointer enter. Measured on the organizer screen, that was
+ * 57% of the content area answering the pointer, and the tallest of them was a
+ * 2,200px column of form fields moving as one block — so aiming at an input
+ * moved the input, and the QR on the pay screen slid out from under the pointer
+ * that came to read it. None of those cards was clickable, which is the other
+ * half of it: a lift is how an interface says "this is a target".
+ *
+ * A card that genuinely is a target takes the `lift` class in globals.css, which
+ * does the same three pixels in CSS and is already switched off under
+ * `prefers-reduced-motion`. A section that is a document gets no hover response
+ * at all, because it is not answering anything.
  */
-export function LiftCard({ children, className, ...rest }) {
-	const still = useReducedMotion();
-	return (
-		<Rise
-			className={className}
-			whileHover={still ? undefined : { y: -3, transition: HOVER_SPRING }}
-			{...rest}
-		>
-			{children}
-		</Rise>
-	);
-}

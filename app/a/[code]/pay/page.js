@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import PayPanel from '../../../components/PayPanel';
 import { ScreenHead, deferDialog, useActivity } from '../../../components/activity/ActivityShell';
-import { LiftCard, Rise, Stagger } from '../../../components/activity/Motion';
+import { Rise, Stagger } from '../../../components/activity/Motion';
 import { useCopy } from '../../../copy';
 
 /**
@@ -76,17 +76,17 @@ export default function PayScreen() {
 			{problem && <div className="error-note">{problem}</div>}
 
 			{!myRow ? (
-				<LiftCard as="section" className="panel">
+				<Rise as="section" className="panel">
 					<p className="quiet-note">{t.screens.payClaimFirst}</p>
 					<Link className="btn btn-secondary" href={`/a/${code}`}>{t.screens.summary}</Link>
-				</LiftCard>
+				</Rise>
 			) : mustChoose ? (
 				/* Two people fronted money, so there are two transfers to make.
 				   Asking which one first is not an extra step — it is the step
 				   that was missing, and skipping it is how the person who covered
 				   the taxi ends up never being paid. */
 				<Rise>
-					<LiftCard as="section" className="panel">
+					<Rise as="section" className="panel">
 						<div className="field-label">{t.pay.chooseCreditor}</div>
 						<p className="field-hint">{t.pay.chooseCreditorHint}</p>
 						<div className="creditor-choices">
@@ -103,7 +103,7 @@ export default function PayScreen() {
 								</button>
 							))}
 						</div>
-					</LiftCard>
+					</Rise>
 				</Rise>
 			) : dueHere > 0 ? (
 				<Rise>
@@ -136,10 +136,10 @@ export default function PayScreen() {
 					/>
 				</Rise>
 			) : (
-				<LiftCard as="section" className="panel settled-note">
+				<Rise as="section" className="panel settled-note">
 					<p>{t.screens.payNothing}</p>
 					<Link className="btn btn-secondary" href={`/a/${code}`}>{t.screens.summary}</Link>
-				</LiftCard>
+				</Rise>
 			)}
 		</Stagger>
 	);

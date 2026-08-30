@@ -3,7 +3,7 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { ScreenHead, useActivity } from '../../../../components/activity/ActivityShell';
-import { LiftCard, Rise, Stagger } from '../../../../components/activity/Motion';
+import { Rise, Stagger } from '../../../../components/activity/Motion';
 import { useCopy } from '../../../../copy';
 
 /**
@@ -41,10 +41,10 @@ export default function ReceiptScreen({ params }) {
 				<Rise as="header">
 					<ScreenHead title={t.receiptPage.title} backTo={`/a/${code}`} backLabel={t.screens.back} />
 				</Rise>
-				<LiftCard as="section" className="panel">
+				<Rise as="section" className="panel">
 					<p className="quiet-note">{t.errors.payment_not_found}</p>
 					<Link className="btn btn-secondary" href={`/a/${code}`}>{t.screens.summary}</Link>
-				</LiftCard>
+				</Rise>
 			</Stagger>
 		);
 	}
@@ -70,7 +70,7 @@ export default function ReceiptScreen({ params }) {
 			</Rise>
 
 			<Rise>
-				<LiftCard as="section" className="panel payment-receipt-sheet">
+				<Rise as="section" className="panel payment-receipt-sheet">
 					<div className="payment-receipt-amount">{fmt.money(payment.amountSatang)}</div>
 
 					{from && to && (
@@ -113,7 +113,7 @@ export default function ReceiptScreen({ params }) {
 					    missed — a printed page outlives the screen that explained
 					    it. */}
 					<p className="payment-receipt-note">{t.receiptPage.disclaimer}</p>
-				</LiftCard>
+				</Rise>
 			</Rise>
 
 			<Rise className="no-print">

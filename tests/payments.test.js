@@ -332,6 +332,23 @@ async function main() {
 	assert.strictEqual(r.body.autoConfirmed, false);
 	pass('a slip with no valid QR is accepted for review but a caller-invented reference cannot confirm it');
 
+	// Why it was held, not only that it was.
+	//
+	// `assessSlip` has always produced these and `attachSlip` has always filed
+	// them on the `slip_attached` event, but they stopped there — so the
+	// organizer's queue could say "waiting for your review" beside a green
+	// "amount matches" chip on a slip dated three months in the future, with no
+	// hint of which of those two facts mattered.
+	whoAmI = 'owner';
+	r = await owner('GET', `/api/megu/a/${code}`);
+	const heldRow = r.body.activity.payments.find(p => p.id === unreadClaim);
+	assert.strictEqual(heldRow.slipVerdict, 'unread');
+	assert.ok(Array.isArray(heldRow.slipReasons), 'slipReasons is serialised as an array');
+	assert.ok(heldRow.slipReasons.includes('reference_missing'), 'and names the reading that failed');
+	assert.deepStrictEqual(heldRow.slipFlags, []);
+	pass('the queue is told why a slip was held back, not only that it was');
+	whoAmI = 'anon';
+
 	r = await ohm('POST', `/api/megu/a/${code}/payments/${unreadClaim}/slip`, { dataUrl: 'not-an-image' });
 	assert.strictEqual(r.status, 400);
 	assert.strictEqual(r.body.code, 'slip_unreadable');
