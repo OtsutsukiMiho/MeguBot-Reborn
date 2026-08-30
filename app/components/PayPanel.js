@@ -24,7 +24,7 @@ import SlipReading from './SlipReading';
  * the masked form goes on the screen. Screens get photographed and shared into
  * the same group chat the link came from.
  */
-export default function PayPanel({ code, payTo, amountSatang, periodId, periods = [], paymentOptions = [], pending, busy, call, onError }) {
+export default function PayPanel({ code, payTo, creditorParticipantId = null, amountSatang, periodId, periods = [], paymentOptions = [], pending, deferral = null, busy, call, onDefer, onError }) {
 	const { t, fmt, currency } = useCopy();
 	const [flash, setFlash] = useState('');
 	const [saving, setSaving] = useState(false);
@@ -79,9 +79,16 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 	const recipientName = selectedMethod?.accountName || payTo?.displayName || t.pay.organizerRecipient;
 	const acceptsTransferProof = ['promptpay', 'bank_transfer', 'payment_link'].includes(selectedMethod?.type);
 	const baseClaimBody = payablePeriods.length > 0 ? { allocations } : (periodId ? { periodId } : {});
-	const claimBody = { ...baseClaimBody, paymentMethodId: selectedMethod?.id || undefined };
+	// The creditor travels with the claim so the row records who the money went
+	// to, rather than the server inferring it later from whoever the activity
+	// happens to name that day.
+	const claimBody = {
+		...baseClaimBody,
+		paymentMethodId: selectedMethod?.id || undefined,
+		creditorParticipantId: creditorParticipantId || undefined,
+	};
 
-	const qrUrl = `/api/megu/a/${code}/qr?amount=${payAmount}${periodId ? `&period=${periodId}` : ''}${selectedMethod?.id ? `&method=${encodeURIComponent(selectedMethod.id)}` : ''}`;
+	const qrUrl = `/api/megu/a/${code}/qr?amount=${payAmount}${periodId ? `&period=${periodId}` : ''}${selectedMethod?.id ? `&method=${encodeURIComponent(selectedMethod.id)}` : ''}${creditorParticipantId ? `&creditorParticipantId=${encodeURIComponent(creditorParticipantId)}` : ''}`;
 
 	function say(message) {
 		setFlash(message);
@@ -202,7 +209,6 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 	if (paymentOptions.length === 0) {
 		return (
 			<section className="panel pay-panel">
-				<div className="panel-head"><span className="panel-title">{t.pay.title}</span></div>
 				<div className="pay-body">
 					<div className="pay-figure">
 						<span className="pay-amount">{fmt.money(payAmount)}</span>
@@ -220,10 +226,16 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 
 	return (
 		<section className="panel pay-panel">
-			<div className="panel-head">
-				<span className="panel-title">{t.pay.title}</span>
-				{flash && <span className="panel-count pay-flash">{flash}</span>}
-			</div>
+			{/* No title. The screen this sits on is already headed "Pay", and
+			    printing it a second time inside its own border was the panel
+			    remembering when it was one section among eight on a page about
+			    something else. What the head is still for is the copy
+			    confirmation, which only exists once there is something to say. */}
+			{flash && (
+				<div className="panel-head">
+					<span className="panel-count pay-flash">{flash}</span>
+				</div>
+			)}
 
 			<div className="pay-body">
 				<div className="pay-figure">
@@ -288,14 +300,31 @@ export default function PayPanel({ code, payTo, amountSatang, periodId, periods 
 				)}
 
 				{!pending ? (
-					<button
-						type="button"
-						className="btn btn-pay btn-block btn-lg"
-						disabled={busy || allocationInvalid || payAmount <= 0}
-						onClick={() => call('POST', '/pay', claimBody)}
-					>
-						{t.pay.iHavePaid}
-					</button>
+					<>
+						<button
+							type="button"
+							className="btn btn-pay btn-block btn-lg"
+							disabled={busy || allocationInvalid || payAmount <= 0}
+							onClick={() => call('POST', '/pay', claimBody)}
+						>
+							{t.pay.iHavePaid}
+						</button>
+						{/* The other honest answer. It is quiet and it is second,
+						    because it is an escape hatch rather than a choice
+						    competing with paying — but it is here, because the
+						    reader who cannot pay today otherwise closes the tab
+						    and the organizer learns nothing. */}
+						{onDefer && !deferral && (
+							<button type="button" className="link-btn pay-defer" disabled={busy} onClick={onDefer}>
+								{t.defer.button}
+							</button>
+						)}
+						{deferral && (
+							<p className="quiet-note pay-defer-note">
+								{t.defer.done(fmt.when(deferral.snoozeUntil, { time: false }))}
+							</p>
+						)}
+					</>
 				) : (
 					<div className="pay-claimed">
 						<p className="quiet-note">{acceptsTransferProof ? t.pay.waitingConfirm : t.pay.waitingOwnerConfirm}</p>

@@ -17,7 +17,7 @@ const INSTANCE = `${os.hostname()}#${process.pid}.${crypto.randomBytes(2).toStri
 if (fs.existsSync('.env')) {
 	require('dotenv').config();
 }
-const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent } = require('discord.js');
+const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 const DISCORD_TEST_MODE = process.env.MEGU_DISCORD_TEST_MODE === '1';
 const DISCORD_TEST_GUILD_ID = String(process.env.MEGU_DISCORD_TEST_GUILD_ID || '');
@@ -620,6 +620,105 @@ for (const folder of commandFolders) {
 	}
 }
 
+// ── "Not now, and here is why" ──────────────────────────────────────────────
+//
+// The due-date DM carries two buttons. The first is an ordinary link to the
+// payment screen. The second exists because a reminder offering only one answer
+// collects only one: everybody who cannot pay today presses nothing, and the
+// organizer is left with an unpaid row and no explanation.
+//
+// Both are answers to a message Discord pushed to us. Nothing here is on a
+// timer and nothing here polls — an interaction arrives, we reply to it once,
+// and that reply is the only request made.
+
+const DEFER_BUTTON = 'megu_defer';
+const DEFER_MODAL = 'megu_defer_modal';
+
+function noticeComponents(cta, defer) {
+	const buttons = [];
+	if (cta?.url && /^https?:\/\//i.test(String(cta.url))) {
+		buttons.push(new ButtonBuilder()
+			.setStyle(ButtonStyle.Link)
+			.setURL(String(cta.url))
+			.setLabel(String(cta.label || 'Pay').slice(0, 80)));
+	}
+	if (defer?.participantId) {
+		buttons.push(new ButtonBuilder()
+			.setStyle(ButtonStyle.Secondary)
+			.setCustomId(`${DEFER_BUTTON}:${defer.participantId}:${defer.periodId || '-'}`)
+			.setLabel(String(defer.label || 'Not now').slice(0, 80)));
+	}
+	return buttons.length > 0 ? [new ActionRowBuilder().addComponents(buttons)] : [];
+}
+
+/**
+ * Is the person who pressed the button the person the button was sent to?
+ *
+ * A DM button can only be pressed by its recipient, but the id travels in the
+ * custom_id and a custom_id is client-supplied data. It is checked rather than
+ * trusted, so nobody can write an excuse into somebody else's row.
+ */
+async function pressedByOwner(core, participant, discordUid) {
+	if (!participant) return false;
+	if (participant.discordUid && String(participant.discordUid) === String(discordUid)) return true;
+	if (!participant.userId) return false;
+	const identities = await core.users.getIdentities(participant.userId);
+	return identities.some(identity => identity.provider === 'discord' && String(identity.providerUid) === String(discordUid));
+}
+
+async function openDeferModal(interaction) {
+	const [, participantId, periodToken] = interaction.customId.split(':');
+	const modal = new ModalBuilder()
+		.setCustomId(`${DEFER_MODAL}:${participantId}:${periodToken}`)
+		.setTitle('ยังไม่จ่ายตอนนี้')
+		.addComponents(new ActionRowBuilder().addComponents(
+			new TextInputBuilder()
+				.setCustomId('reason')
+				.setLabel('บอกเหตุผลสั้น ๆ ได้ไหม')
+				.setPlaceholder('เช่น เงินเดือนออกวันที่ 25 เดี๋ยวจ่ายเลย')
+				.setStyle(TextInputStyle.Paragraph)
+				.setMaxLength(200)
+				.setRequired(true),
+		));
+	await interaction.showModal(modal);
+}
+
+async function recordDeferral(interaction) {
+	const [, participantId, periodToken] = interaction.customId.split(':');
+	const core = require('../../core/index.js');
+	const reason = interaction.fields.getTextInputValue('reason');
+
+	const activity = await core.activities.getActivityByParticipant(participantId);
+	const participant = activity?.participants.find(p => p.id === participantId) || null;
+	if (!await pressedByOwner(core, participant, interaction.user.id)) {
+		await interaction.reply({ content: 'รายการนี้ไม่ใช่ของคุณนะ', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+		return;
+	}
+
+	const deferral = await core.activities.deferPayment({
+		activityId: activity.id,
+		participantId,
+		periodId: periodToken === '-' ? null : periodToken,
+		reason,
+		source: 'discord',
+	});
+	// The organizer hears it through the outbox, on whichever channel they
+	// chose. It is the whole point of the button: an unpaid row with a reason
+	// beside it is a situation, an unpaid row without one is a mystery.
+	await core.reminders.announceDeferral({
+		activity,
+		participantId,
+		deferral,
+		baseUrl: process.env.FRONTEND_URL || '',
+	});
+
+	const back = core.format.formatWhen(deferral.snoozeUntil, 'th', { time: false });
+	await interaction.reply({
+		content: `รับทราบแล้ว เดี๋ยวเราบอกเจ้าของกิจกรรมให้ว่า "${reason}"\nจะไม่ทวงจนถึง ${back} นะ แต่ยอดนี้ยังค้างอยู่เหมือนเดิม`,
+		flags: MessageFlags.Ephemeral,
+	});
+}
+
 client.on(Events.InteractionCreate, async (interaction) => {
 	if (DISCORD_TEST_MODE) {
 		if (String(interaction.guildId || '') !== DISCORD_TEST_GUILD_ID) return;
@@ -672,6 +771,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 			BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
+		}
+	}
+
+	else if (interaction.isButton() && interaction.customId.startsWith(`${DEFER_BUTTON}:`)) {
+		try {
+			await openDeferModal(interaction);
+		}
+		catch (error) {
+			BotLogs('Megu', `${COLOR.red}Could not open the deferral modal: ${error.message}`);
+		}
+	}
+
+	else if (interaction.isModalSubmit() && interaction.customId.startsWith(`${DEFER_MODAL}:`)) {
+		try {
+			await recordDeferral(interaction);
+		}
+		catch (error) {
+			BotLogs('Megu', `${COLOR.red}Could not record the deferral: ${error.message}`);
+			await interaction.reply({ content: 'บันทึกไม่สำเร็จ ลองใหม่อีกทีนะ', flags: MessageFlags.Ephemeral }).catch(() => undefined);
 		}
 	}
 
@@ -2228,6 +2346,7 @@ process.on('message', async (msg) => {
 		let delivered = 0;
 		const recipients = Array.isArray(msg.recipients) ? [...new Set(msg.recipients)] : [];
 		const message = String(msg.message || '').slice(0, 1900);
+		const components = noticeComponents(msg.cta, msg.defer);
 		// Re-checked on every recipient, not once at the top: the first refused
 		// DM is how a block announces itself, and the rest of the list must not
 		// follow it into the wall.
@@ -2235,7 +2354,7 @@ process.on('message', async (msg) => {
 			if (discordBlock.blocked()) break;
 			if (!/^\d{17,20}$/.test(String(discordUid)) || !message) continue;
 			const user = await discordCall('opening a DM', () => client.users.fetch(String(discordUid)), null);
-			if (user && await discordCall('sending a DM', () => user.send(message).then(() => true), false)) delivered++;
+			if (user && await discordCall('sending a DM', () => user.send({ content: message, components }).then(() => true), false)) delivered++;
 		}
 		if (process.send) {
 			// `blocked` is read after the loop, so a block that arrives partway

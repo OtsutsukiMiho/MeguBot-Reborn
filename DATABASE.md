@@ -135,7 +135,7 @@ slot_votes                availability answers
 periods                   one row per month, for recurring agreements
 expenses                  what was spent
 shares                    who owes what part of an expense
-payments                  claims and confirmations
+payments                  claims and confirmations, and who the money went to
 payment_allocations       one transfer split across several months
 payment_events            the append-only history of a payment
 payment_reminders         which nag was sent, and when
@@ -159,6 +159,33 @@ change to the catalogue only.
 
 Nothing is renamed *to* `reminders`, so the bot's table of that name is never
 in the path.
+
+### If your database predates `payments.creditor_participant_id`
+
+A payment used to record who paid and not who was paid, because the product
+assumed one person collected for the whole activity. That column is added on
+boot like every other, nullable, and existing rows keep their NULL.
+
+NULL means *unknown*, not *nobody*. `settlement()` recognises those rows and
+reconstructs them at read time — spending each payer's unattributed money
+against their largest debt first — and reports `hasLegacyPayments` so a screen
+can say the figure was reconstructed rather than read. Balances are unchanged
+by this: the per-person `outstanding` every screen and every reminder shows is
+computed from who paid, never from who was paid.
+
+To place those rows properly:
+
+```
+node scripts/backfill-payment-creditor.js            # dry run, prints what it would do
+node scripts/backfill-payment-creditor.js --commit   # writes
+```
+
+It infers a creditor from the destination frozen onto the payment first, then
+from the activity's payee, then from the owner's roster row — and leaves the
+row alone when none of those produce an answer. Every row it writes also gets a
+`creditor_backfilled` row in `payment_events` naming the basis it used, because
+a guess written into financial history without a trail is indistinguishable
+from a fact.
 
 **Row Level Security does not apply here.** Megu connects as the `postgres`
 role over a direct Postgres connection, which bypasses RLS. RLS only governs

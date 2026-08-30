@@ -125,6 +125,58 @@ const STATEMENTS = [
 	'CREATE INDEX IF NOT EXISTS identities_user_idx ON identities (user_id);',
 	'CREATE UNIQUE INDEX IF NOT EXISTS identities_user_provider_key ON identities (user_id, provider);',
 
+	// Where somebody can be paid, wherever they are being paid from.
+	//
+	// A way of receiving money belongs to the person, not to one dinner. It was
+	// split across two places that each had half the answer: PromptPay sat on
+	// `users`, which is right, and everything else sat in `activities.
+	// payment_options`, which meant an organizer retyped their bank details into
+	// every activity and nobody but the organizer could be paid by bank at all.
+	// The second half of that stopped being tolerable the moment a payment could
+	// name a creditor who was not the organizer.
+	//
+	// Order is the whole of the "default" concept: the first row is what gets
+	// offered first. A separate `is_default` flag would be a second source of
+	// truth for the same fact, and the two would disagree the first time a row
+	// was deleted.
+	`CREATE TABLE IF NOT EXISTS payment_methods (
+		id            TEXT PRIMARY KEY,
+		user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		type          TEXT NOT NULL,
+		label         TEXT NOT NULL,
+		destination   TEXT,
+		account_name  TEXT,
+		url           TEXT,
+		instructions  TEXT,
+		position      INTEGER NOT NULL DEFAULT 0,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_methods_type_check') THEN
+			ALTER TABLE payment_methods ADD CONSTRAINT payment_methods_type_check
+				CHECK (type IN ('promptpay', 'bank_transfer', 'payment_link', 'cash', 'custom'));
+		END IF;
+	END $$;`,
+	'CREATE INDEX IF NOT EXISTS payment_methods_user_idx ON payment_methods (user_id, position);',
+
+	// The PromptPay number people already saved becomes their first method, so
+	// nobody has to retype what Megu already knows. Guarded on the absence of a
+	// promptpay row rather than on a migration flag: it runs on every boot, does
+	// nothing on the second, and cannot double up if somebody adds a second
+	// number by hand in between.
+	// `md5(random())` rather than `gen_random_bytes`, which lives in pgcrypto and
+	// is not guaranteed to be installed on somebody's database.
+	`INSERT INTO payment_methods (id, user_id, type, label, destination, account_name, position)
+	 SELECT 'pmt_' || substring(md5(random()::text || clock_timestamp()::text) for 16),
+	        u.id, 'promptpay', 'PromptPay',
+	        u.promptpay_id, u.promptpay_name, 0
+	 FROM users u
+	 WHERE u.promptpay_id IS NOT NULL
+	   AND NOT EXISTS (
+	     SELECT 1 FROM payment_methods m WHERE m.user_id = u.id AND m.type = 'promptpay'
+	   );`,
+
 	// A merged id can remain in old sessions, bookmarks and audit metadata long
 	// after its user row is gone. Resolve it to the living account rather than
 	// recreating a second account from the stale session identity.
@@ -156,9 +208,27 @@ const STATEMENTS = [
 	`CREATE TABLE IF NOT EXISTS notification_preferences (
 		user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		mode       TEXT NOT NULL CHECK (mode IN ('discord', 'email', 'both', 'off')),
-		locale     TEXT NOT NULL DEFAULT 'en' CHECK (locale IN ('en', 'th')),
+		locale     TEXT NOT NULL DEFAULT 'en',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
+
+	// The locale column used to name the languages — `CHECK (locale IN ('en',
+	// 'th'))` — which made adding a third one a schema migration. That is exactly
+	// what `core/locales.js` exists to stop: the registry decides what Megu
+	// speaks and `setNotificationPreferences` enforces it, so all the database
+	// needs to do is refuse something that is not a language code at all.
+	//
+	// Dropped by its generated name and re-added by an explicit one, so this is
+	// a no-op on the second boot and on a database that never had the old shape.
+	`DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notification_preferences_locale_check') THEN
+			ALTER TABLE notification_preferences DROP CONSTRAINT notification_preferences_locale_check;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notification_preferences_locale_shape') THEN
+			ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_locale_shape
+				CHECK (locale ~ '^[a-z]{2}(-[A-Za-z0-9]{2,8})?$');
+		END IF;
+	END $$;`,
 
 	// Discord refresh credentials are needed when somebody signs in through a
 	// linked Google identity and then opens the server dashboard. Tokens are
@@ -232,6 +302,15 @@ const STATEMENTS = [
 	// Portable settlement instructions live on the activity. PromptPay stays a
 	// profile default on `users`; these options cover the rest of the world.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_options JSONB NOT NULL DEFAULT \'[]\'::jsonb;',
+	// When the money is due, for an activity that happens once.
+	//
+	// Deliberately not `starts_at`. A badminton court is played on the 20th and
+	// settled on the 21st, and a dinner is eaten before anybody knows the bill —
+	// so "when we meet" and "when you pay" are two different dates, and the
+	// second is the only one worth chasing somebody about. Recurring agreements
+	// already answer this per month through `due_day` → `periods.due_at`; this
+	// column is the one-off equivalent and does not touch that path.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_due_at TIMESTAMPTZ;',
 	'CREATE INDEX IF NOT EXISTS activities_owner_idx ON activities (owner_user_id);',
 	'CREATE INDEX IF NOT EXISTS activities_guild_idx ON activities (guild_id);',
 
@@ -311,6 +390,26 @@ const STATEMENTS = [
 		created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
 	'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS period_id TEXT REFERENCES periods(id) ON DELETE CASCADE;',
+
+	// How this expense was divided, kept alongside the division itself.
+	//
+	// `shares` remains the truth — it is what every balance is computed from —
+	// and these two columns are the instruction that produced it. They exist
+	// because of what happens on the second edit: a bill split 70/30 and then
+	// corrected from ฿1,000 to ฿1,200 has to come back 70/30, and with only the
+	// amounts stored there is nothing to say it ever was. The old code
+	// recomputed an even split on every edit, which was correct while an even
+	// split was the only kind.
+	//
+	// `even` for everything that already exists, which is what all of it is.
+	'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_mode TEXT NOT NULL DEFAULT \'even\';',
+	'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_values JSONB;',
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_split_mode_check') THEN
+			ALTER TABLE expenses ADD CONSTRAINT expenses_split_mode_check
+				CHECK (split_mode IN ('even', 'exact', 'percent', 'shares'));
+		END IF;
+	END $$;`,
 	'CREATE INDEX IF NOT EXISTS expenses_activity_idx ON expenses (activity_id);',
 	'CREATE INDEX IF NOT EXISTS expenses_period_idx ON expenses (period_id);',
 
@@ -411,6 +510,29 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversal_reason TEXT;',
 
+	// Who this money was sent to.
+	//
+	// Until now a payment said who paid and not who was paid, because the whole
+	// system assumed one person collected for the whole activity — whoever sat
+	// in `activities.payee_participant_id`. That assumption breaks the first
+	// time two people front money, which on a trip or a dinner is most of the
+	// time: Megu covers the restaurant, Fig covers the taxi, and Nick owes two
+	// different people two different amounts. Without this column his ฿300 lands
+	// on whoever the activity happened to name, and the other creditor is left
+	// out of pocket with the ledger insisting everyone is square.
+	//
+	// Nullable, and it stays nullable. NULL means "written before this existed",
+	// not "nobody" — `settlement()` recognises those rows and reconstructs them
+	// rather than dropping them, and reports that it had to. Making the column
+	// NOT NULL would require inventing a creditor for every historical payment,
+	// which is precisely the guess this design refuses to bake into the data.
+	//
+	// RESTRICT rather than SET NULL, matching `expenses.paid_by`. Removing
+	// somebody who is owed money would otherwise turn every payment made to them
+	// into an unattributed row and move everyone else's balance without a word.
+	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS creditor_participant_id TEXT REFERENCES participants(id) ON DELETE RESTRICT;',
+	'CREATE INDEX IF NOT EXISTS payments_creditor_idx ON payments (creditor_participant_id);',
+
 	// Unique across every activity, not just within one: a slip reused from
 	// another group is exactly the case worth catching, and it is the only one
 	// a per-activity constraint would miss. Partial, because almost every
@@ -479,6 +601,33 @@ const STATEMENTS = [
 		sent_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
 	'CREATE INDEX IF NOT EXISTS payment_reminders_participant_idx ON payment_reminders (participant_id, sent_at DESC);',
+
+	// "Not now, and here is why."
+	//
+	// The reminder that arrives on the due date offers two answers, because a
+	// reminder with only one leaves the honest reply — "payday is the 25th" —
+	// with nowhere to go, and the person who would have said it just ignores
+	// the message instead. The reason is the point: the organizer stops
+	// guessing, and stops asking in the group chat.
+	//
+	// It is not a payment, so it does not belong in `payment_events` — that
+	// table hangs off a `payments` row, and the whole situation here is that no
+	// such row exists yet.
+	//
+	// `snooze_until` holds the next reminder off, once. It never marks anything
+	// paid and never removes anyone from the roster of who owes what.
+	`CREATE TABLE IF NOT EXISTS payment_deferrals (
+		id             TEXT PRIMARY KEY,
+		activity_id    TEXT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+		period_id      TEXT REFERENCES periods(id) ON DELETE CASCADE,
+		participant_id TEXT NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+		reason         TEXT NOT NULL,
+		source         TEXT NOT NULL DEFAULT 'web',
+		snooze_until   TIMESTAMPTZ NOT NULL,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS payment_deferrals_participant_idx ON payment_deferrals (participant_id, created_at DESC);',
+	'CREATE INDEX IF NOT EXISTS payment_deferrals_activity_idx ON payment_deferrals (activity_id, created_at DESC);',
 ];
 
 /**

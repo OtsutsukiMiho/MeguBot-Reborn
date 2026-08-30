@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import LoginOptions from '../components/LoginOptions';
 import MeguMark from '../components/MeguMark';
+import PaymentMethods from '../components/PaymentMethods';
 import { useCopy } from '../copy';
 
 export default function AccountPage() {
@@ -63,6 +64,7 @@ export default function AccountPage() {
 		<section className="panel stack-md"><div><h2>{t.account.profileSourceTitle}</h2><p className="quiet-note">{t.account.profileSourceHint}</p></div><div className="notification-grid" role="radiogroup" aria-label={t.account.profileSourceTitle}>
 			{['google', 'discord', 'manual'].map(source => { const available = source === 'manual' || providers.has(source); return <button key={source} type="button" role="radio" aria-checked={data.user.profileSource === source} disabled={!available} className={`notification-choice ${data.user.profileSource === source ? 'selected' : ''}`} onClick={() => saveProfileSource(source)}><strong>{t.account.profileSources[source]}</strong><span>{available ? (data.user.identities.find(item => item.provider === source)?.displayName || t.account.profileHint) : t.account.connectFirst}</span></button>; })}
 		</div></section>
+		<section className="panel stack-md"><div><h2>{t.paymentMethods.accountTitle}</h2><p className="quiet-note">{t.paymentMethods.accountHint}</p></div><PaymentMethods /></section>
 		<section className="panel stack-md"><div><h2>{t.account.notificationsTitle}</h2><p className="quiet-note">{t.account.notificationsHint}</p></div><div className="notification-grid" role="radiogroup" aria-label={t.account.notificationsTitle}>
 			{choices.map(choice => <button key={choice.id} type="button" role="radio" aria-checked={mode === choice.id} disabled={!choice.available} className={`notification-choice ${mode === choice.id ? 'selected' : ''}`} onClick={() => setMode(choice.id)}><strong>{t.account.modes[choice.id]}</strong><span>{choice.available ? t.account.modeHints[choice.id] : t.account.connectFirst}</span></button>)}
 		</div><div><button className="btn btn-primary" onClick={savePreferences} disabled={saving}>{saving ? t.common.saving : t.common.save}</button></div></section>

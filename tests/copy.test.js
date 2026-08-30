@@ -248,4 +248,51 @@ console.log('\nkeys the components actually ask for');
 	ok(`every copy key the components ask for exists in both languages (${checked} references)`);
 }
 
+console.log('\na language that is not finished yet');
+
+{
+	const { withFallback } = require('../app/copy/fallback.js');
+
+	// What a third language looks like on the day it is added: a few sentences
+	// translated and the rest of the dictionary still to come. It has to render
+	// rather than break, because the alternative is a page taken down by a line
+	// of copy nobody had got to.
+	const partial = withFallback(en, {
+		common: { save: '保存' },
+		errors: { failed: '失敗しました' },
+	});
+
+	assert.strictEqual(partial.common.save, '保存');
+	assert.strictEqual(partial.errors.failed, '失敗しました');
+	ok('what is translated is used');
+
+	assert.strictEqual(partial.common.cancel, en.common.cancel);
+	assert.strictEqual(partial.errors.offline, en.errors.offline);
+	assert.deepStrictEqual(Object.keys(partial.common).sort(), Object.keys(en.common).sort());
+	ok('everything else falls back to English rather than to undefined');
+
+	// The many dictionary entries that are functions must survive as functions.
+	// A half-merged one would throw at render, which is the failure this exists
+	// to prevent in the first place.
+	const functionKeys = Object.entries(en.errors).filter(([, v]) => typeof v === 'function');
+	for (const [key] of functionKeys) {
+		assert.strictEqual(typeof partial.errors[key], 'function', `errors.${key} stopped being callable`);
+	}
+	assert.strictEqual(typeof partial.slip.sentFrom, 'function');
+	assert.strictEqual(partial.slip.sentFrom('KBANK'), en.slip.sentFrom('KBANK'));
+	ok('untranslated functions stay callable and answer exactly as English does');
+
+	// A translation that is present but empty is a translation. One that is null
+	// is an absence, and absences fall back.
+	const explicit = withFallback(en, { common: { save: '', cancel: null } });
+	assert.strictEqual(explicit.common.save, '');
+	assert.strictEqual(explicit.common.cancel, en.common.cancel);
+	ok('an empty string is a choice; null is a gap');
+
+	// Thai is complete, so falling back must change nothing about it.
+	assert.deepStrictEqual(withFallback(en, th), { ...en, ...withFallback(en, th) });
+	assert.strictEqual(withFallback(en, th).errors.failed, th.errors.failed);
+	ok('a finished language is unaffected by the machinery that rescues an unfinished one');
+}
+
 console.log(`\n${n} checks passed\n`);

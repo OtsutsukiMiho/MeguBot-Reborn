@@ -50,6 +50,21 @@ export default function RootLayout({ children }) {
 				/>
 			</head>
 			<body>
+				{/* The direction contract. Emitted into the markup rather than left
+				    as a source comment so it survives the production build and can
+				    be audited against what actually shipped. */}
+				<div
+					dangerouslySetInnerHTML={{
+						__html: `<!--
+THESIS: Megu is a fired celadon piece, not a neutral admin surface. It refuses the flat grey-plus-one-accent arrangement that made the old palette read as anyone's dashboard.
+OWN-WORLD: cream stoneware body, jade glaze pooling and thinning across a drifting ground, honey iron at every rim, a warm green-black glaze pool for ink. Rules are crackle-warm, never grey. Recognizable with all content removed.
+STORY: the reader sees what still wants them (honey) and what is finished (jade), never a page scolding them in red for owing a friend 100 baht.
+FIRST VIEWPORT: title and meta on the drifting ground; one card naming the single thing that needs this reader, its amount in honey, its action navy-bodied with an iron rim; Megu's line below; roster and costs in panels that lift off the drift.
+FORM: สังคโลก / Sawankhalok celadon, candidate 7 of the grounded list, seed key 5e338ecb.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+-->`,
+					}}
+				/>
 				<LangProvider>
 					<Navbar />
 					<main className="container">
