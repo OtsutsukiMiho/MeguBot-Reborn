@@ -311,6 +311,28 @@ function publicParticipant(p, meId, showAmounts, settlementRow, deferral = null)
  * working figures for the arithmetic and would only invite a client to do the
  * subtraction itself and disagree with the server about the answer.
  */
+/**
+ * Why Megu did not confirm this slip by itself.
+ *
+ * `assessSlip` has always computed this and `attachSlip` has always filed it on
+ * the `slip_attached` event — but it lived only in the audit trail, so the
+ * organizer's queue could say "waiting for your review" without saying what to
+ * review. A slip dated three months in the future rendered as two green chips
+ * and a grey date, next to a button that says "Got it".
+ *
+ * The newest reading wins: a payer whose slip was turned down can attach
+ * another, and the reasons for the one before it are history. Events arrive
+ * oldest-first (`ORDER BY created_at` in core), so the last one is current.
+ */
+function slipAssessment(payment) {
+	const readings = (payment.events || []).filter(event => event.type === 'slip_attached');
+	const latest = readings[readings.length - 1];
+	return {
+		slipReasons: latest?.metadata?.reasons || [],
+		slipFlags: latest?.metadata?.flags || [],
+	};
+}
+
 function pairLine(obligation) {
 	return {
 		debtorId: obligation.debtorId,
@@ -589,6 +611,8 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				slipReceiverName: p.slipReceiverName,
 				slipSenderAccountTail: p.slipSenderAccountTail,
 				slipReceiverAccountTail: p.slipReceiverAccountTail,
+				// Why Megu held it back, rather than only that it did.
+				...slipAssessment(p),
 				confirmationSource: p.confirmationSource,
 				verificationLevel: p.verificationLevel,
 				reversalReason: p.reversalReason,

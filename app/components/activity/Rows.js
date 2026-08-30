@@ -12,103 +12,49 @@ import { useCopy } from '../../copy';
 // can appear on the summary and the claim queue on the organizer's screen
 // without either screen carrying the other's code.
 
-export function PersonRow({ p, recurring, editing, canSeeMoney, moneyState, planState, totalOutstanding, payeeParticipantId, busy, call, requestAction }) {
-	const { t, fmt } = useCopy();
+/**
+ * Renaming and removing one person.
+ *
+ * This used to render the roster row as well, and `PersonAccount` in Ledger.js
+ * grew a second copy of the same figure logic for the organizer's screen — two
+ * places deciding what number goes next to a name, which is exactly how the two
+ * screens came to disagree about ฟิก. Display lives there now, for both
+ * screens; what is left here is the part that is genuinely a different job.
+ */
+export function PersonEditRow({ p, busy, call, requestAction }) {
+	const { t } = useCopy();
 	const [name, setName] = useState(p.displayName);
 
-	if (editing) {
-		return (
-			<div className="row row-editing">
-				<input
-					className="form-control inline-input"
-					value={name}
-					onChange={e => setName(e.target.value)}
-					onBlur={() => name.trim() && name !== p.displayName && call('PATCH', `/participants/${p.id}`, { displayName: name })}
-					aria-label={t.roster.nameOf(p.displayName)}
-				/>
-				<span className="row-tools">
-					{p.claimed && (
-						<button type="button" className="link-btn" disabled={busy} onClick={() => call('PATCH', `/participants/${p.id}`, { resetClaim: true })}>
-							{t.roster.returnName}
-						</button>
-					)}
-					<button
-						type="button"
-						className="link-btn danger"
-						disabled={busy}
-						onClick={() => requestAction({
-							title: t.common.remove,
-							message: t.roster.confirmRemove(p.displayName),
-							submitLabel: t.common.remove,
-							method: 'DELETE',
-							path: `/participants/${p.id}`,
-						})}
-					>
-						{t.common.remove}
-					</button>
-				</span>
-			</div>
-		);
-	}
-
-	// A monthly agreement has nowhere to go, so "going" is not a fact about
-	// anyone on it. What matters there is whether this month is paid.
-	const status = recurring
-		? (canSeeMoney && p.outstanding != null
-			? (moneyState === 'none' ? null : p.outstanding > 0 ? t.money.open : t.roster.clear)
-			: null)
-		: (planState === 'done' && p.attended != null
-			? (p.attended ? t.attendance.came : t.attendance.absent)
-			: p.rsvp === 'yes' ? t.roster.going : p.rsvp === 'no' ? t.roster.notGoing : t.roster.noAnswer);
-
-	// What this person is still owed by the rest of the roster.
-	//
-	// It used to be shown only for the activity's payee, using the group's whole
-	// unpaid total — which was the only shape the old model could express. On a
-	// trip where two people fronted cash that credited one of them with the
-	// other's money, and left the other looking square.
-	const owedToThem = (p.owedBy || []).reduce((sum, o) => sum + o.outstandingSatang, 0)
-		|| (p.id === payeeParticipantId ? totalOutstanding : 0);
-
-	let figure = null;
-	if (canSeeMoney && moneyState !== 'none' && p.outstanding != null) {
-		if (p.outstanding > 0) figure = { className: 'fig-due', label: fmt.money(p.outstanding) };
-		else if (moneyState === 'open' && owedToThem > 0) {
-			figure = { className: 'fig-credit', label: t.roster.getsBack(fmt.money(owedToThem)) };
-		}
-		else if (p.owes > 0 || p.paidOut > 0 || recurring) {
-			figure = { className: 'fig-clear', label: p.paidOut > 0 ? t.roster.clear : t.roster.paidUp };
-		}
-	}
-
 	return (
-		<div className={`row ${p.isMe ? 'is-me' : ''}`}>
-			<div className="row-main">
-				<div className="row-name">
-					{p.displayName}
-					{p.isMe && <span className="me-tag">{t.common.you}</span>}
-					{p.deferral && <span className="chip chip-due chip-sm">{t.defer.badge}</span>}
-				</div>
-				<div className="row-sub">
-					{[status, !p.isMe && !p.claimed ? t.roster.notLinked : null].filter(Boolean).join(' · ')}
-				</div>
-				{/* Why, in their own words. The whole reason the second button
-				    exists: an unpaid row with a sentence beside it is a
-				    situation, an unpaid row on its own is a mystery the
-				    organizer has to solve in the group chat. */}
-				{p.deferral && (
-					<div className="row-sub defer-reason">
-						{t.defer.reasonBy(p.displayName, p.deferral.reason)}
-						{' · '}
-						{t.defer.snoozedUntil(fmt.when(p.deferral.snoozeUntil, { time: false }))}
-					</div>
+		<div className="row row-editing">
+			<input
+				className="form-control inline-input"
+				value={name}
+				onChange={e => setName(e.target.value)}
+				onBlur={() => name.trim() && name !== p.displayName && call('PATCH', `/participants/${p.id}`, { displayName: name })}
+				aria-label={t.roster.nameOf(p.displayName)}
+			/>
+			<span className="row-tools">
+				{p.claimed && (
+					<button type="button" className="link-btn" disabled={busy} onClick={() => call('PATCH', `/participants/${p.id}`, { resetClaim: true })}>
+						{t.roster.returnName}
+					</button>
 				)}
-			</div>
-			{figure && (
-				<span className={`row-figure ${figure.className}`}>
-					{figure.label}
-				</span>
-			)}
+				<button
+					type="button"
+					className="link-btn danger"
+					disabled={busy}
+					onClick={() => requestAction({
+						title: t.common.remove,
+						message: t.roster.confirmRemove(p.displayName),
+						submitLabel: t.common.remove,
+						method: 'DELETE',
+						path: `/participants/${p.id}`,
+					})}
+				>
+					{t.common.remove}
+				</button>
+			</span>
 		</div>
 	);
 }
@@ -155,6 +101,21 @@ export function PendingRow({ p, code, nameOf, busy, call, lang, requestAction })
 
 	const mismatch = p.expectedSatang != null && p.expectedSatang !== p.amountSatang;
 
+	// What `SlipReading` below is measuring the slip against. Held here rather
+	// than inlined at the call site so the duplicate check underneath cannot
+	// disagree with the chip it is suppressing.
+	const expectedForSlip = p.expectedSatang ?? p.amountSatang;
+
+	// `SlipReading` already prints an amount mismatch in red — "the slip reads
+	// ฿120.00, but ฿549.50 was asked for" — whenever it could read an amount at
+	// all, which is the only circumstance in which `amount_mismatch` fires. So
+	// listing it again below says nothing new and pushes down the reason the
+	// owner has not already seen.
+	const readDiffersShown = p.slipAmountSatang != null
+		&& expectedForSlip != null
+		&& p.slipAmountSatang !== expectedForSlip;
+	const held = (p.slipReasons || []).filter(reason => !(readDiffersShown && reason === 'amount_mismatch'));
+
 	async function attach(slip) {
 		if (slip?.error || !slip?.dataUrl) return;
 		setAttaching(true);
@@ -182,7 +143,26 @@ export function PendingRow({ p, code, nameOf, busy, call, lang, requestAction })
 
 				{/* What the slip says, before it has to be opened. The whole
 				    point of reading it was to save the owner this trip. */}
-				{p.hasSlip && <SlipReading slip={p} expectedSatang={p.expectedSatang ?? p.amountSatang} />}
+				{p.hasSlip && <SlipReading slip={p} expectedSatang={expectedForSlip} />}
+
+				{/* And why it is still sitting here.
+				    Without this the queue said "waiting for owner review" and
+				    left the reader to spot the problem themselves — next to a
+				    green chip saying the amount matched, which is exactly the
+				    reassuring half of a slip dated three months in the future. */}
+				{p.hasSlip && held.length > 0 && (
+					<div className="slip-held">
+						<span className="slip-held-title">{t.slip.heldTitle}</span>
+						<ul>
+							{held.map(reason => (
+								<li key={reason}>{t.slip.held[reason] || reason}</li>
+							))}
+							{(p.slipFlags || []).map(flag => (
+								<li className="slip-held-flag" key={flag}>{t.slip.flags[flag] || flag}</li>
+							))}
+						</ul>
+					</div>
+				)}
 
 				{p.hasSlip && (
 					<div className="slip-review">

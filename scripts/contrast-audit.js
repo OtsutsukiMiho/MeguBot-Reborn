@@ -28,11 +28,19 @@ const PAIRS = [
 	['faint', 'surface', AA_LARGE, 'counts and captions on a panel'],
 	['accent', 'paper', AA_BODY, 'links and the current state'],
 	['accent', 'surface', AA_BODY, 'links on a panel'],
+	// Megu's own aside sits on this tint with her name in accent on top of it,
+	// and so does the incoming half of a two-way roster figure. The pair was in
+	// the stylesheet before it was in this table.
+	['accent', 'accent-soft', AA_BODY, 'accent text on its own tint'],
 	['gold', 'paper', AA_BODY, 'Megu name mark'],
 	['gold', 'surface', AA_BODY, 'Megu name mark on a panel'],
 	['due', 'paper', AA_BODY, 'amounts owed'],
 	['due', 'surface', AA_BODY, 'amounts owed on a panel'],
 	['due', 'due-soft', AA_BODY, 'error text on its own tint'],
+	// The block that says why a slip is still waiting: a heading in --due over
+	// a list of reasons in body ink, and a quieter note under it.
+	['ink-2', 'due-soft', AA_BODY, 'reasons a slip was held, on the warning tint'],
+	['muted', 'due-soft', AA_BODY, 'the quieter note under them'],
 	['settled', 'paper', AA_BODY, 'settled amounts'],
 	['settled', 'surface', AA_BODY, 'settled amounts on a panel'],
 	['settled', 'settled-soft', AA_BODY, 'settled text on its own tint'],

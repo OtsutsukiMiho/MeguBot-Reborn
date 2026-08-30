@@ -510,7 +510,6 @@ const th = {
 	},
 
 	owner: {
-		title: 'ตัวจัดการ',
 		findTime: 'ให้ Megu หาเวลาที่ตรงกัน',
 		proposeAgain: 'เสนอเวลาใหม่',
 		confirmTime: 'ยืนยันวันเวลา',
@@ -523,9 +522,54 @@ const th = {
 		payBySave: 'บันทึกวันจ่าย',
 		payByClear: 'เอาออก',
 		addExpense: 'เพิ่มค่าใช้จ่าย',
+		typeItIn: 'หรือพิมพ์เอง',
 		addAndSplit: 'เพิ่มแล้วหารให้เลย',
+		planTitle: 'สถานะของกิจกรรม',
+		planNothing: 'ไม่มีอะไรต้องเปลี่ยนแล้ว',
 		cancelActivity: 'ยกเลิกกิจกรรม',
 		confirmCancel: 'ยกเลิกกิจกรรมนี้?',
+		cancelHint: 'Megu จะหยุดเตือนและปิดกิจกรรม ไม่มีอะไรถูกลบ ทุกคนยังเห็นประวัติการจ่ายเหมือนเดิม และเปิดใหม่ได้ทีหลัง',
+	},
+
+	console: {
+		tabs: {
+			people: 'คน',
+			costs: 'ค่าใช้จ่าย',
+			payments: 'การจ่าย',
+			payout: 'ช่องทางรับเงิน',
+			settings: 'ตั้งค่า',
+		},
+		outstanding: 'ยังค้างอยู่',
+		waiting: 'รอคุณตรวจ',
+		settled: 'เคลียร์ครบแล้ว',
+		payBy: when => `กำหนด ${when}`,
+		noMoneyYet: 'ยังไม่มีอะไรต้องเก็บ',
+		noPaymentRecords: 'ยังไม่มีรายการจ่าย และตอนนี้ไม่มีใครค้างให้บันทึกด้วย',
+	},
+
+	ledger: {
+		open: 'ดูรายละเอียด',
+		close: 'ปิด',
+		sends: (name, amount) => `ส่งให้${name} ${amount}`,
+		receives: (name, amount) => `รับจาก${name} ${amount}`,
+		sendsShort: name => `ให้${name}`,
+		receivesShort: name => `จาก${name}`,
+		bothWays: 'มีทั้งต้องจ่ายและต้องรับ',
+		outLeg: 'ส่ง',
+		inLeg: 'รับ',
+		share: 'ส่วนแบ่งที่ต้องจ่าย',
+		fronted: 'ออกเงินไปก่อน',
+		confirmed: 'ยืนยันแล้ว',
+		awaiting: 'รอยืนยัน',
+		overpaid: 'จ่ายเกิน',
+		toSend: 'ยังต้องส่ง',
+		toReceive: 'ยังต้องได้รับ',
+		inCosts: 'ร่วมจ่ายรายการ',
+		noCosts: 'ยังไม่ได้อยู่ในรายการไหน',
+		paymentsTitle: 'การจ่ายของคนนี้',
+		noPayments: 'ยังไม่มีการจ่าย',
+		estimated: 'ตัวเลขนี้ประมาณจากรายการจ่ายเก่าที่ยังไม่ได้บันทึกว่าโอนให้ใคร',
+		nothingOwed: 'ไม่มีค้างทั้งสองทาง',
 	},
 
 	invite: {
@@ -653,6 +697,20 @@ const th = {
 		readAmount: amount => `ในสลิปอ่านได้ ${amount}`,
 		readDiffers: (read, expected) => `ในสลิปอ่านได้ ${read} แต่ยอดที่ขอไปคือ ${expected}`,
 		readNote: 'อ่านจากรูป ไม่ได้เช็คกับธนาคาร ดูอีกรอบก่อนกดยืนยัน',
+		heldTitle: 'Megu ยังไม่ยืนยันให้ เพราะ:',
+		held: {
+			reference_missing: 'ไม่พบเลขอ้างอิงธนาคารในรูป อาจไม่ใช่สลิปโอนเงิน',
+			amount_unreadable: 'อ่านยอดเงินจากรูปไม่ออก',
+			amount_mismatch: 'ยอดในสลิปไม่ตรงกับยอดที่เรียกเก็บ',
+			receiver_not_configured: 'ยังไม่ได้ตั้งช่องทางรับเงิน เลยไม่มีชื่อให้เทียบว่าโอนถูกคนไหม',
+			receiver_unreadable: 'อ่านไม่ออกว่าโอนเข้าบัญชีใคร',
+			receiver_mismatch: 'ชื่อผู้รับในสลิปไม่ตรงกับบัญชีที่คุณตั้งไว้',
+			time_unreadable: 'อ่านวันเวลาจากรูปไม่ออก',
+			time_in_future: 'สลิปลงวันที่ล่วงหน้า',
+		},
+		flags: {
+			uploaded_late: 'ส่งมาหลังวันที่บนสลิปเกินหนึ่งเดือน',
+		},
 	},
 
 	receiptPage: {

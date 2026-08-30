@@ -4090,3 +4090,713 @@ textarea.form-control {
 .split-unbalanced {
 	color: var(--due);
 }
+
+/* ============================================ the organizer's console ==== */
+/*
+   /a/{code}/manage was one scroll holding every job an organizer has: the
+   roster, the costs, three payment panels, the payout details, the schedule,
+   the receipt scanner and the button that cancels the activity. Measured on a
+   three-person trip — 2.75 screens on a desktop, 4.7 on a phone. The rail down
+   the right was a single 2,200px panel with one heading and eleven field
+   labels in it, so nothing in it had a rank.
+
+   It is a tabbed console now. What follows is the chrome for that, and the
+   per-person account rows that replaced a netted figure nobody could act on.
+*/
+
+/* The focus screens were relying on nothing at all: `.focus-screen` was in the
+   markup of five screens and in the stylesheet of none, so their sections
+   stacked with whatever margins they happened to bring. */
+.focus-screen {
+	display: flex;
+	flex-direction: column;
+	gap: 1.4rem;
+	padding-bottom: 5rem;
+	/* One task, one column. These screens carry a QR capped at 248px, a short
+	   form, or a receipt — none of it wants the full 1,060px the container
+	   allows, and a payment amount stretched across a desktop window is harder
+	   to read than the same amount in a column. */
+	max-width: 46rem;
+	margin-inline: auto;
+	width: 100%;
+}
+
+/* The organizer's console is the exception: five tabs of tables and forms, and
+   the roster reads by running an eye down a figure column that a narrow measure
+   would crowd. Both classes were in the markup from the start and did nothing,
+   because neither was ever written. */
+.focus-screen-wide {
+	max-width: none;
+}
+
+/* ------------------------------------------------------------ status strip */
+
+.console-status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: .6rem 1.8rem;
+	padding: .85rem 1.1rem;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	box-shadow: inset 0 1px 0 var(--sheen);
+}
+
+.console-stat {
+	display: inline-flex;
+	align-items: baseline;
+	gap: .5rem;
+	font-size: .95rem;
+	color: var(--ink-2);
+}
+
+.console-stat-label {
+	font-size: .84rem;
+	color: var(--faint);
+}
+
+.console-stat strong {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-weight: var(--w-heavy);
+	font-size: 1.05rem;
+}
+
+/* --------------------------------------------------------------- tab strip */
+
+.console-tabs {
+	display: flex;
+	gap: .2rem;
+	padding: .35rem;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+/* A tab is a scroll target on a phone, so it must not shrink to fit. */
+.console-tabs .tab-btn {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: .45rem;
+}
+
+.tab-count {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: .75rem;
+	color: var(--faint);
+	background: var(--sunk);
+	border-radius: 99px;
+	padding: .05rem .4rem;
+}
+
+.tab-btn.active .tab-count {
+	color: var(--ink-2);
+}
+
+.console-body {
+	display: flex;
+	flex-direction: column;
+	gap: 1.4rem;
+}
+
+/* The claim queue, which sits above the tabs because it is the job. Marked
+   rather than merely present: it is the one panel here that is waiting on a
+   decision. */
+.panel-attention {
+	border-color: color-mix(in srgb, var(--due) 40%, var(--line));
+}
+
+/* ------------------------------------------------------- a person's account */
+
+.account-row.is-open {
+	background: var(--sunk);
+	border-radius: var(--r-sm);
+	padding-left: .7rem;
+	padding-right: .7rem;
+	margin-left: -.7rem;
+	margin-right: -.7rem;
+}
+
+/* Named transfers, printed when a single figure cannot say it: two creditors,
+   two debtors, or somebody who is both. */
+.transfer-lines {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .3rem .8rem;
+	margin-top: .35rem;
+}
+
+.transfer {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: .82rem;
+	padding: .1rem .5rem;
+	border-radius: var(--r-sm);
+	white-space: nowrap;
+}
+
+.transfer-out {
+	color: var(--due);
+	background: var(--due-soft);
+}
+
+/* Money coming to this person. Accent, not the settled green: the roster uses
+   three colours for three different states, and green already means "nothing
+   outstanding either way". A credit is not a settlement — it is a transfer that
+   has not happened yet, pointing the other way.
+
+     --due      money this person must send
+     --accent   money coming to this person
+     --settled  nothing outstanding in either direction
+
+   This chip was green while the figure beside it was accent, which is how the
+   same ฿100 came to be two colours in one row. */
+.transfer-in {
+	color: var(--accent);
+	background: var(--accent-soft);
+}
+
+.account-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	margin-top: .8rem;
+	padding-top: .8rem;
+	border-top: 1px solid var(--line);
+}
+
+.account-figures {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+	gap: .55rem 1.2rem;
+	margin: 0;
+}
+
+.account-figure {
+	display: flex;
+	flex-direction: column;
+	gap: .1rem;
+}
+
+.account-figure dt {
+	font-size: .8rem;
+	color: var(--faint);
+}
+
+.account-figure dd {
+	margin: 0;
+	font-size: .98rem;
+	font-weight: var(--w-strong);
+	color: var(--ink-2);
+}
+
+.account-list {
+	display: flex;
+	flex-direction: column;
+	gap: .2rem;
+}
+
+.account-line {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	font-size: .9rem;
+	color: var(--ink-2);
+	padding: .18rem 0;
+}
+
+/* `mono` was only ever defined inside two other selectors, so anything else
+   asking for it silently got the body face. */
+.mono {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+.chip-sm {
+	font-size: .74rem;
+	padding: .1rem .5rem;
+}
+
+/* ---------------------------------------------------------- the danger zone */
+
+/* Cancelling used to be a link directly beneath the submit button of the
+   expense form. Its own bordered block, on the settings tab, is the least that
+   deserves. */
+.danger-zone {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .5rem;
+	padding: 1.15rem 1.3rem 1.25rem;
+	border: 1px solid color-mix(in srgb, var(--due) 35%, var(--line));
+	border-radius: var(--r);
+	background: color-mix(in srgb, var(--due-soft) 55%, var(--surface));
+}
+
+.danger-zone .field-label {
+	color: var(--due);
+}
+
+.stack-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 1.4rem;
+}
+
+/* An open account is a tall row, and `.row` centres its figure against the
+   whole of it — which floated the amount and the close button down beside the
+   breakdown instead of the name they belong to. */
+.account-row.is-open {
+	align-items: flex-start;
+}
+
+.account-row.is-open .row-figure,
+.account-row.is-open .row-tools {
+	margin-top: .1rem;
+}
+
+/* --------------------------------------------------------- nothing to do */
+
+/* Five screens end on one of these: you are not the organizer, you are paid
+   up, there is nothing to answer, no payment has been recorded. Every one is a
+   sentence and a way back, and `settled-note` was in all five and in the
+   stylesheet in none of them — so the button sat flush against the sentence
+   with no gap and no rank.
+
+   Centred, because there is nothing to scan here and a left edge implies a
+   list continues below it. */
+.settled-note {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1rem;
+	padding: 2.4rem 1.5rem;
+	text-align: center;
+}
+
+.settled-note p {
+	max-width: 40ch;
+	color: var(--muted);
+	margin: 0;
+}
+
+.settled-note .btn {
+	flex: none;
+}
+
+/* The one tab that can be waiting on a decision. The console opens here when
+   it is, so this is a reminder rather than the only signal — but a queue
+   counted in the same grey as a records count reads as reassurance. */
+.tab-btn.has-attention .tab-count {
+	color: var(--due);
+	background: var(--due-soft);
+}
+
+/* A name with badges after it. `.row-name` truncates its whole contents, which
+   on a phone meant the name lost characters while the chip that crowded it
+   stayed intact — so the name gets its own box to be truncated in. */
+.account-row .row-name {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .1rem .4rem;
+	overflow: visible;
+}
+
+.account-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* On a narrow screen the figure and the breakdown button stop competing with
+   the name for the same line and take one of their own. `row-figure` will not
+   wrap its own text, so without this the name is what gives way. */
+@media (max-width: 560px) {
+	.account-row {
+		flex-wrap: wrap;
+		row-gap: .5rem;
+	}
+
+	.account-row .row-main {
+		flex-basis: 100%;
+	}
+
+	.account-row .row-tools {
+		margin-left: auto;
+	}
+}
+
+/* ================================================ the activity summary ==== */
+/*
+   Every class below was in the summary's markup and in none of this
+   stylesheet: `.statement`, `.megu-aside`, `.ledger`, `.ledger-head`,
+   `.aside-block`, `.next-step` and the statement's own parts. The page held
+   together only on the primitives its rows happened to share — `.row`, `.chip`,
+   `.btn` — so a reader got a run of unframed text blocks with no way to tell
+   where one section ended and the next began.
+
+   The comment in the page calls the roster "a statement table, not a card",
+   and the hairlines and the single right-hand figure axis are what make that
+   true. Those come from `.row`. A frame around the table does not take them
+   away; it says where the table starts.
+*/
+
+.statement,
+.next-step,
+.ledger,
+.aside-block {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	box-shadow:
+		inset 0 1px 0 var(--sheen),
+		0 1px 2px color-mix(in srgb, var(--shadow) 5%, transparent),
+		0 14px 30px -24px color-mix(in srgb, var(--shadow) 45%, transparent);
+}
+
+.ledger,
+.aside-block {
+	padding: 1.15rem 1.3rem 1.25rem;
+}
+
+.ledger-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: .5rem;
+}
+
+.ledger-head h2,
+.aside-block h2 {
+	font-family: var(--font-display);
+	font-size: 1.18rem;
+	font-weight: var(--w-heavy);
+	letter-spacing: -.02em;
+	color: var(--ink);
+	margin: 0;
+}
+
+/* ------------------------------------------------------ your turn, once */
+
+/* The one card on the page that is about the reader. It gets more room than
+   the sections around it because it is the answer to the question they opened
+   the page with. */
+.statement,
+.next-step {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .45rem;
+	padding: 1.5rem 1.6rem 1.6rem;
+}
+
+.statement-label {
+	font-size: .86rem;
+	color: var(--faint);
+}
+
+.statement-figure {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: clamp(2rem, 6vw, 2.7rem);
+	font-weight: var(--w-heavy);
+	line-height: 1.05;
+	color: var(--ink);
+	letter-spacing: -.02em;
+}
+
+.statement-line {
+	font-size: 1.1rem;
+	font-weight: var(--w-strong);
+	color: var(--ink);
+}
+
+/* Nothing needs you. Said plainly, and not dressed up as an alert. */
+.statement-line.is-quiet {
+	font-weight: var(--w-medium);
+	color: var(--muted);
+}
+
+.statement-note {
+	font-size: .9rem;
+	color: var(--muted);
+	margin: 0;
+	max-width: 48ch;
+}
+
+.statement-actions {
+	margin-top: .55rem;
+}
+
+.next-step h2 {
+	font-family: var(--font-display);
+	font-size: 1.18rem;
+	font-weight: var(--w-heavy);
+	letter-spacing: -.02em;
+	color: var(--ink);
+	margin: 0;
+}
+
+/* -------------------------------------------------------- Megu speaking */
+
+/* Not a panel. Megu is a voice commenting on the state, and giving her the
+   same cream rectangle as the roster is what made the top of this page read as
+   one undifferentiated block of text. */
+.megu-aside {
+	display: flex;
+	align-items: flex-start;
+	gap: .9rem;
+	padding: .95rem 1.15rem;
+	background: var(--accent-soft);
+	border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+	border-radius: var(--r);
+}
+
+.megu-aside .who {
+	display: block;
+	font-size: .82rem;
+	font-weight: var(--w-strong);
+	color: var(--accent);
+	margin-bottom: .1rem;
+}
+
+.megu-aside p {
+	margin: 0;
+	color: var(--ink-2);
+	line-height: 1.5;
+}
+
+/* ---------------------------------------------- both directions at once */
+
+/* Somebody who owes and is owed. One figure could only ever be half true, and
+   the half that got printed was the debt. */
+.row-figure.figure-both {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: .1rem;
+}
+
+.figure-leg {
+	display: inline-flex;
+	align-items: baseline;
+	gap: .45rem;
+	white-space: nowrap;
+}
+
+.figure-leg-label {
+	/* The body face, not the mono one `.row-figure` sets: this is a word,
+	   and it should not be competing with the figure for tabular weight. */
+	font-family: var(--font-body);
+	font-size: .72rem;
+	font-weight: var(--w-medium);
+	color: var(--faint);
+}
+
+/* --------------------------------------------------------- deferred, why */
+
+.defer-reason {
+	color: var(--muted);
+	border-left: 2px solid color-mix(in srgb, var(--due) 45%, transparent);
+	padding-left: .55rem;
+	margin-top: .25rem;
+}
+
+/* The two legs already have a line of their own on a phone, where the figure
+   drops below the name. Stacking them again inside it spends four lines on two
+   numbers. */
+@media (max-width: 560px) {
+	.row-figure.figure-both {
+		flex-direction: row;
+		align-items: baseline;
+		gap: 1.1rem;
+	}
+}
+
+/* ================================================ focus screen headers ==== */
+/*
+   `.screen-head`, `.back-link` and `.screen-sub` are the header of every focus
+   screen — pay, answer, receipt, the organizer's console — and none of the
+   three was ever written. What shipped was an unpadded block sitting flush
+   against the bottom of the fixed navbar, with the way back rendered as a
+   text link the same weight as every other link on the page.
+
+   `.page-head` on the summary already opens with 2.6rem of air. This is the
+   same idea for the screens that also carry a way back out.
+*/
+
+.screen-head {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .3rem;
+	padding-top: 2.2rem;
+	padding-bottom: 1.15rem;
+	/* The title block is a section, not a run of loose lines above the first
+	   card. One hairline is enough to say where it ends. */
+	border-bottom: 1px solid var(--line);
+}
+
+.screen-head h1 {
+	font-size: clamp(1.6rem, 4vw, 2.25rem);
+	margin: 0;
+}
+
+.screen-sub {
+	margin: 0;
+	font-size: 1rem;
+	color: var(--muted);
+}
+
+/* Leaving a screen is a real action and gets a real target: a control you can
+   see the edges of, and one a thumb can hit. It carried `.link-btn`, which is
+   deliberately a text link — 0.15rem of padding and an underline on hover. */
+.back-link {
+	display: inline-flex;
+	align-items: center;
+	gap: .3rem;
+	min-height: 2.25rem;
+	padding: .3rem .85rem .3rem .6rem;
+	margin-bottom: .85rem;
+	font-size: .9rem;
+	font-weight: var(--w-medium);
+	color: var(--ink-2);
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 99px;
+	box-shadow: inset 0 1px 0 var(--sheen);
+	transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
+}
+
+.back-link:hover:not(:disabled) {
+	background: var(--sunk);
+	border-color: var(--line-2);
+	color: var(--ink);
+	/* No underline: it is a button now, and buttons do not underline. */
+	text-decoration: none;
+}
+
+.back-link svg {
+	flex: none;
+}
+
+/* ------------------------------------------- the rest of the unstyled set */
+/*
+   Eight more classes that were in the markup and not in here. None of them was
+   visibly broken enough to report, which is how they survived — each one was
+   simply inheriting whatever its parent happened to give it.
+*/
+
+/* Generic stacks. `.stack-lg` existed; these two were used as though they did. */
+.stack-md {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.stack-sm {
+	display: flex;
+	flex-direction: column;
+	gap: .55rem;
+}
+
+/* A checkbox and its label, on one line, both clickable. */
+.check-row {
+	display: flex;
+	align-items: center;
+	gap: .55rem;
+	cursor: pointer;
+	font-size: .93rem;
+	color: var(--ink-2);
+}
+
+.check-row input {
+	flex: none;
+	width: 1rem;
+	height: 1rem;
+	cursor: pointer;
+}
+
+/* The line under the hero buttons that says nobody has to sign up. It sits on
+   the dark band, so it takes the band's own muted token rather than the page's
+   — the page tokens say nothing about what is readable on a band. */
+.hero-note {
+	margin: 0;
+	font-size: .92rem;
+	color: var(--band-dim);
+	max-width: 46ch;
+}
+
+/* The body of the payment-method preview card. */
+.method-preview-body {
+	display: flex;
+	flex-direction: column;
+	gap: .15rem;
+}
+
+/* "Pay later, and say why" — a quiet way out of the pay screen that must not
+   compete with the button above it. */
+.pay-defer {
+	align-self: flex-start;
+	margin-top: .2rem;
+}
+
+.pay-defer-note {
+	margin: .4rem 0 0;
+	align-self: flex-start;
+}
+
+/* Whatever the organizer typed for this payment option. Written as free text in
+   a textarea, so the line breaks they put in are meaningful. */
+.payment-instructions {
+	margin: 0;
+	white-space: pre-wrap;
+	line-height: 1.55;
+}
+
+/* ------------------------------------------------- why a slip is waiting */
+
+/* The queue always said a slip was waiting for review. It never said what to
+   look at, so a slip dated three months ahead arrived as a green "amount
+   matches" chip, a grey date, and a button reading "Got it". */
+.slip-held {
+	margin-top: .45rem;
+	padding: .5rem .7rem;
+	background: var(--due-soft);
+	border: 1px solid color-mix(in srgb, var(--due) 28%, transparent);
+	border-radius: var(--r-sm);
+}
+
+.slip-held-title {
+	display: block;
+	font-size: .8rem;
+	font-weight: var(--w-strong);
+	color: var(--due);
+	margin-bottom: .15rem;
+}
+
+.slip-held ul {
+	margin: 0;
+	padding-left: 1.05rem;
+	list-style: disc;
+}
+
+.slip-held li {
+	font-size: .86rem;
+	line-height: 1.45;
+	color: var(--ink-2);
+}
+
+/* Not a reason to hold it — a note about it. Said quieter than the reasons
+   above, because on its own it never stopped anything. */
+.slip-held-flag {
+	color: var(--muted);
+}

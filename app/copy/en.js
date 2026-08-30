@@ -514,7 +514,6 @@ const en = {
 	},
 
 	owner: {
-		title: 'Organizer tools',
 		findTime: 'Have Megu find a time that works',
 		proposeAgain: 'Propose different times',
 		confirmTime: 'Confirm the date and time',
@@ -527,9 +526,78 @@ const en = {
 		payBySave: 'Save deadline',
 		payByClear: 'Clear',
 		addExpense: 'Add a cost',
+		typeItIn: 'Or type it in',
 		addAndSplit: 'Add it and split it',
+		planTitle: 'Where this activity is up to',
+		planNothing: 'Nothing left to change here.',
 		cancelActivity: 'Cancel this activity',
 		confirmCancel: 'Cancel this activity?',
+		// What it actually does, said before the button rather than after it:
+		// `plan_state = 'cancelled'` stamps `closed_at`, drops the activity out
+		// of both reminder queries, and can be undone by reopening it. No row
+		// is removed, so nobody loses their record of what they paid.
+		cancelHint: 'Reminders stop and the activity closes. Nothing is deleted — everyone keeps their record of what was paid, and you can reopen it later.',
+	},
+
+	// ── the organizer's console ─────────────────────────────────────────────
+	//
+	// One screen used to hold every organizer job in one scroll: the roster,
+	// the costs, three separate payment panels, the payout details, the
+	// schedule, the receipt scanner and the button that cancels the activity —
+	// 4.7 phone screens of it, with the scanner three screens down. These are
+	// the names of the jobs, now that each one has a place of its own.
+	console: {
+		tabs: {
+			people: 'People',
+			costs: 'Costs',
+			payments: 'Payments',
+			payout: 'Getting paid',
+			settings: 'Settings',
+		},
+		// The strip under the title. It replaces a count of who had answered an
+		// RSVP, which was printed on the settings panel and measured nothing
+		// anybody had come here to find out.
+		outstanding: 'Still owed',
+		waiting: 'Waiting on you',
+		settled: 'All settled',
+		payBy: when => `Due ${when}`,
+		noMoneyYet: 'Nothing to collect yet',
+		noPaymentRecords: 'No payments recorded yet, and nobody has an amount outstanding to record one against.',
+	},
+
+	// ── one person's side of it ─────────────────────────────────────────────
+	//
+	// The roster used to print one number per person, and that number was a
+	// net: somebody who owed ฿550 and was owed ฿100 showed as ฿450, which is an
+	// amount nobody will ever transfer. Both directions are printed now, as the
+	// transfers they actually are.
+	ledger: {
+		open: 'Breakdown',
+		close: 'Close',
+		sends: (name, amount) => `Sends ${name} ${amount}`,
+		receives: (name, amount) => `Gets ${amount} from ${name}`,
+		sendsShort: name => `to ${name}`,
+		receivesShort: name => `from ${name}`,
+		bothWays: 'Owes and is owed',
+		// Leg labels for a row that points both ways. The figure column used to
+		// show that person one red number — what they send — and the money coming
+		// back was a chip underneath, which reads as a footnote to a debt rather
+		// than as half of the answer.
+		outLeg: 'Sends',
+		inLeg: 'Gets',
+		share: 'Their share',
+		fronted: 'Paid up front',
+		confirmed: 'Confirmed paid',
+		awaiting: 'Waiting to be confirmed',
+		overpaid: 'Overpaid',
+		toSend: 'Still to send',
+		toReceive: 'Still to receive',
+		inCosts: 'Costs they are in',
+		noCosts: 'Not in any cost yet',
+		paymentsTitle: 'Their payments',
+		noPayments: 'No payments yet',
+		estimated: 'Reconstructed from payments recorded before Megu tracked who they were sent to.',
+		nothingOwed: 'Nothing owed either way',
 	},
 
 	invite: {
@@ -667,6 +735,27 @@ const en = {
 		readAmount: amount => `The slip reads ${amount}`,
 		readDiffers: (read, expected) => `The slip reads ${read}, but ${expected} was asked for`,
 		readNote: 'Read from the picture, not from a bank. Worth a look before you confirm.',
+		// Why Megu stopped short of confirming it by itself.
+		//
+		// Each one names the thing to look at, because the reader is about to
+		// press a button that says the money arrived. "receiver_mismatch" is a
+		// label for a log; "the name on the slip is not the account you set up"
+		// is something an organizer can act on without knowing how any of this
+		// works.
+		heldTitle: 'Megu did not confirm this one:',
+		held: {
+			reference_missing: 'No bank reference in the picture — it may not be a transfer slip.',
+			amount_unreadable: 'Could not read an amount off the picture.',
+			amount_mismatch: 'The amount on the slip is not the amount asked for.',
+			receiver_not_configured: 'No payout account is set up yet, so there was nothing to check the receiver against.',
+			receiver_unreadable: 'Could not read who the money went to.',
+			receiver_mismatch: 'The name on the slip is not the account you set up.',
+			time_unreadable: 'Could not read a date and time.',
+			time_in_future: 'The slip is dated in the future.',
+		},
+		flags: {
+			uploaded_late: 'Sent more than a month after the transfer is dated.',
+		},
 	},
 
 	// The record of one payment. Kept apart from `receipt`, which is about
