@@ -961,7 +961,10 @@ function router(deps = {}) {
 				title,
 				kind,
 				location: location || null,
-				startsAt: startsAt ? new Date(startsAt) : null,
+				// As sent, for the same reason as the PATCH below: core reads a
+				// bare wall clock as Bangkok, and resolving it here would do it
+				// against the server's timezone instead.
+				startsAt: startsAt || null,
 				currency,
 				guildId: guildId || null,
 				channelId: channelId || null,
@@ -997,7 +1000,7 @@ function router(deps = {}) {
 			res.status(201).json({ activity: serializeActivity(full, req.actor) });
 		}
 		catch (error) {
-			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid'].includes(error.code || error.message)) {
+			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid', 'starts_at_invalid'].includes(error.code || error.message)) {
 				return fail(res, 400, error.code || error.message);
 			}
 			next(error);
@@ -1690,7 +1693,11 @@ function router(deps = {}) {
 			await activities.updateActivity(activity.id, {
 				title: req.body?.title,
 				location: req.body?.location,
-				startsAt: req.body?.startsAt ? new Date(req.body.startsAt) : undefined,
+				// Handed over as sent. Core reads a bare wall clock as Bangkok;
+				// parsing it here with `new Date` would resolve it against the
+				// server's timezone first and hand core an instant that is
+				// already seven hours wrong.
+				startsAt: req.body?.startsAt ? req.body.startsAt : undefined,
 				dueDay: req.body?.dueDay,
 				// `null` clears the deadline and `undefined` leaves it alone, so
 				// the two must stay distinguishable all the way down.
@@ -1701,6 +1708,7 @@ function router(deps = {}) {
 		}
 		catch (error) {
 			if ((error.code || error.message) === 'payment_due_at_invalid') return fail(res, 400, 'payment_due_at_invalid');
+			if ((error.code || error.message) === 'starts_at_invalid') return fail(res, 400, 'starts_at_invalid');
 			next(error);
 		}
 	});

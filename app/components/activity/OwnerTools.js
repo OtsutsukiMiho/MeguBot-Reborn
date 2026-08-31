@@ -59,6 +59,69 @@ export function PaymentDeadline({ activity, busy, call }) {
 }
 
 /**
+ * When the thing happens.
+ *
+ * `PATCH /a/{code}` has accepted `startsAt` all along and nothing in the web
+ * app ever sent it, so an activity created without a time could not be given
+ * one — not here, and not on the summary, which answered "what should I do?"
+ * with "nothing needs you right now" while the one thing that needed doing had
+ * no control anywhere.
+ *
+ * Sent as the browser's bare `datetime-local` string. Core reads a bare wall
+ * clock as Bangkok, the same way it already does for the payment deadline, so
+ * what the organizer typed is what the group is told regardless of where the
+ * server happens to be running.
+ */
+export function ActivityTime({ activity, busy, call }) {
+	const { t } = useCopy();
+	const current = activity.startsAt ? bangkokDateTimeInput(activity.startsAt) : '';
+	const [value, setValue] = useState(current);
+
+	useEffect(() => { setValue(current); }, [current]);
+
+	return (
+		<div>
+			<span className="field-label">{t.owner.startsAtLabel}</span>
+			<div className="share-row" style={{ marginTop: '.35rem' }}>
+				<input
+					type="datetime-local"
+					className="form-control"
+					value={value}
+					onChange={event => setValue(event.target.value)}
+					aria-label={t.owner.startsAtLabel}
+				/>
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm"
+					disabled={busy || !value || value === current}
+					onClick={() => call('PATCH', '', { startsAt: value })}
+				>
+					{t.owner.startsAtSave}
+				</button>
+			</div>
+			<p className="field-hint">{activity.startsAt ? t.owner.startsAtHint : t.owner.startsAtMissing}</p>
+		</div>
+	);
+}
+
+/**
+ * A timestamp as the wall clock it shows in Bangkok, for an input that has no
+ * timezone of its own. Reading it back with the browser's zone would offer an
+ * organizer in another country a different hour than the one their group was
+ * told.
+ */
+function bangkokDateTimeInput(value) {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return '';
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone: 'Asia/Bangkok',
+		year: 'numeric', month: '2-digit', day: '2-digit',
+		hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+	}).formatToParts(date).reduce((out, part) => ({ ...out, [part.type]: part.value }), {});
+	return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+/**
  * A timestamp as the calendar day it falls on in Bangkok, which is the day the
  * organizer chose. Reading it back with the browser's own timezone would show
  * the 20th to anyone sitting west of here.
@@ -262,17 +325,34 @@ export function PlanControls({ activity, busy, call }) {
 		cancelled: null,
 	}[activity.planState];
 
-	// A finished or cancelled one-off has no next state and no poll to reopen,
+	// While the plan is open, times can be proposed — that is what "open" means.
+	//
+	// This used to read `&& activity.poll`, which is a condition that can never
+	// be satisfied by the thing it guards: `ProposeSlots` is what *creates* a
+	// poll, so requiring one first meant the only way to reach it was to
+	// already have been somewhere else that offered it. The label underneath
+	// gives the game away — `activity.poll ? proposeAgain : findTime` — because
+	// `findTime` could not render under a condition that demanded a poll.
+	const proposing = !recurring && activity.planState === 'open';
+
+	// A finished or cancelled one-off has no next state and nothing to propose,
 	// so every branch below draws nothing. Say so rather than leaving a headed
 	// panel with an empty body under it.
-	const proposing = !recurring && activity.planState === 'open' && activity.poll;
 	if (!recurring && !proposing && !nextPlan) {
 		return <p className="quiet-note">{t.owner.planNothing}</p>;
 	}
 
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-			{!recurring && activity.planState === 'open' && activity.poll && (
+			{/* Typing the time you already agreed on, above asking Megu to find
+			    one. Most activities have a time before they have a page; the
+			    poll is for the ones that do not, and it was the only option on
+			    offer here. */}
+			{!recurring && activity.planState === 'open' && (
+				<ActivityTime activity={activity} busy={busy} call={call} />
+			)}
+
+			{proposing && (
 				<div>
 					<span className="field-label">{activity.poll ? t.owner.proposeAgain : t.owner.findTime}</span>
 					<ProposeSlots busy={busy} call={call} />

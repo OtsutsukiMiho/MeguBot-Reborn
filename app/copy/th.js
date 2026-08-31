@@ -148,6 +148,7 @@ const th = {
 		defer_reason_required: 'บอกเหตุผลสั้น ๆ สักหน่อยนะ',
 		defer_reason_too_long: 'เหตุผลยาวได้ไม่เกิน 200 ตัวอักษร',
 		payment_due_at_invalid: 'วันครบกำหนดจ่ายไม่ถูกต้อง',
+		starts_at_invalid: 'วันเวลาไม่ถูกต้อง',
 		period_not_in_activity: 'ไม่พบรอบที่เลือกในกิจกรรมนี้',
 		payment_option_invalid: 'ตรวจสอบช่องทางการจ่ายเงินแล้วลองอีกครั้ง',
 		payment_link_invalid: 'กรุณาใส่ลิงก์ชำระเงินแบบ http หรือ https ที่ถูกต้อง',
@@ -410,6 +411,9 @@ const th = {
 		review: n => `มี ${n} รายการรอคุณตรวจ`,
 		reviewAction: 'ไปตรวจ',
 		clear: 'ตอนนี้ยังไม่มีอะไรต้องทำ',
+		setTime: 'กิจกรรมนี้ยังไม่มีเวลา ตราบใดที่ยังไม่มี ไม่มีใครตอบได้',
+		setTimeAction: 'ตั้งเวลา',
+		waitingForTime: 'รอเจ้าของกิจกรรมเลือกเวลาอยู่',
 	},
 
 	schedule: {
@@ -529,6 +533,10 @@ const th = {
 		monthAlreadyOpen: period => `เปิดรอบ${period}ไปแล้ว`,
 		monthOpened: period => `เปิดรอบ${period}แล้ว`,
 		payByLabel: 'กำหนดวันที่ต้องจ่าย',
+		startsAtLabel: 'วันเวลาที่นัด',
+		startsAtSave: 'บันทึกเวลา',
+		startsAtHint: 'ทุกคนจะเห็นเวลานี้ในหน้ากิจกรรม และ Megu จะเตือนตามนี้',
+		startsAtMissing: 'ยังไม่ได้ตั้งเวลา — ตราบใดที่ยังไม่มี ไม่มีใครตอบได้ว่าจะไปหรือไม่ไป',
 		payByHint: 'พอถึงวันนั้น Megu จะเตือนคนที่ยังไม่จ่ายให้เอง ทั้งใน Discord และอีเมล ตามที่แต่ละคนตั้งไว้',
 		payBySave: 'บันทึกวันจ่าย',
 		payByClear: 'เอาออก',

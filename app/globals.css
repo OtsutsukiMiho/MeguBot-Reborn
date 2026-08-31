@@ -4800,3 +4800,11 @@ textarea.form-control {
 .slip-held-flag {
 	color: var(--muted);
 }
+
+/* The summary's own way out. `.page-head` is a block, not the flex column
+   `.screen-head` is, so the pill needs to be told not to stretch across it. */
+.page-head .back-link {
+	align-self: flex-start;
+	width: fit-content;
+	margin-bottom: 1rem;
+}

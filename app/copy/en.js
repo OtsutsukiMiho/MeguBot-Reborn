@@ -147,6 +147,7 @@ const en = {
 		defer_reason_required: 'Add a short reason so the organizer knows.',
 		defer_reason_too_long: 'Reasons can be up to 200 characters.',
 		payment_due_at_invalid: 'That payment deadline is not a valid date.',
+		starts_at_invalid: 'That is not a valid date and time.',
 		period_not_in_activity: 'That month does not belong to this activity.',
 		payment_option_invalid: 'Check the payment option and try again.',
 		payment_link_invalid: 'Enter a valid http or https payment link.',
@@ -414,6 +415,12 @@ const en = {
 		review: n => `${n} ${n === 1 ? 'payment is' : 'payments are'} waiting for you to check`,
 		reviewAction: 'Review them',
 		clear: 'Nothing needs you right now.',
+		// The state every activity starts in, and the one the summary used to
+		// answer with "nothing needs you" — while the single thing that needed
+		// doing had no control anywhere on the page.
+		setTime: 'This has no time yet. Nobody can answer until it does.',
+		setTimeAction: 'Set a time',
+		waitingForTime: 'Megu is waiting for the organizer to pick a time.',
 	},
 
 	schedule: {
@@ -533,6 +540,10 @@ const en = {
 		monthAlreadyOpen: period => `${period} is already open`,
 		monthOpened: period => `${period} opened`,
 		payByLabel: 'Payment deadline',
+		startsAtLabel: 'When it happens',
+		startsAtSave: 'Save the time',
+		startsAtHint: 'Everyone sees this on the activity page, and Megu reminds them from it.',
+		startsAtMissing: 'No time set yet — nobody can say whether they are coming until there is one.',
 		payByHint: 'On that day Megu reminds whoever has not paid — on Discord or by email, whichever each person chose.',
 		payBySave: 'Save deadline',
 		payByClear: 'Clear',
