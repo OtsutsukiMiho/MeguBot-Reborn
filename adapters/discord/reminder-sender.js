@@ -81,7 +81,7 @@ async function runOnce(client, { baseUrl = '', cooldownHours, isBlocked = () => 
 				sent++;
 				continue;
 			}
-			const user = await client.users.fetch(person.discordUid);
+			const user = client.users.cache.get(person.discordUid) || await client.users.fetch(person.discordUid);
 			await user.send({
 				content: person.lines.length === 1
 					? `${person.displayName} ยังค้างอยู่นิดนึงนะ 🙂`
@@ -92,6 +92,7 @@ async function runOnce(client, { baseUrl = '', cooldownHours, isBlocked = () => 
 				await core.reminders.markSent(line, { channel: 'discord-dm' });
 			}
 			sent++;
+			await new Promise(resolve => setTimeout(resolve, 1000));
 		}
 		catch (error) {
 			// Closed DMs are the normal case, not an incident — but a block

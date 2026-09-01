@@ -14,7 +14,7 @@
     "build": "node scripts/vendor-ocr.js && next build",
     "ocr:setup": "node scripts/vendor-ocr.js",
     "deploy": "node deploy-commands.js",
-    "boot": "node deploy-commands.js && node .",
+    "boot": "node index.js",
     "test": "node tests/run.js",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",

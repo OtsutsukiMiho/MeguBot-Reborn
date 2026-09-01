@@ -1778,7 +1778,7 @@ client.on(Events.MessageDelete, async (message) => {
 	try {
 		const guild = message.guild;
 		const channelName = message.channel ? `#${message.channel.name}` : 'unknown channel';
-		const authorTag = message.author ? message.author.username : 'Unknown User';
+		const authorTag = message.author ? (message.author.username || message.author.tag) : 'Unknown User';
 		const authorId = message.author ? message.author.id : null;
 
 		let contentSnippet = message.content ? `"${message.content.substring(0, 150)}${message.content.length > 150 ? '...' : ''}"` : '[No text content]';
@@ -1786,20 +1786,9 @@ client.on(Events.MessageDelete, async (message) => {
 			contentSnippet += ` (+${message.attachments.size} attachment${message.attachments.size > 1 ? 's' : ''})`;
 		}
 
-		let executorName = authorTag;
-		let executorId = authorId;
+		const detailStr = `Message by @${authorTag} deleted in ${channelName}: ${contentSnippet}`;
 
-		const entry = await fetchAuditLogSafe(guild, AuditLogEvent.MessageDelete, 3500);
-		if (entry && entry.targetId === authorId && Date.now() - entry.createdTimestamp < 3500) {
-			executorName = entry.executor ? entry.executor.username : 'Moderator';
-			executorId = entry.executor ? entry.executor.id : null;
-		}
-
-		const detailStr = executorName !== authorTag
-			? `Moderator @${executorName} deleted message by @${authorTag} in ${channelName}: ${contentSnippet}`
-			: `Message by @${authorTag} deleted in ${channelName}: ${contentSnippet}`;
-
-		await database.logAuditEvent(guild.id, 'MESSAGE_DELETE', executorId, executorName, detailStr, guild.name);
+		await database.logAuditEvent(guild.id, 'MESSAGE_DELETE', authorId, authorTag, detailStr, guild.name);
 	} catch (err) {
 		BotLogs('SYSTEM', `Audit error on MessageDelete: ${err.message}`);
 	}
@@ -2350,11 +2339,19 @@ process.on('message', async (msg) => {
 		// Re-checked on every recipient, not once at the top: the first refused
 		// DM is how a block announces itself, and the rest of the list must not
 		// follow it into the wall.
-		for (const discordUid of recipients) {
+		for (let i = 0; i < recipients.length; i++) {
+			const discordUid = recipients[i];
 			if (discordBlock.blocked()) break;
 			if (!/^\d{17,20}$/.test(String(discordUid)) || !message) continue;
-			const user = await discordCall('opening a DM', () => client.users.fetch(String(discordUid)), null);
-			if (user && await discordCall('sending a DM', () => user.send({ content: message, components }).then(() => true), false)) delivered++;
+			const uidStr = String(discordUid);
+			const user = client.users.cache.get(uidStr)
+				|| await discordCall('opening a DM', () => client.users.fetch(uidStr), null);
+			if (user && await discordCall('sending a DM', () => user.send({ content: message, components }).then(() => true), false)) {
+				delivered++;
+			}
+			if (i < recipients.length - 1) {
+				await new Promise(resolve => setTimeout(resolve, 1000));
+			}
 		}
 		if (process.send) {
 			// `blocked` is read after the loop, so a block that arrives partway

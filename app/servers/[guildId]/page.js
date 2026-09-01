@@ -220,11 +220,11 @@ export default function ServerConfigPage({ params }) {
 	const serverName = guildData?.name || matchedGuild?.name || 'Discord Server';
 
 	return (
-		<div>
+		<div style={{ paddingTop: '2rem', paddingBottom: '3rem' }}>
 			<Toast message={toastMsg} isError={toastError} />
 
 			{/* Server Banner Header */}
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2.25rem', flexWrap: 'wrap', gap: '1.25rem' }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
 					{!iconFailed && iconUrl ? (
 						<img
@@ -244,7 +244,7 @@ export default function ServerConfigPage({ params }) {
 							{serverName}
 						</h2>
 						<span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-							Configuring automation & security settings for <strong>{serverName}</strong> (ID: {guildId})
+							ID: {guildId}
 						</span>
 					</div>
 				</div>
