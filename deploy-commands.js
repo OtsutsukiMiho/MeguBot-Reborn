@@ -1,7 +1,12 @@
 require('dotenv').config();
 
 const { REST, Routes } = require('discord.js');
-const { isGlobalBlock, isSevereRateLimit, BLOCK_EXIT_CODE } = require('./adapters/discord/rate-limit.js');
+const {
+	isGlobalBlock,
+	isSevereRateLimit,
+	INVALID_REQUEST_WARNING_INTERVAL,
+	BLOCK_EXIT_CODE,
+} = require('./adapters/discord/rate-limit.js');
 const config = require('./config.json');
 const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 const fs = require('node:fs');
@@ -39,12 +44,17 @@ for (const folder of commandFolders) {
 // sending too much, and the promise never settles, so the catch below would
 // never run. See DISCORD-RATE-LIMITS.md §3b.
 //
-// This script is one request, but it is the *first* request of every
-// `npm run boot`, which is exactly when the deploy is most likely to be
-// walking into a block it caused a minute ago.
+// This script is one request and is deliberately only run by `npm run deploy`.
+// Registering commands on every service wake is unnecessary boot traffic.
+let severeRateLimitSeen = false;
 const rest = new REST({
 	retries: 1,
-	rejectOnRateLimit: (data) => isSevereRateLimit(data),
+	invalidRequestWarningInterval: INVALID_REQUEST_WARNING_INTERVAL,
+	rejectOnRateLimit: (data) => {
+		const severe = isSevereRateLimit(data);
+		severeRateLimitSeen ||= severe;
+		return severe;
+	},
 }).setToken(process.env.BOT_TOKEN);
 
 (async () => {
@@ -60,16 +70,13 @@ const rest = new REST({
 		BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}${error.toString().replace(/^Error: /, '')}`);
 		BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 
-		// `npm run boot` is `node deploy-commands.js && node .`, so exiting
-		// non-zero here is what stops the bot from starting. That matters for
-		// exactly one failure: if Discord is refusing this IP, the next thing
-		// in the chain is a fresh gateway IDENTIFY, which is the one action
-		// guaranteed to extend the block. Stop the deploy instead.
+		// A severe limit must make command deployment fail, not look successful
+		// and invite an immediate service restart into the same restriction.
 		//
 		// Every other failure — a bad token, a network blip — keeps the old
-		// behaviour and lets the bot start, because an out-of-date command list
-		// is a far smaller problem than a bot that will not boot.
-		if (isGlobalBlock(error)) {
+		// behaviour because an out-of-date command list is still present and this
+		// script is no longer in the normal service boot path.
+		if (isGlobalBlock(error) || severeRateLimitSeen) {
 			BotLogs('SYSTEM', `${COLOR.red}Discord is blocking this server's IP. Not starting the bot — a restart now would extend the block. See DISCORD-RATE-LIMITS.md.`);
 			process.exit(BLOCK_EXIT_CODE);
 		}

@@ -19,6 +19,17 @@ if (fs.existsSync('.env')) {
 }
 const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
+const {
+	isGlobalBlock,
+	isSevereRateLimit,
+	createBlockGuard,
+	guardRestClient,
+	recordInvalidRequestWarning,
+	createInvalidRequestDiagnostics,
+	INVALID_REQUEST_WARNING_INTERVAL,
+	INVALID_REQUEST_STOP_THRESHOLD,
+	BLOCK_EXIT_CODE,
+} = require('../../adapters/discord/rate-limit.js');
 const DISCORD_TEST_MODE = process.env.MEGU_DISCORD_TEST_MODE === '1';
 const DISCORD_TEST_GUILD_ID = String(process.env.MEGU_DISCORD_TEST_GUILD_ID || '');
 const DISCORD_TEST_CHANNEL_ID = String(process.env.MEGU_DISCORD_TEST_CHANNEL_ID || '');
@@ -65,6 +76,7 @@ const client = new Client({
 	rest: {
 		retries: 1,
 		globalRequestsPerSecond: 25,
+		invalidRequestWarningInterval: INVALID_REQUEST_WARNING_INTERVAL,
 		rejectOnRateLimit: (data) => shouldStopForRateLimit(data),
 	},
 });
@@ -116,7 +128,6 @@ client.customReadyTimestamp = customReadyTimestamp;
 
 const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_functions.js');
 const database = require('../database/database.js');
-const { isGlobalBlock, isSevereRateLimit, createBlockGuard, BLOCK_EXIT_CODE } = require('../../adapters/discord/rate-limit.js');
 
 // The web process has had this guard since the outage. The bot never did, and
 // the bot is the process that talks to Discord constantly — so while the site
@@ -137,6 +148,13 @@ const discordBlock = createBlockGuard({
 		}
 	},
 });
+
+// This is the process-wide circuit breaker. Feature code still uses
+// discordCall() when it wants a shaped fallback, but even an older/direct call
+// cannot reach the network during a live block or swallow the refusal before
+// the guard sees it.
+guardRestClient(client.rest, discordBlock);
+const invalidRequestDiagnostics = createInvalidRequestDiagnostics();
 
 // A child that starts mid-block comes up believing nothing is wrong. The
 // supervisor is the only thing here that outlives a restart, so ask it.
@@ -341,7 +359,6 @@ async function ensureGuildMembersCached(guild, { limit = 100, query = '' } = {})
 // survive the restart either, so anything written down would be gone exactly
 // when it was needed.
 const ONLINE_PING_CHANNEL_ID = '1225208114941399110';
-const HEARTBEAT_MS = 5 * 60 * 1000;
 
 function onlinePingText() {
 	return `🟢 **Megu is Online!**\nLast Checked: ${new Date().toLocaleTimeString()}\nPing: ${client.ws.ping}ms`;
@@ -362,30 +379,9 @@ async function startOnlinePing() {
 		if (!statusMessage) return;
 	}
 
-	// Every 5 minutes, not every 3–9 seconds. The old loop edited this one
-	// message roughly 10,000 times a day for no reader's benefit, which is
-	// exactly the sustained traffic that gets an IP blocked. A liveness stamp is
-	// still a liveness stamp at five-minute resolution.
-	//
-	// It also stops itself: if the edit fails twice in a row the channel is
-	// gone, the message was deleted, or Discord is refusing us — and in all
-	// three cases retrying forever is the wrong answer.
-	let consecutiveFailures = 0;
-	const heartbeat = setInterval(async () => {
-		if (discordBlock.blocked()) return;
-		const edited = await discordCall('updating the status message', () => statusMessage.edit(onlinePingText()), null);
-		if (edited) {
-			consecutiveFailures = 0;
-			return;
-		}
-		consecutiveFailures += 1;
-		BotLogs('SYSTEM', `${COLOR.red}Online-ping heartbeat failed (${consecutiveFailures}/2).`);
-		if (consecutiveFailures >= 2) {
-			clearInterval(heartbeat);
-			BotLogs('SYSTEM', `${COLOR.yellow}Online-ping heartbeat stopped. Restart the bot to bring it back.`);
-		}
-	}, HEARTBEAT_MS);
-	heartbeat.unref();
+	// Do not edit this forever just to change a timestamp. Discord presence and
+	// the web health endpoint are the real liveness signals; this legacy message
+	// is now only stamped once when the bot becomes ready.
 }
 
 client.honeypots = new Map();
@@ -853,6 +849,7 @@ client.on(Events.ClientReady, async () => {
 	// the presence on the client and replays it in the IDENTIFY payload, so a
 	// reconnect restores it without us sending anything.
 	try {
+		if (discordBlock.blocked()) return;
 		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 		client.user.setPresence({
 			status: 'online',
@@ -871,9 +868,8 @@ client.on(Events.ClientReady, async () => {
 	try {
 		const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 		if (config.online_ping) {
-			// The same five-minute liveness stamp, with every call to Discord
-			// routed through the block guard and the interval skipping itself
-			// while blocked. See startOnlinePing.
+			// One legacy ready stamp only. Presence and /health are the live
+			// signals; editing a timestamp forever is unnecessary Discord load.
 			startOnlinePing().catch(() => undefined);
 		}
 	}
@@ -3074,6 +3070,24 @@ client.on('shardError', (error, shardId) => BotLogs('SYSTEM', `${COLOR.red}[Disc
 // after they are ignored.
 client.rest.on('rateLimited', (info) => {
 	BotLogs('SYSTEM', `${COLOR.yellow}[Discord Rate Limit] ${info.method} ${info.route} — waiting ${info.timeToReset}ms${info.global ? ' (GLOBAL)' : ''}`);
+});
+
+client.rest.on('response', (request, response) => {
+	invalidRequestDiagnostics.record(request, response);
+});
+
+// Discord counts 401, 403 and 429 responses toward a separate Cloudflare ban
+// threshold. @discordjs/rest already maintains that exact ten-minute count but
+// emits nothing unless asked. At 100 (1% of Discord's published hard limit), a
+// small bot is unquestionably in a broken permission/token/retry loop, so stop
+// the process-wide REST circuit before the shared IP is banned.
+client.rest.on('invalidRequestWarning', (info) => {
+	const minutes = Math.max(0, Math.ceil((Number(info.remainingTime) || 0) / 60_000));
+	const routes = invalidRequestDiagnostics.summary();
+	BotLogs('SYSTEM', `${COLOR.yellow}[Discord Invalid Requests] ${info.count}/${INVALID_REQUEST_STOP_THRESHOLD} in the current window (${minutes}m left).${routes ? ` Top routes: ${routes}` : ''}`);
+	if (recordInvalidRequestWarning(info, discordBlock)) {
+		BotLogs('SYSTEM', `${COLOR.red}Invalid Discord requests reached the safety threshold. Pausing REST before Cloudflare blocks the IP.`);
+	}
 });
 
 // A rejected login used to be an unhandled rejection: the process died without

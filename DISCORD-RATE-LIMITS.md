@@ -13,11 +13,10 @@ Discord on a timer, in a loop, or at boot.
 
 ## The failure this prevents
 
-`code: 0` is not a Discord API error. Discord's errors have real codes and, when
-you are rate limited, a `retry_after` telling you exactly how long to wait for
-one route. This has neither, because it does not come from Discord's API at all
-— it comes from **Cloudflare, in front of `discord.com`, banning the server's IP
-address**.
+The legacy response used `code: 0`; Discord now also documents `40333` for
+"Cloudflare is blocking your request." Neither is an ordinary per-route 429
+with a usable `retry_after`. It is **Cloudflare, in front of `discord.com`,
+restricting the server's IP address**.
 
 Three things follow from that, and all three are why this outage is worse than
 an ordinary 429:
@@ -27,8 +26,9 @@ an ordinary 429:
   is refused: the gateway, the REST API, and the OAuth token exchange that the
   website's login depends on. That is why a bot problem logged everyone out of
   the site.
-- **Nothing tells you how long.** No header, no `retry_after`. In practice it
-  clears in about an hour.
+- **Nothing tells you how long.** No header, no `retry_after`. In practice the
+  incident that produced this guide was still live after 15 minutes and cleared
+  within roughly an hour.
 - **Retrying extends it.** This is the part that turns a five-minute annoyance
   into an afternoon. Traffic sent while blocked counts against you, so a process
   that reacts to the block by trying again is holding the block open.
@@ -68,7 +68,7 @@ was what kept it alive.
   five minutes, reset only after a minute of healthy uptime. Nine crashes now
   span sixteen minutes instead of twenty-seven seconds.
 - `BLOCK_EXIT_CODE` overrides the curve entirely and holds the process down for
-  `BLOCK_COOLDOWN_MS` (15 minutes). Restarting into a block is the one action
+  `BLOCK_COOLDOWN_MS` (75 minutes). Restarting into a block is the one action
   guaranteed to make it last longer.
 
 ### 3. Once blocked, stop — do not retry, do not redeploy
@@ -90,13 +90,15 @@ serves a page that says "try again in N minutes" **with no retry button**. The
 button was the problem: a bare "Failed to exchange code" reads as *click login
 again*, and each of those clicks was another round trip to Discord.
 
-The bot process uses it through `discordCall()` in `backend/bot/bot.js`, which is
-the only way that process is allowed to reach Discord. It asks the guard, makes
-the call, and hands anything that fails back to the guard. For a long time the
-bot had no guard at all — so while the site correctly showed "we are blocked, do
-not retry", the other half of the deploy was still editing a heartbeat message,
-pulling audit logs on every event and fetching member rosters, straight into a
-ban that lengthens under traffic.
+The bot process uses it through `discordCall()` in `backend/bot/bot.js` when a
+caller needs a shaped fallback. More importantly, `guardRestClient()` wraps the
+client's public `REST.request()` method, which is below every message, role,
+member and interaction manager. That process-wide circuit breaker covers old or
+direct calls too: it checks the guard before network I/O and records the failure
+before a feature-level catch can swallow it. For a long time the bot had no
+guard at all — so while the site correctly showed "we are blocked, do not retry",
+the other half of the deploy was still pulling audit logs and fetching member
+rosters straight into a ban that lengthens under traffic.
 
 **A swallowed failure is a missing guard.** Every one of those calls was written
 `.catch(() => undefined)`. That is a reasonable way to say "a closed DM is not an
@@ -161,6 +163,20 @@ stopped involuntarily for an hour.
 
 If you construct another `Client` or a bare `REST` anywhere, it gets the same
 block.
+
+### 3c. Watch invalid requests, not only request volume
+
+Discord's documented Cloudflare threshold is currently 10,000 invalid HTTP
+requests in ten minutes. A 401, 403 or 429 counts; shared-scope 429s do not.
+Discord notes that an occasional Cloudflare restriction is usually an invalid
+request spike, not the ordinary 50 requests/second global bot limit.
+
+`@discordjs/rest` already counts exactly those statuses, but its warning is off
+by default. The client now sets `invalidRequestWarningInterval: 25`, logs each
+warning, and opens the process-wide circuit at 100 invalid requests in the live
+window. A bot this size reaching 100 is already in a broken token, permission or
+retry loop; stopping at 1% of Discord's hard threshold is cheaper than learning
+which of those it was after the IP is restricted.
 
 ### 4. Sign-in is a click, never a redirect
 
@@ -277,6 +293,10 @@ caused them. Both are the early warning; the Cloudflare block is what happens
 after they are ignored. If either line starts appearing regularly, find the
 caller before it escalates.
 
+`client.rest.on('invalidRequestWarning')` is the other early warning. It names
+the running 401/403/429 count in the ten-minute window, and the local circuit
+opens at 100.
+
 `npm run bot:instances` answers the other question worth asking first: is more
 than one copy of the bot running on this token? Two instances on one IP double
 every number in this document.
@@ -306,6 +326,10 @@ we are not the cause and never the one prolonging it; none of it helps if a
 neighbour on the same Render address is the one being banned. If blocks keep
 happening with all of this in place, the remaining fix is infrastructure — a
 plan with a dedicated outbound IP, or a host with a clean one.
+
+Registering global slash commands on every wake is unnecessary boot traffic.
+`npm run boot` and `npm start` now only start the service; run `npm run deploy`
+explicitly when a command definition changes.
 
 `next dev` on a deploy is the other one to watch. It compiles on demand and
 holds several times the memory of `next start`, so on a small instance it gets
