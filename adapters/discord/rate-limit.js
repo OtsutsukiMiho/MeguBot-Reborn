@@ -40,9 +40,15 @@ function isGlobalBlock(value) {
 	if (!value) return false;
 	const text = typeof value === 'string'
 		? value
-		: (value.message || value.rawError && JSON.stringify(value.rawError) || String(value));
+		: (value.message || (value.rawError && JSON.stringify(value.rawError)) || String(value));
 	return /blocked from accessing our API/i.test(text)
-		|| /exceeding global rate limits/i.test(text);
+		|| /exceeding global rate limits/i.test(text)
+		|| /ssl.*alert.*40/i.test(text)
+		|| /tls.*alert/i.test(text)
+		|| /1015/i.test(text)
+		|| (/Cloudflare/i.test(text) && /rate.*limit/i.test(text))
+		|| /"code":\s*0\b/.test(text)
+		|| /DiscordAPIError\[0\]/i.test(text);
 }
 
 /** Longest per-route wait still worth sleeping through rather than failing. */

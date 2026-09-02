@@ -94,6 +94,11 @@ function scheduleRestart(name, start, startedAt, exitCode) {
 		delay = Math.max(delay, BLOCK_COOLDOWN_MS);
 		logMaster('System', `${COLOR.red}Holding ${name} down for ${Math.round(delay / 60000)} minutes rather than retrying into the block.`);
 	}
+	else if (name === 'Discord Bot' && state.attempts >= 3 && exitCode !== 0) {
+		noteDiscordBlock(Date.now() + BLOCK_COOLDOWN_MS, name);
+		delay = Math.max(delay, BLOCK_COOLDOWN_MS);
+		logMaster('System', `${COLOR.red}Discord Bot failed to connect ${state.attempts} times in a row. Pausing connections for ${Math.round(delay / 60000)} minutes to let Cloudflare limits reset.`);
+	}
 	else if (name === 'Discord Bot' && discordBlockRemainingMs() > 0) {
 		// The bot did not exit *because* of the block, but coming back now means
 		// a fresh gateway IDENTIFY into an IP Cloudflare is refusing, which
