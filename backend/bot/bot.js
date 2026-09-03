@@ -742,6 +742,53 @@ async function recordDeferral(interaction) {
 	});
 }
 
+/**
+ * Discord closes an interaction that has not been answered within three
+ * seconds, and every command here answers only after its database reads —
+ * which is why a working command could report "The application did not
+ * respond". The work finished; the reply was late, and by then the token was
+ * dead.
+ *
+ * Deferring buys fifteen minutes instead of three seconds. It is armed rather
+ * than unconditional because a defer is itself a Discord call and most commands
+ * answer instantly: this one only fires for a command that is already going to
+ * miss, and costs nothing for the rest.
+ *
+ * The deferred reply is ephemeral. Ephemerality has to be decided at defer time,
+ * before the command has said what it wants, and nearly every command in this
+ * bot replies ephemerally already — so on the rare slow public command the
+ * answer is seen only by the person who asked, which is a far better outcome
+ * than the error they get today.
+ *
+ * `reply()` is rerouted to `editReply()` for the same reason: a command written
+ * against `reply()` would otherwise throw InteractionAlreadyReplied the moment
+ * this guard fires, turning a slow command into a broken one.
+ */
+const INTERACTION_DEADLINE_MS = 2000;
+
+function armInteractionDeadline(interaction) {
+	const timer = setTimeout(() => {
+		if (interaction.replied || interaction.deferred) return;
+		const originalReply = interaction.reply.bind(interaction);
+		interaction.deferReply({ flags: MessageFlags.Ephemeral }).then(() => {
+			interaction.reply = async (options) => {
+				if (interaction.deferred && !interaction.replied) {
+					const payload = typeof options === 'string' ? { content: options } : { ...options };
+					// Both are fixed by the defer above and rejected here.
+					delete payload.flags;
+					delete payload.ephemeral;
+					return await interaction.editReply(payload);
+				}
+				return await originalReply(options);
+			};
+			BotLogs('SYSTEM', `${COLOR.yellow}/${interaction.commandName} took over ${INTERACTION_DEADLINE_MS}ms to answer — deferred to keep the interaction alive.`);
+		}).catch(() => undefined);
+	}, INTERACTION_DEADLINE_MS);
+
+	if (typeof timer.unref === 'function') timer.unref();
+	return () => clearTimeout(timer);
+}
+
 client.on(Events.InteractionCreate, async (interaction) => {
 	if (DISCORD_TEST_MODE) {
 		if (String(interaction.guildId || '') !== DISCORD_TEST_GUILD_ID) return;
@@ -753,6 +800,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 		const command = interaction.client.commands.get(interaction.commandName);
 		if (!command) return;
 
+		const stopDeadlineGuard = armInteractionDeadline(interaction);
 		try {
 			await command.execute(interaction);
 			if (interaction.guild) {
@@ -780,6 +828,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				}
 			}
 			catch {}
+		}
+		finally {
+			stopDeadlineGuard();
 		}
 	}
 
@@ -3191,6 +3242,10 @@ process.on('message', async (msg) => {
 	}
 	else if (msg.type === 'reload_guild_cache') {
 		try {
+			// The dashboard writes settings in the web process, so this process
+			// never saw the write and would keep serving the cached value until
+			// it expired. This is what makes a change in the UI take effect now.
+			database.clearGuildVarCache();
 			client.honeypots = await database.getAllHoneypots();
 			client.ttsChannels = await database.getAllTtsChannels();
 			client.automodConfigs = await database.getAllAutoModConfigs();
