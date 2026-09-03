@@ -179,7 +179,68 @@ function sanitizeDbValue(val) {
 	return val;
 }
 
+/**
+ * A guild setting is read far more often than it is written, and reading one is
+ * a round trip.
+ *
+ * One VoiceStateUpdate asks for two dozen of them in series — engine, voice,
+ * language, welcome, leave, four announce limits, volume, templates — and a
+ * busy channel produces those events several times a second. With a pool capped
+ * at five connections, that is enough to leave a slash command waiting on
+ * `connectionTimeoutMillis` for a client, past the three seconds Discord allows
+ * an interaction. The symptom is "The application did not respond" on a command
+ * that in fact worked: the query finished, the reply was simply too late.
+ *
+ * Ten seconds, not the minute `fetchGuildRoster` uses, because this is settings
+ * rather than a roster: it collapses every read inside one event and the burst
+ * that follows it, while an admin who changes something in the dashboard sees it
+ * take effect before they can wonder whether it saved. `reload_guild_cache`
+ * clears it outright, so a dashboard write is not even that stale.
+ */
+const GUILD_VAR_TTL_MS = Number(process.env.MEGU_GUILD_VAR_TTL_MS) || 10_000;
+const guildVarCache = new Map();
+
+function guildVarCacheKey(guildId, key) {
+	return `${guildId}:${key}`;
+}
+
+/**
+ * Drop cached settings — everything, one guild, or one key.
+ *
+ * Called on every write from this process, and over IPC when the web process
+ * writes one. Both matter: the bot and the dashboard are separate processes, so
+ * a cache that only listened to its own writes would serve the old value until
+ * it expired.
+ */
+function clearGuildVarCache(guildId, key) {
+	if (guildId === undefined) {
+		guildVarCache.clear();
+		return;
+	}
+	if (key !== undefined) {
+		guildVarCache.delete(guildVarCacheKey(guildId, key));
+		return;
+	}
+	const prefix = `${guildId}:`;
+	for (const cached of guildVarCache.keys()) {
+		if (cached.startsWith(prefix)) guildVarCache.delete(cached);
+	}
+}
+
 async function getGuildVar(guildId, key) {
+	const cacheKey = guildVarCacheKey(guildId, key);
+	const hit = guildVarCache.get(cacheKey);
+	if (hit && Date.now() - hit.at < GUILD_VAR_TTL_MS) return hit.value;
+
+	const value = await readGuildVar(guildId, key);
+	// A miss is cached too. "Not set" is the common answer for most of these
+	// keys, and re-asking the database for the same absent row twenty times per
+	// event is the case this exists to remove.
+	guildVarCache.set(cacheKey, { value, at: Date.now() });
+	return value;
+}
+
+async function readGuildVar(guildId, key) {
 	if (pool) {
 		try {
 			const res = await pool.query(
@@ -247,6 +308,10 @@ async function getAllGuildVars(guildId) {
 
 async function setGuildVar(guildId, key, value) {
 	const cleanValue = sanitizeDbValue(value);
+	// Before the write, not after: if the write throws, the cached value is now
+	// of unknown accuracy either way, and serving a stale setting is the failure
+	// this whole mechanism has to avoid.
+	clearGuildVarCache(guildId, key);
 
 	if (pool) {
 		try {
@@ -281,6 +346,7 @@ async function setGuildVar(guildId, key, value) {
 }
 
 async function deleteGuildVar(guildId, key) {
+	clearGuildVarCache(guildId, key);
 	if (pool) {
 		try {
 			await pool.query(
@@ -1060,6 +1126,7 @@ module.exports = {
 	},
 	isPostgresConnected: () => !!pool,
 	getGuildVar,
+	clearGuildVarCache,
 	getAllGuildVars,
 	setGuildVar,
 	deleteGuildVar,
