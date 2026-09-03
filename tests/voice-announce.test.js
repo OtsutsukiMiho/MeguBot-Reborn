@@ -9,6 +9,9 @@
 const assert = require('node:assert');
 const {
 	createAnnounceGuard,
+	createSpeakerTracker,
+	shortSpeakerName,
+	DEFAULT_REGROUP_MS,
 	resolveCooldownMs,
 	resolveCount,
 	cooldownMsFromSeconds,
@@ -297,6 +300,108 @@ console.log('\nmemory is bounded');
 	quiet.claim({ guildId: G2, userId: FIG, event: 'join', now: t + 10_000 });
 	assert.strictEqual(quiet.size(G2), 1, 'expired entries were not pruned');
 	ok('entries past the window are dropped on the next claim');
+}
+
+console.log('\nthe short name, for attributing a message');
+
+{
+	// The case this exists for: a company Discord wants the whole title when he
+	// arrives, and none of it while he is typing.
+	assert.strictEqual(shortSpeakerName('CEO คุณสมชาย สุขใจ'), 'สมชาย');
+	assert.strictEqual(shortSpeakerName('VP Sarah Chen'), 'Sarah');
+	assert.strictEqual(shortSpeakerName('Mr. John Smith'), 'John');
+	assert.strictEqual(shortSpeakerName('Prof.  Alice   Brown'), 'Alice');
+	ok('titles and honorifics come off the front, however many are stacked');
+
+	// Thai writes the honorific against the name far more often than apart from
+	// it, so token stripping alone leaves exactly what it was meant to remove.
+	assert.strictEqual(shortSpeakerName('นายธีรภาพ บุญศรี'), 'ธีรภาพ');
+	assert.strictEqual(shortSpeakerName('ดร.ธีรภาพ บุญศรี'), 'ธีรภาพ');
+	assert.strictEqual(shortSpeakerName('นางสาวสมหญิง ใจดี'), 'สมหญิง');
+	assert.strictEqual(shortSpeakerName('พี่โอม'), 'โอม');
+	ok('a Thai honorific written against the name is removed too');
+
+	// "นางสาว" must win over "นาง", or the name becomes "สาวสมหญิง".
+	assert.strictEqual(shortSpeakerName('นางสาวสมหญิง'), 'สมหญิง');
+	ok('the longest honorific matches first');
+
+	// Stripping must not eat the name. "นายก" is a word.
+	assert.strictEqual(shortSpeakerName('นายก'), 'นายก');
+	assert.strictEqual(shortSpeakerName('คุณ'), 'คุณ');
+	ok('a name that would be left too short keeps its prefix');
+
+	assert.strictEqual(shortSpeakerName('สมชาย'), 'สมชาย');
+	assert.strictEqual(shortSpeakerName('ไอดำ เลเวล six seven'), 'ไอดำ');
+	ok('an ordinary name is returned as it was, minus anything after the first word');
+
+	assert.strictEqual(shortSpeakerName(''), '');
+	assert.strictEqual(shortSpeakerName('   '), '');
+	assert.strictEqual(shortSpeakerName(null), '');
+	assert.strictEqual(shortSpeakerName(undefined), '');
+	assert.strictEqual(shortSpeakerName(42), '');
+	ok('nothing in gives nothing out, without throwing');
+}
+
+console.log('\nnaming the speaker only when it changes');
+
+{
+	const tracker = createSpeakerTracker();
+	const t = 12_000_000;
+
+	assert.strictEqual(tracker.shouldName({ guildId: G, userId: FIG, now: t }), true);
+	ok('the first message of a conversation is attributed');
+
+	// The whole point: five lines in a row from one person is one name, not
+	// five. This is what lets the name stay long.
+	let named = 0;
+	for (let i = 1; i <= 5; i++) {
+		if (tracker.shouldName({ guildId: G, userId: FIG, now: t + i * 2_000 })) named++;
+	}
+	assert.strictEqual(named, 0);
+	ok('five more lines from the same person add no further names');
+
+	assert.strictEqual(tracker.shouldName({ guildId: G, userId: OHM, now: t + 12_000 }), true);
+	ok('somebody else speaking is named');
+
+	assert.strictEqual(tracker.shouldName({ guildId: G, userId: FIG, now: t + 13_000 }), true);
+	ok('and the first one coming back is named again');
+
+	// Long enough after the last line and the speaker is no longer obvious,
+	// which is the other reason a chat client starts a new group.
+	assert.strictEqual(tracker.shouldName({ guildId: G, userId: FIG, now: t + 14_000 }), false);
+	assert.strictEqual(
+		tracker.shouldName({ guildId: G, userId: FIG, now: t + 14_000 + DEFAULT_REGROUP_MS }),
+		true,
+	);
+	ok('the same person is named again after a long enough silence');
+}
+
+console.log('\nthe tracker keeps servers apart');
+
+{
+	const tracker = createSpeakerTracker();
+	const t = 13_000_000;
+
+	tracker.shouldName({ guildId: G, userId: FIG, now: t });
+	assert.strictEqual(tracker.shouldName({ guildId: G2, userId: FIG, now: t + 100 }), true);
+	ok('the same person in another server is a new conversation');
+
+	// She left; whoever speaks next has not been introduced to the room she
+	// came back to.
+	tracker.forget(G);
+	assert.strictEqual(tracker.shouldName({ guildId: G, userId: FIG, now: t + 200 }), true);
+	ok('forgetting a guild attributes the next message again');
+
+	assert.strictEqual(tracker.shouldName({ guildId: G, userId: null, now: t }), false);
+	assert.strictEqual(tracker.shouldName({ userId: FIG, now: t }), false);
+	assert.strictEqual(tracker.shouldName(), false);
+	ok('a malformed call names nobody');
+
+	// Zero means name every message, which a quiet server may genuinely prefer.
+	const always = createSpeakerTracker({ regroupMs: 0 });
+	assert.strictEqual(always.shouldName({ guildId: G, userId: FIG, now: t }), true);
+	assert.strictEqual(always.shouldName({ guildId: G, userId: FIG, now: t + 1 }), true);
+	ok('a regroup window of zero names every message');
 }
 
 console.log(`\n${n} checks passed\n`);

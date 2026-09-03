@@ -913,8 +913,51 @@ const voiceStateProcessing = new Set();
 // connection as a fresh join, so without this a single person on bad wifi can
 // have their name read out six times in ninety seconds — which is how this
 // feature gets switched off. See core/voice-announce.js.
-const { createAnnounceGuard, cooldownMsFromSeconds } = require('../../core/voice-announce.js');
+const {
+	createAnnounceGuard,
+	createSpeakerTracker,
+	shortSpeakerName,
+	cooldownMsFromSeconds,
+} = require('../../core/voice-announce.js');
 const announceGuard = createAnnounceGuard();
+
+// Who spoke last in each guild, so a run of messages from one person is read as
+// one person talking rather than as their name six times. This is the thing
+// that lets a name be long: an organisation wants "CEO คุณสมชาย" announced when
+// he arrives, and nobody wants it in front of every line he types.
+const speakerTracker = createSpeakerTracker();
+
+/**
+ * Settings arrive from a database row, so they may be a string, a blank, or
+ * nothing at all. Lives at module scope because both the voice handler and the
+ * message handler read guild settings, and a copy inside one of them is a
+ * ReferenceError waiting for the other.
+ */
+function toBool(val, defaultVal = true) {
+	if (val === undefined || val === null) return defaultVal;
+	if (val === false || val === 'false' || val === 0 || val === '0') return false;
+	if (val === true || val === 'true' || val === 1 || val === '1') return true;
+	return Boolean(val);
+}
+
+/** What the audio queue already defaults to when nothing is passed. */
+const DEFAULT_TTS_VOLUME = 0.5;
+
+/**
+ * Loudness for one clip, as a fraction. A server sets this because Megu talking
+ * over a match is the complaint that gets her muted, and the queue's own default
+ * is a guess that suits nobody in particular.
+ *
+ * Clamped rather than trusted: `setVolume` above 1 clips the audio and a
+ * negative one is silence nobody asked for, and this value comes from a text
+ * field a human typed into.
+ */
+function ttsVolume(value) {
+	if (value === undefined || value === null || value === '') return DEFAULT_TTS_VOLUME;
+	const volume = Number(value);
+	if (!Number.isFinite(volume)) return DEFAULT_TTS_VOLUME;
+	return Math.min(Math.max(volume, 0), 2);
+}
 
 async function getUserNick(guildId, userId) {
 	return await database.getUserNick(guildId, userId);
@@ -941,8 +984,10 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		clearQueue(guild.id, guild.name);
 
 		// Everybody has gone. Whoever turns up next is starting a new session
-		// and should be greeted, however recently they were last announced.
+		// and should be greeted, however recently they were last announced —
+		// and whoever types first is introducing themselves to a new room.
 		announceGuard.forget(guild.id);
+		speakerTracker.forget(guild.id);
 
 		const connection = getVoiceConnection(guild.id);
 		if (connection) {
@@ -1003,13 +1048,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
 	const currentChannel = botMember.voice.channel;
 
-function toBool(val, defaultVal = true) {
-	if (val === undefined || val === null) return defaultVal;
-	if (val === false || val === 'false' || val === 0 || val === '0') return false;
-	if (val === true || val === 'true' || val === 1 || val === '1') return true;
-	return Boolean(val);
-}
-
 	const afkBringbackEnabled = toBool(await database.getGuildVar(guild.id, 'tts_afk_bringback_enabled'));
 	if (afkBringbackEnabled && newState.channelId === guild.afkChannelId && oldState.channelId === currentChannel.id && newState.member.id !== botMember.id) {
 		newState.member.voice.setChannel(oldState.channel).catch(() => undefined);
@@ -1056,7 +1094,7 @@ function toBool(val, defaultVal = true) {
 	const vcWelcomeTemplate = (await database.getGuildVar(guild.id, 'tts_vc_welcome_template')) || '{username} เข้าดิสมา';
 
 	/** Everything the announcement queue needs, so the three callers below agree. */
-	function speakLine(text) {
+	function speakLine(text, volume) {
 		const { addToQueue, generateUUID } = require('./audio_queue.js');
 		addToQueue(guild.id, {
 			uuid: generateUUID(),
@@ -1065,6 +1103,7 @@ function toBool(val, defaultVal = true) {
 			type: speechType,
 			guild: guild,
 			voice: ttsVoice,
+			volume: volume,
 			sender: client.user,
 			voice_channel: currentChannel,
 			connection: getOrCreateConnection(guild, currentChannel),
@@ -1088,7 +1127,9 @@ function toBool(val, defaultVal = true) {
 
 	let announceLimits = {};
 	let quietTemplate = 'คนเข้าออกเยอะ ขอเงียบแป๊บนึงนะ';
+	let announceVolume;
 	if (isJoinEvent || isLeaveEvent) {
+		announceVolume = ttsVolume(await database.getGuildVar(guild.id, 'tts_volume'));
 		announceLimits = {
 			// Shared by the greeting and the goodbye: one person reconnecting
 			// should go quiet in both directions, not just one.
@@ -1107,14 +1148,24 @@ function toBool(val, defaultVal = true) {
 	 */
 	function noticeQuiet(result, who) {
 		if (!result.enteredQuiet) return;
-		speakLine(quietTemplate);
+		speakLine(quietTemplate, announceVolume);
 		BotLogs('Tts', `${COLOR.blue}VC announcements paused — burst at ${COLOR.white}${who} ${COLOR.gray}(${guild.name})`);
+	}
+
+	/**
+	 * The announcement is made for the room, but it is *this* person's name
+	 * being read out, and they never agreed to that. Checked before the guard
+	 * claims anything: a suppressed name must not consume the claim, or the
+	 * cooldown would silence the next person to arrive instead.
+	 */
+	async function optedOut(userId) {
+		return await database.getAnnounceOptOut(guild.id, userId);
 	}
 
 	// The claim is made before the member fetch on purpose. A suppressed
 	// reconnect is the common case on a busy channel, and this way it costs no
 	// Discord call at all.
-	const joinDecision = isJoinEvent
+	const joinDecision = isJoinEvent && !(await optedOut(newState.id))
 		? announceGuard.claim({ guildId: guild.id, userId: newState.id, event: 'join', ...announceLimits })
 		: { speak: false, enteredQuiet: false };
 	noticeQuiet(joinDecision, newState.id);
@@ -1144,13 +1195,13 @@ function toBool(val, defaultVal = true) {
 				stamp(`VC Join Greeting spoken: "${formattedWelcome}"`),
 				guild.name
 			).catch(() => undefined);
-			speakLine(formattedWelcome);
+			speakLine(formattedWelcome, announceVolume);
 		}
 	}
 
 	const vcLeaveTemplate = (await database.getGuildVar(guild.id, 'tts_vc_leave_template')) || '{username} ออกจากดิสแล้ว';
 
-	const leaveDecision = isLeaveEvent
+	const leaveDecision = isLeaveEvent && !(await optedOut(oldState.id))
 		? announceGuard.claim({ guildId: guild.id, userId: oldState.id, event: 'leave', ...announceLimits })
 		: { speak: false, enteredQuiet: false };
 	noticeQuiet(leaveDecision, oldState.id);
@@ -1180,7 +1231,7 @@ function toBool(val, defaultVal = true) {
 				stamp(`VC Leave Goodbye spoken: "${formattedLeave}"`),
 				guild.name
 			).catch(() => undefined);
-			speakLine(formattedLeave);
+			speakLine(formattedLeave, announceVolume);
 		}
 	}
 
@@ -1456,14 +1507,45 @@ client.on(Events.MessageCreate, async (message) => {
 			cleanText = cleanText.substring(0, ttsMaxLength);
 		}
 
+		// Until now a TTS line arrived with no idea who had sent it — you had to
+		// look at the channel to find out, which is the one thing somebody
+		// listening in a voice channel cannot do.
+		//
+		// The name goes in front only when the speaker changes, or after enough
+		// silence that the last one is no longer obvious. That is what keeps it
+		// from becoming the noise it is meant to prevent, and it is also why the
+		// name itself does not need a length limit — see core/voice-announce.js.
+		let spokenText = cleanText;
+		const speakerNamesEnabled = toBool(await database.getGuildVar(message.guild.id, 'tts_speaker_names_enabled'), true);
+		if (speakerNamesEnabled) {
+			const named = speakerTracker.shouldName({
+				guildId: message.guild.id,
+				userId: message.author.id,
+				regroupMs: cooldownMsFromSeconds(await database.getGuildVar(message.guild.id, 'tts_speaker_regroup_sec')),
+			});
+			if (named) {
+				const dbNick = await getUserNick(message.guild.id, message.author.id);
+				const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
+				const fullName = customNick || message.member?.displayName || message.author.username;
+				const shortName = shortSpeakerName(fullName);
+				if (shortName) {
+					const template = (await database.getGuildVar(message.guild.id, 'tts_speaker_template')) || '{name} บอกว่า {text}';
+					spokenText = template
+						.replace(/{name}/gi, shortName)
+						.replace(/{text}/gi, cleanText);
+				}
+			}
+		}
+
 		const { addToQueue, generateUUID } = require('./audio_queue.js');
 		const type = ttsEngine === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : 'TTS';
 
 		const entry = {
 			uuid: generateUUID(),
-			name: cleanText,
+			name: spokenText,
 			lang: ttsLang,
 			voice: ttsVoice,
+			volume: ttsVolume(await database.getGuildVar(message.guild.id, 'tts_volume')),
 			type: type,
 			guild: message.guild,
 			sender: message.author,
