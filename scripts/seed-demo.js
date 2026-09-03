@@ -29,10 +29,14 @@ async function main() {
 	await core.activities.setRsvp(P['A'], 'yes');
 	await core.activities.setPlanState(act.id, 'confirmed');
 	await core.activities.setPlanState(act.id, 'done');
+	// A one-off bill has to name who shares it. RSVP is a planning answer, not
+	// permission to charge somebody — see `split_people_required` in
+	// core/activities.js. This script predated that rule and failed on it.
 	await core.activities.addExpense(act.id, {
 		label: 'ค่าคอร์ท 2 ชม.',
 		amountSatang: core.money.toSatang(400),
 		paidBy: P['ฟิก'],
+		shareParticipantIds: [P['ฟิก'], P['โอม'], P['นัท'], P['A']],
 	});
 	const pay = await core.activities.recordPayment(act.id, P['โอม'], { amountSatang: core.money.toSatang(100) });
 	await core.activities.confirmPayment(pay.id, user.id);

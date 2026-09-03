@@ -4,8 +4,7 @@
 //
 // The rules it enforces are in DISCORD-RATE-LIMITS.md. What matters:
 //
-//   - it recognises the Cloudflare body, which arrives as `code: 0` and is not
-//     a Discord API error;
+//   - it recognises both the legacy `code: 0` body and Discord's current 40333;
 //   - it recognises it wherever it is hiding — a string, an Error, a discord.js
 //     rejection carrying rawError;
 //   - once tripped, `blocked()` stays true for the whole cooldown, because the
@@ -18,8 +17,13 @@ const {
 	isGlobalBlock,
 	isSevereRateLimit,
 	createBlockGuard,
+	guardRestClient,
+	recordInvalidRequestWarning,
+	createInvalidRequestDiagnostics,
 	BLOCK_COOLDOWN_MS,
 	BLOCK_EXIT_CODE,
+	INVALID_REQUEST_STOP_THRESHOLD,
+	LOCAL_BLOCK_ERROR_CODE,
 	RATE_LIMIT_WAIT_CEILING_MS,
 } = require('../adapters/discord/rate-limit.js');
 
@@ -39,7 +43,11 @@ function main() {
 			'wrapped in an Error by the OAuth adapter');
 		assert.ok(isGlobalBlock({ rawError: { code: 0, message: 'You are being blocked from accessing our API temporarily.' } }),
 			'a discord.js rejection carrying rawError');
-		ok('the Cloudflare block is recognised as a string, an Error and a rejection');
+		assert.ok(isGlobalBlock({ code: 40333, message: 'Cloudflare is blocking your request.' }),
+			'Discord\'s current documented Cloudflare error code');
+		assert.ok(isGlobalBlock({ rawError: { code: 40333, message: 'Request blocked' } }),
+			'the current code nested in a discord.js rejection');
+		ok('legacy and current Cloudflare block responses are recognised');
 	}
 
 	// 2. An ordinary 429 is not this. Treating one as a block would take the bot
@@ -119,6 +127,8 @@ function main() {
 		assert.ok(remaining <= Math.ceil(BLOCK_COOLDOWN_MS / 1000), 'and no more than the cooldown');
 		assert.ok(guard.blockedUntil() >= before + BLOCK_COOLDOWN_MS - 1000,
 			'the deadline is roughly a cooldown away');
+		assert.ok(BLOCK_COOLDOWN_MS >= 60 * 60 * 1000,
+			'the cooldown must not resume at the old 15-minute deadline inside an hour-long block');
 		ok(`the cooldown runs for ${Math.round(BLOCK_COOLDOWN_MS / 60000)} minutes and can be handed to another process`);
 	}
 
@@ -160,7 +170,7 @@ function main() {
 		assert.strictEqual(guard.blocked(), true, 'blocked while the cooldown runs');
 
 		const waitedOut = new Promise(resolve => setTimeout(resolve, 40));
-		return waitedOut.then(() => {
+		return waitedOut.then(async () => {
 			assert.strictEqual(guard.blocked(), false, 'and clear once it expires');
 			assert.strictEqual(guard.retryAfterSeconds(), 0, 'with nothing left to wait for');
 			ok('the block expires on its own — it is a deadline, not a latch');
@@ -174,9 +184,75 @@ function main() {
 			assert.strictEqual(BLOCK_EXIT_CODE, 75, 'the block exit code is EX_TEMPFAIL');
 			ok('the supervisor still has an exit code that means "do not restart me yet"');
 
+			await restCircuitBreakerStopsEveryCall();
+			invalidRequestWarningsStopBeforeCloudflare();
+			invalidRequestDiagnosticsNameTheRoute();
+
 			everyRestClientRefusesToRetryForever();
 		});
 	}
+}
+
+async function restCircuitBreakerStopsEveryCall() {
+	let requests = 0;
+	const rest = {
+		async request(options) {
+			requests++;
+			if (options?.fail) throw options.fail;
+			return options?.answer;
+		},
+	};
+	const guard = createBlockGuard({ cooldownMs: 1000 });
+	guardRestClient(rest, guard);
+
+	assert.strictEqual(await rest.request({ answer: 'ok' }), 'ok', 'ordinary calls still reach Discord');
+	assert.strictEqual(requests, 1);
+
+	await assert.rejects(
+		rest.request({ fail: new Error(CLOUDFLARE_BODY) }),
+		/blocked from accessing our API/i,
+		'the refusal is preserved for the caller',
+	);
+	assert.strictEqual(guard.blocked(), true, 'a swallowed feature error cannot hide the block from the REST guard');
+
+	await assert.rejects(
+		rest.request({ answer: 'must not leave the process' }),
+		error => error.code === LOCAL_BLOCK_ERROR_CODE,
+		'a locally skipped call has a stable error code',
+	);
+	assert.strictEqual(requests, 2, 'no request reaches the underlying REST client after the first block');
+	ok('one REST circuit breaker covers direct manager calls and swallowed failures');
+}
+
+function invalidRequestWarningsStopBeforeCloudflare() {
+	const guard = createBlockGuard({ cooldownMs: 1000 });
+	assert.strictEqual(
+		recordInvalidRequestWarning({ count: INVALID_REQUEST_STOP_THRESHOLD - 1 }, guard),
+		false,
+		'a warning below the local ceiling only reports',
+	);
+	assert.strictEqual(guard.blocked(), false);
+	assert.strictEqual(
+		recordInvalidRequestWarning({ count: INVALID_REQUEST_STOP_THRESHOLD }, guard),
+		true,
+		'the local ceiling opens the circuit',
+	);
+	assert.strictEqual(guard.blocked(), true);
+	ok(`invalid 401/403/429 traffic stops at ${INVALID_REQUEST_STOP_THRESHOLD}, before Discord's hard limit`);
+}
+
+function invalidRequestDiagnosticsNameTheRoute() {
+	const diagnostics = createInvalidRequestDiagnostics({ windowMs: 1000 });
+	diagnostics.record({ method: 'GET', route: '/guilds/:id/members' }, { status: 403 }, 100);
+	diagnostics.record({ method: 'GET', route: '/guilds/:id/members' }, { status: 403 }, 101);
+	diagnostics.record({ method: 'POST', route: '/channels/:id/messages' }, { status: 429 }, 102);
+	diagnostics.record({ method: 'GET', route: '/ignored' }, { status: 404 }, 103);
+	assert.strictEqual(
+		diagnostics.summary(),
+		'403 GET /guilds/:id/members ×2, 429 POST /channels/:id/messages ×1',
+		'aggregate warnings retain the status, method and normalized route',
+	);
+	ok('invalid-request warnings name the routes that caused them');
 }
 
 /**
@@ -185,11 +261,9 @@ function main() {
  * "Any new `Client` or `REST` sets `rejectOnRateLimit`. The default retries an
  * unexpected 429 forever." — DISCORD-RATE-LIMITS.md
  *
- * That item was checked by reading, and reading missed one: `deploy-commands.js`
- * constructed a bare `new REST()` and ran as the first thing in `npm run boot`,
- * which is the moment a deploy is most likely to be walking into a block it
- * caused a minute ago. The uncapped retry path never settles its promise, so
- * the script's own `catch` could not have reported it either.
+ * That item was checked by reading, and reading once missed one:
+ * `deploy-commands.js` constructed a bare `new REST()`. The uncapped retry path
+ * never settles its promise, so the script's own `catch` could not report it.
  *
  * Scanning the source is crude, and it is the only check that fires on a file
  * nobody thought to test. A construction site that is genuinely fine can name

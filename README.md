@@ -27,6 +27,10 @@ npm install
 npm run dev              # เปิด bot + Express API + Next พร้อมกัน
 ```
 
+เวลา deploy หรือ instance ตื่นจาก hibernate ให้ใช้ `npm start` หรือ `npm run boot`
+ซึ่งจะเริ่ม service โดยไม่ register slash commands ซ้ำทุกครั้ง ใช้ `npm run deploy`
+เฉพาะเมื่อไฟล์ใน `commands/` เปลี่ยนเท่านั้น
+
 พอร์ตมาจาก `.env` และห้ามเปลี่ยนตามใจ: `NEXT_PORT=3100`, `EXPRESS_PORT=3001`
 เพราะ `DISCORD_REDIRECT_URI` ชี้ที่ 3100 ซึ่ง `next.config.js` proxy `/api/*`
 ต่อไปที่ Express อีกที

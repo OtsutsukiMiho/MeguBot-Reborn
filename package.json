@@ -28,6 +28,7 @@
     "merge:demo": "node scripts/merge-demo.js",
     "contrast": "node scripts/contrast-audit.js",
     "bot:instances": "node scripts/instance-audit.js",
+    "bot:health": "node scripts/health-log.js",
     "dev:login": "node scripts/dev-login.js",
     "cloud:setup": "bash scripts/cloud-setup.sh"
   },
