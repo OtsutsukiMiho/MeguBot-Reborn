@@ -128,6 +128,7 @@ client.customReadyTimestamp = customReadyTimestamp;
 
 const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_functions.js');
 const database = require('../database/database.js');
+const healthLog = require('../../adapters/health/health-log.js');
 
 // The web process has had this guard since the outage. The bot never did, and
 // the bot is the process that talks to Discord constantly — so while the site
@@ -181,6 +182,16 @@ async function discordCall(label, run, fallback = undefined) {
 	catch (error) {
 		if (discordBlock.record(error)) {
 			BotLogs('SYSTEM', `${COLOR.red}Blocked by Discord while ${label}. Everything else is paused too.`);
+			// Edge-triggered: record() is only truthy the first time it
+			// recognises a block, so a burst of refused calls writes one row.
+			// The supervisor logs the exit; this is the half that knows what
+			// Discord actually said, and which call was refused.
+			healthLog.record({
+				kind: 'block',
+				instance: INSTANCE,
+				service: 'Discord Bot',
+				detail: `blocked while ${label}: ${error && error.message ? error.message : String(error)}`,
+			});
 		}
 		return fallback;
 	}
@@ -406,9 +417,25 @@ function getOrCreateConnection(guild, channel) {
 	return connection;
 }
 
+// Called once per guild on every ready, and again whenever a channel empties.
+//
+// `joinVoiceChannel()` is the one Discord call in this file that does NOT go
+// through `guardRestClient()`: it sends gateway opcode 4, not a REST request,
+// so the process-wide circuit breaker never sees it. That left this as the one
+// path still talking to Discord during a block — and it is boot-time work, so a
+// restart loop ran it on every attempt, once per guild.
+//
+// It is also bounded by "how many voice channels does this server have" rather
+// than by anything we control, which is the shape rule 7 warns about.
+const AUTO_JOIN_SCAN_LIMIT = 25;
+
 function autoJoinActiveVC(guild) {
+	if (discordBlock.blocked()) return false;
+
+	let scanned = 0;
 	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2);
 	for (const [, voiceChannel] of voiceChannels) {
+		if (++scanned > AUTO_JOIN_SCAN_LIMIT) break;
 		if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) continue;
 		if (voiceChannel.members.size >= 1 && !(voiceChannel.members.size === 1 && voiceChannel.members.has(guild.members.me.id))) {
 			try {
@@ -882,6 +909,13 @@ client.on(Events.ClientReady, async () => {
 
 const voiceStateProcessing = new Set();
 
+// One arrival, one announcement. Discord reports a dropped-and-restored
+// connection as a fresh join, so without this a single person on bad wifi can
+// have their name read out six times in ninety seconds — which is how this
+// feature gets switched off. See core/voice-announce.js.
+const { createAnnounceGuard, cooldownMsFromSeconds } = require('../../core/voice-announce.js');
+const announceGuard = createAnnounceGuard();
+
 async function getUserNick(guildId, userId) {
 	return await database.getUserNick(guildId, userId);
 }
@@ -906,6 +940,10 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		const { clearQueue } = require('./audio_queue.js');
 		clearQueue(guild.id, guild.name);
 
+		// Everybody has gone. Whoever turns up next is starting a new session
+		// and should be greeted, however recently they were last announced.
+		announceGuard.forget(guild.id);
+
 		const connection = getVoiceConnection(guild.id);
 		if (connection) {
 			connection.destroy();
@@ -921,25 +959,35 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			// Ignore
 		}
 
+		const greetOnJoin = toBool(await database.getGuildVar(guild.id, 'tts_join_greeting_enabled'), false);
+
 		if (!oldVcId) {
 			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
 
-			BotLogs('Bot', `${COLOR.blue}Greeting voice channel -> ${COLOR.white}${newState.channel.name} ${COLOR.gray}(${guild.name})`);
+			// "สวัสดีชาวโลก" is hello-world — a placeholder that shipped. She says it
+			// every time she joins a channel that had emptied, which on a host that
+			// sleeps is once per wake, all day, to whoever happens to be sitting there.
+			// Boot-time noise and boot-time Discord work on the same line.
+			//
+			// Off unless a server asks for it, and the words are theirs to choose.
+			if (greetOnJoin) {
+				BotLogs('Bot', `${COLOR.blue}Greeting voice channel -> ${COLOR.white}${newState.channel.name} ${COLOR.gray}(${guild.name})`);
 
-			const { addToQueue, generateUUID } = require('./audio_queue.js');
+				const { addToQueue, generateUUID } = require('./audio_queue.js');
 
-			const queue_constructor = {
-				uuid: generateUUID(),
-				name: 'สวัสดีชาวโลก',
-				lang: 'th',
-				type: 'GOOGLE_TTS',
-				guild: guild,
-				voice: 'th-TH-PremwadeeNeural',
-				sender: client.user,
-				voice_channel: newState.channel,
-				connection: getOrCreateConnection(guild, newState.channel),
-			};
-			addToQueue(guild.id, queue_constructor);
+				const queue_constructor = {
+					uuid: generateUUID(),
+					name: (await database.getGuildVar(guild.id, 'tts_join_greeting_text')) || 'สวัสดีชาวโลก',
+					lang: 'th',
+					type: 'GOOGLE_TTS',
+					guild: guild,
+					voice: 'th-TH-PremwadeeNeural',
+					sender: client.user,
+					voice_channel: newState.channel,
+					connection: getOrCreateConnection(guild, newState.channel),
+				};
+				addToQueue(guild.id, queue_constructor);
+			}
 		}
 		else if (oldVcId !== newState.channelId) {
 			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
@@ -1007,9 +1055,73 @@ function toBool(val, defaultVal = true) {
 	const vcWelcomeEnabled = toBool(await database.getGuildVar(guild.id, 'tts_vc_welcome_enabled'));
 	const vcWelcomeTemplate = (await database.getGuildVar(guild.id, 'tts_vc_welcome_template')) || '{username} เข้าดิสมา';
 
-	if (vcWelcomeEnabled && newState.channelId === currentChannel.id && oldState.channelId !== currentChannel.id && oldState.channelId !== guild.afkChannelId) {
+	/** Everything the announcement queue needs, so the three callers below agree. */
+	function speakLine(text) {
+		const { addToQueue, generateUUID } = require('./audio_queue.js');
+		addToQueue(guild.id, {
+			uuid: generateUUID(),
+			name: text,
+			lang: ttsLang,
+			type: speechType,
+			guild: guild,
+			voice: ttsVoice,
+			sender: client.user,
+			voice_channel: currentChannel,
+			connection: getOrCreateConnection(guild, currentChannel),
+		});
+	}
+
+	// Whether this event is a candidate at all — cheap, and computed from
+	// settings already read. The four announce limits are only fetched when one
+	// of these holds, so an ordinary mute or deafen costs no extra queries.
+	const isJoinEvent = vcWelcomeEnabled
+		&& newState.channelId === currentChannel.id
+		&& oldState.channelId !== currentChannel.id
+		&& oldState.channelId !== guild.afkChannelId
+		&& newState.id !== client.user.id;
+
+	const vcLeaveEnabled = toBool(await database.getGuildVar(guild.id, 'tts_vc_leave_enabled'));
+	const isLeaveEvent = vcLeaveEnabled
+		&& oldState.channelId === currentChannel.id
+		&& newState.channelId !== currentChannel.id
+		&& oldState.id !== client.user.id;
+
+	let announceLimits = {};
+	let quietTemplate = 'คนเข้าออกเยอะ ขอเงียบแป๊บนึงนะ';
+	if (isJoinEvent || isLeaveEvent) {
+		announceLimits = {
+			// Shared by the greeting and the goodbye: one person reconnecting
+			// should go quiet in both directions, not just one.
+			cooldownMs: cooldownMsFromSeconds(await database.getGuildVar(guild.id, 'tts_vc_announce_cooldown_sec')),
+			floodCount: await database.getGuildVar(guild.id, 'tts_vc_announce_flood_count'),
+			floodWindowMs: cooldownMsFromSeconds(await database.getGuildVar(guild.id, 'tts_vc_announce_flood_window_sec')),
+			quietMs: cooldownMsFromSeconds(await database.getGuildVar(guild.id, 'tts_vc_announce_quiet_sec')),
+		};
+		quietTemplate = (await database.getGuildVar(guild.id, 'tts_vc_announce_quiet_template')) || quietTemplate;
+	}
+
+	/**
+	 * One line when she stops, so a channel that has just gone silent does not
+	 * read as a bot that has crashed. Said once per burst — `enteredQuiet` is
+	 * true only on the event that tripped the limit.
+	 */
+	function noticeQuiet(result, who) {
+		if (!result.enteredQuiet) return;
+		speakLine(quietTemplate);
+		BotLogs('Tts', `${COLOR.blue}VC announcements paused — burst at ${COLOR.white}${who} ${COLOR.gray}(${guild.name})`);
+	}
+
+	// The claim is made before the member fetch on purpose. A suppressed
+	// reconnect is the common case on a busy channel, and this way it costs no
+	// Discord call at all.
+	const joinDecision = isJoinEvent
+		? announceGuard.claim({ guildId: guild.id, userId: newState.id, event: 'join', ...announceLimits })
+		: { speak: false, enteredQuiet: false };
+	noticeQuiet(joinDecision, newState.id);
+
+	if (joinDecision.speak) {
 		const member = newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(newState.id), null));
-		if (member && member.id !== client.user.id) {
+		if (member) {
 			const dbNick = await getUserNick(guild.id, member.id);
 			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
 			const discordDisplayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
@@ -1023,18 +1135,6 @@ function toBool(val, defaultVal = true) {
 				.replace(/{tag}/gi, userTag)
 				.replace(/{server}/gi, guild.name);
 
-			const { addToQueue, generateUUID } = require('./audio_queue.js');
-			const queue_constructor = {
-				uuid: generateUUID(),
-				name: formattedWelcome,
-				lang: ttsLang,
-				type: speechType,
-				guild: guild,
-				voice: ttsVoice,
-				sender: client.user,
-				voice_channel: currentChannel,
-				connection: getOrCreateConnection(guild, currentChannel),
-			};
 			BotLogs('Tts', `${COLOR.blue}VC Join Greeting for ${COLOR.white}${userTag}${COLOR.blue} -> "${formattedWelcome}" ${COLOR.gray}(${guild.name})`);
 			database.logAuditEvent(
 				guild.id,
@@ -1044,16 +1144,20 @@ function toBool(val, defaultVal = true) {
 				stamp(`VC Join Greeting spoken: "${formattedWelcome}"`),
 				guild.name
 			).catch(() => undefined);
-			addToQueue(guild.id, queue_constructor);
+			speakLine(formattedWelcome);
 		}
 	}
 
-	const vcLeaveEnabled = toBool(await database.getGuildVar(guild.id, 'tts_vc_leave_enabled'));
 	const vcLeaveTemplate = (await database.getGuildVar(guild.id, 'tts_vc_leave_template')) || '{username} ออกจากดิสแล้ว';
 
-	if (vcLeaveEnabled && oldState.channelId === currentChannel.id && newState.channelId !== currentChannel.id) {
+	const leaveDecision = isLeaveEvent
+		? announceGuard.claim({ guildId: guild.id, userId: oldState.id, event: 'leave', ...announceLimits })
+		: { speak: false, enteredQuiet: false };
+	noticeQuiet(leaveDecision, oldState.id);
+
+	if (leaveDecision.speak) {
 		const member = oldState.member || newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(oldState.id), null));
-		if (member && member.id !== client.user.id) {
+		if (member) {
 			const dbNick = await getUserNick(guild.id, member.id);
 			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
 			const discordDisplayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
@@ -1067,18 +1171,6 @@ function toBool(val, defaultVal = true) {
 				.replace(/{tag}/gi, userTag)
 				.replace(/{server}/gi, guild.name);
 
-			const { addToQueue, generateUUID } = require('./audio_queue.js');
-			const queue_constructor = {
-				uuid: generateUUID(),
-				name: formattedLeave,
-				lang: ttsLang,
-				type: speechType,
-				guild: guild,
-				voice: ttsVoice,
-				sender: client.user,
-				voice_channel: currentChannel,
-				connection: getOrCreateConnection(guild, currentChannel),
-			};
 			BotLogs('Tts', `${COLOR.blue}VC Leave Goodbye for ${COLOR.white}${userTag}${COLOR.blue} -> "${formattedLeave}" ${COLOR.gray}(${guild.name})`);
 			database.logAuditEvent(
 				guild.id,
@@ -1088,7 +1180,7 @@ function toBool(val, defaultVal = true) {
 				stamp(`VC Leave Goodbye spoken: "${formattedLeave}"`),
 				guild.name
 			).catch(() => undefined);
-			addToQueue(guild.id, queue_constructor);
+			speakLine(formattedLeave);
 		}
 	}
 
@@ -3095,11 +3187,25 @@ client.rest.on('invalidRequestWarning', (info) => {
 // the reason was a Cloudflare block, that loop hammered Discord every three
 // seconds and kept the block alive. Now the reason is logged and the exit code
 // tells the supervisor whether a quick restart is safe.
-client.login(process.env.BOT_TOKEN).catch((error) => {
-	if (isGlobalBlock(error)) {
+client.login(process.env.BOT_TOKEN).catch(async (error) => {
+	const blocked = isGlobalBlock(error);
+	if (blocked) {
 		BotLogs('SYSTEM', `${COLOR.red}Discord is blocking this server's IP address. NOT retrying — see DISCORD-RATE-LIMITS.md.`);
-		process.exit(BLOCK_EXIT_CODE);
 	}
-	BotLogs('SYSTEM', `${COLOR.red}Discord login failed: ${COLOR.white}${error.message}`);
-	process.exit(1);
+	else {
+		BotLogs('SYSTEM', `${COLOR.red}Discord login failed: ${COLOR.white}${error.message}`);
+	}
+
+	// Awaited on purpose, and safe to await: health-log gives up after two
+	// seconds. A login failure is the one moment this process has something
+	// worth saying and the least time to say it, and until now it said it only
+	// to an in-memory buffer that died on the next line.
+	await healthLog.record({
+		kind: blocked ? 'block' : 'exit',
+		instance: INSTANCE,
+		service: 'Discord Bot',
+		detail: `login failed: ${error && error.message ? error.message : String(error)}`,
+	});
+
+	process.exit(blocked ? BLOCK_EXIT_CODE : 1);
 });

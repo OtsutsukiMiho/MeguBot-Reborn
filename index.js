@@ -6,8 +6,17 @@ if (fs.existsSync('.env')) {
 	require('dotenv').config();
 }
 
+const os = require('os');
+
 const { BotLogs, COLOR } = require('./backend/bot/bot_functions.js');
 const { BLOCK_EXIT_CODE, BLOCK_COOLDOWN_MS } = require('./adapters/discord/rate-limit.js');
+
+// The supervisor is the only thing here that outlives its children, which makes
+// it the only thing that can record why one of them died. A bot exiting on a
+// Cloudflare block cannot reliably write its own obituary — `process.exit()` is
+// immediate, and its logs were only ever in memory. See adapters/health/health-log.js.
+const healthLog = require('./adapters/health/health-log.js');
+const SUPERVISOR = `${os.hostname()}#${process.pid}`;
 
 // PORT is what a cloud host injects, and it is the one port it routes public
 // traffic to. It has to go to Next, because Next is the site: it serves every
@@ -93,6 +102,15 @@ function scheduleRestart(name, start, startedAt, exitCode) {
 		noteDiscordBlock(Date.now() + BLOCK_COOLDOWN_MS, name);
 		delay = Math.max(delay, BLOCK_COOLDOWN_MS);
 		logMaster('System', `${COLOR.red}Holding ${name} down for ${Math.round(delay / 60000)} minutes rather than retrying into the block.`);
+		// The child could not write this itself: the block is what killed it.
+		// Without this row the only trace is a gap in the audit history exactly
+		// BLOCK_COOLDOWN_MS wide, which is not evidence of anything.
+		healthLog.record({
+			kind: 'block_hold',
+			instance: SUPERVISOR,
+			service: name,
+			detail: `${name} exited with BLOCK_EXIT_CODE; held down for ${Math.round(delay / 60000)} minutes`,
+		});
 	}
 	else if (name === 'Discord Bot' && state.attempts >= 3 && exitCode !== 0) {
 		noteDiscordBlock(Date.now() + BLOCK_COOLDOWN_MS, name);
@@ -246,6 +264,11 @@ function startNext() {
 function startBot() {
 	logMaster('System', `${COLOR.cyan}Starting Discord Bot process...`);
 	const startedAt = Date.now();
+	// Every bot start is a fresh gateway IDENTIFY, and that is the number this
+	// deploy needs to be able to count. `bot:instances` can only see starts that
+	// went on to write an audit row, so a bot that dies during boot — the exact
+	// case that matters — is invisible to it. This row is not.
+	healthLog.record({ kind: 'boot', instance: SUPERVISOR, service: 'Discord Bot' });
 	botProcess = fork(path.join(__dirname, 'backend', 'bot', 'bot.js'), [], {
 		stdio: 'inherit',
 		env: {
@@ -275,9 +298,26 @@ function startBot() {
 
 	botProcess.on('exit', (code, signal) => {
 		logMaster('System', `${COLOR.red}Discord Bot process exited with code ${code} (signal: ${signal}).`);
+		healthLog.record({
+			kind: 'exit',
+			instance: SUPERVISOR,
+			service: 'Discord Bot',
+			detail: `code ${code}, signal ${signal}, after ${Math.round((Date.now() - startedAt) / 1000)}s of uptime`,
+		});
 		scheduleRestart('Discord Bot', startBot, startedAt, code);
 	});
 }
+
+// A fresh supervisor means the whole service started: a deploy, a crash, or —
+// on a plan that sleeps — a wake. Those are indistinguishable in the audit log
+// and each one costs a full round of boot-time Discord work, so counting them
+// is the first step to reducing them.
+healthLog.record({
+	kind: 'boot',
+	instance: SUPERVISOR,
+	service: 'supervisor',
+	detail: `node ${process.version} on ${process.platform}, NODE_ENV=${process.env.NODE_ENV || 'unset'}`,
+});
 
 startWeb();
 startNext();
