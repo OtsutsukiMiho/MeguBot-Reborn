@@ -230,8 +230,128 @@ function createAnnounceGuard(defaults = {}) {
 	};
 }
 
+/**
+ * Titles, not names. Somebody in a company Discord is "CEO คุณสมชาย สุขใจ"
+ * because that is what a room full of colleagues needs to hear when he arrives —
+ * and it is the wrong thing to hear seven times while he is typing.
+ *
+ * Stripped from the front, repeatedly, because they stack: a title, an honorific
+ * and then the name. Thai honorifics are joined to the name as often as they are
+ * separated from it, so only whole tokens are removed and a name that turns out
+ * to be nothing but titles is left exactly as it was found.
+ */
+const NAME_TITLES = new Set([
+	// Roles, the reason this exists at all
+	'ceo', 'cto', 'cfo', 'coo', 'cio', 'cmo', 'vp', 'svp', 'evp',
+	'gm', 'md', 'pm', 'hr', 'dir', 'director', 'manager', 'head', 'lead',
+	// English honorifics
+	'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'sir', 'madam',
+	// Thai honorifics
+	'คุณ', 'นาย', 'นาง', 'นางสาว', 'น.ส.', 'ด.ช.', 'ด.ญ.',
+	'ดร.', 'ดร', 'ผศ.', 'ผศ', 'รศ.', 'รศ', 'ศ.',
+	'พี่', 'น้อง', 'ท่าน',
+]);
+
+/**
+ * The ones that get written against the name rather than beside it. Ordered
+ * longest first, so "นางสาว" is not read as "นาง" with a name starting "สาว".
+ */
+const THAI_GLUED_PREFIXES = ['นางสาว', 'นาง', 'นาย', 'คุณ', 'ดร.', 'ด.ช.', 'ด.ญ.', 'ท่าน', 'พี่', 'น้อง'];
+
+/** Below this, stripping has eaten the name rather than the title. */
+const MIN_NAME_AFTER_PREFIX = 2;
+
+/**
+ * The name to read out when attributing a message to whoever typed it — as
+ * short as it can be while still being that person.
+ *
+ * This is not a length limit. A limit would have to be short enough to help
+ * here, which is short enough to ruin the announcement, where the full title is
+ * the point. One name cannot do both jobs, so this derives the second from the
+ * first and neither has to be capped.
+ */
+function shortSpeakerName(fullName) {
+	if (typeof fullName !== 'string') return '';
+	const cleaned = fullName.replace(/\s+/g, ' ').trim();
+	if (!cleaned) return '';
+
+	let tokens = cleaned.split(' ');
+	while (tokens.length > 1) {
+		const head = tokens[0].toLowerCase().replace(/[.,:]+$/, '');
+		if (!NAME_TITLES.has(head) && !NAME_TITLES.has(tokens[0].toLowerCase())) break;
+		tokens = tokens.slice(1);
+	}
+
+	// Thai honorifics are written against the name more often than apart from
+	// it — "นายธีรภาพ" is one token, not two — so token stripping alone leaves
+	// the very thing this is meant to remove.
+	let name = tokens[0] || cleaned;
+	for (const prefix of THAI_GLUED_PREFIXES) {
+		if (!name.startsWith(prefix)) continue;
+		// Only when something recognisable is left. "นายก" is a word, not
+		// Mr. ก, and a name cut down to one character is worse than the
+		// honorific it was carrying.
+		if (name.length - prefix.length < MIN_NAME_AFTER_PREFIX) continue;
+		name = name.slice(prefix.length);
+		break;
+	}
+
+	// Everything was a title. Whatever they typed is who they are; say it.
+	return name || cleaned;
+}
+
+/**
+ * Whether this message needs the speaker's name in front of it.
+ *
+ * Reading "X said" before every line is how a long name becomes unbearable, and
+ * it is also just wrong: nobody re-introduces themselves between two sentences.
+ * The name goes in when the speaker changes, or when enough silence has passed
+ * that the last one is no longer obvious — the same grouping a chat client uses,
+ * for the same reason.
+ *
+ * With this in place a name has no reason to be short, which is what lets the
+ * announcement keep the whole title.
+ */
+const DEFAULT_REGROUP_MS = 30 * 1000;
+
+function createSpeakerTracker({ regroupMs = DEFAULT_REGROUP_MS } = {}) {
+	const defaultRegroupMs = resolveMs(regroupMs, DEFAULT_REGROUP_MS);
+	/** guildId -> { userId, at } */
+	const last = new Map();
+
+	return {
+		shouldName({ guildId, userId, now = Date.now(), regroupMs: overrideMs } = {}) {
+			if (!guildId || !userId) return false;
+			if (!Number.isFinite(now)) return false;
+
+			const windowMs = resolveMs(overrideMs, defaultRegroupMs);
+			const previous = last.get(guildId);
+			last.set(guildId, { userId, at: now });
+
+			if (!previous) return true;
+			if (previous.userId !== userId) return true;
+			// windowMs of 0 means "always name", which some server will want.
+			if (windowMs === 0) return true;
+			return now - previous.at >= windowMs;
+		},
+
+		/** She left the channel; the next voice in it is starting fresh. */
+		forget(guildId) {
+			last.delete(guildId);
+		},
+
+		size() {
+			return last.size;
+		},
+	};
+}
+
 module.exports = {
 	createAnnounceGuard,
+	createSpeakerTracker,
+	shortSpeakerName,
+	DEFAULT_REGROUP_MS,
+	NAME_TITLES,
 	resolveCooldownMs,
 	resolveCount,
 	cooldownMsFromSeconds,

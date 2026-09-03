@@ -67,6 +67,19 @@ async function initDatabase() {
 					PRIMARY KEY (guild_id, user_id)
 				);
 			`);
+			// Announcing an arrival is done for the room, not for the person
+			// arriving, so the person arriving is the one who never consented to
+			// it. Someone who does not want their name read out loud every time
+			// they join needs a way to say so that does not involve asking an
+			// admin to turn the feature off for everybody.
+			await client.query(`
+				CREATE TABLE IF NOT EXISTS user_voice_prefs (
+					guild_id VARCHAR(30),
+					user_id VARCHAR(30),
+					announce_opt_out BOOLEAN NOT NULL DEFAULT FALSE,
+					PRIMARY KEY (guild_id, user_id)
+				);
+			`);
 			await client.query(`
 				CREATE TABLE IF NOT EXISTS reminders (
 					id SERIAL PRIMARY KEY,
@@ -295,6 +308,47 @@ async function deleteGuildVar(guildId, key) {
 				fs.writeFileSync(dbPath, JSON.stringify(guildData, null, 4));
 			}
 		}
+	}
+}
+
+/**
+ * Has this person asked not to have their name read out when they join?
+ *
+ * Answers false when the database is unreachable, on purpose. The failure this
+ * protects against is announcing somebody who asked not to be announced, and a
+ * lost connection is not consent — but a bot that refuses to greet anybody
+ * because a query timed out is a broken feature, not a private one. The cache
+ * below keeps that window small.
+ */
+async function getAnnounceOptOut(guildId, userId) {
+	if (!pool) return false;
+	try {
+		const res = await pool.query(
+			'SELECT announce_opt_out FROM user_voice_prefs WHERE guild_id = $1 AND user_id = $2',
+			[guildId, userId],
+		);
+		return res.rows.length > 0 ? Boolean(res.rows[0].announce_opt_out) : false;
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${COLOR.red}Database error in getAnnounceOptOut: ${error.message}`);
+		return false;
+	}
+}
+
+async function setAnnounceOptOut(guildId, userId, optOut) {
+	if (!pool) return false;
+	try {
+		await pool.query(
+			`INSERT INTO user_voice_prefs (guild_id, user_id, announce_opt_out)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (guild_id, user_id) DO UPDATE SET announce_opt_out = $3`,
+			[guildId, userId, Boolean(optOut)],
+		);
+		return true;
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${COLOR.red}Database error in setAnnounceOptOut: ${error.message}`);
+		return false;
 	}
 }
 
@@ -1011,6 +1065,8 @@ module.exports = {
 	deleteGuildVar,
 	getUserNick,
 	setUserNick,
+	getAnnounceOptOut,
+	setAnnounceOptOut,
 	getAllGuildNicks,
 	deleteUserNick,
 	getAllHoneypots,
