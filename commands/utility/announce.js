@@ -18,6 +18,10 @@ module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('announce')
 		.setDescription('Choose whether Megu says your name when you join a voice channel')
+		// The preference is per server, so there is no server to apply it to in
+		// a DM. Without this, interaction.guild is null and reading .id throws a
+		// TypeError that surfaces as the dispatcher's generic error message.
+		.setDMPermission(false)
 		.addSubcommand(subcommand =>
 			subcommand
 				.setName('off')
@@ -35,6 +39,16 @@ module.exports = {
 		),
 
 	async execute(interaction) {
+		// setDMPermission(false) is the real guard, but it only takes effect
+		// once the command list has been redeployed, and an old registration
+		// outlives this file.
+		if (!interaction.guild) {
+			return await interaction.reply({
+				content: '❌ คำสั่งนี้ใช้ได้เฉพาะในเซิร์ฟเวอร์ เพราะการตั้งค่านี้แยกตามเซิร์ฟเวอร์',
+				flags: MessageFlags.Ephemeral,
+			});
+		}
+
 		const subcommand = interaction.options.getSubcommand();
 		const guildId = interaction.guild.id;
 		const userId = interaction.user.id;

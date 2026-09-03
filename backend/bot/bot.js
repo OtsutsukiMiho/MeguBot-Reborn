@@ -380,19 +380,22 @@ async function startOnlinePing() {
 	if (!channel) return;
 
 	const recent = await discordCall('looking for the last status message', () => channel.messages.fetch({ limit: 5 }), null);
-	let statusMessage = recent ? recent.find(m => m.author?.id === client.user.id) : null;
+	const statusMessage = recent ? recent.find(m => m.author?.id === client.user.id) : null;
 
+	// Stamped once, on ready, and never again. Discord presence and the web
+	// health endpoint are the real liveness signals; the loop that used to keep
+	// this timestamp fresh edited one message about ten thousand times a day and
+	// is exactly the sustained traffic DISCORD-RATE-LIMITS.md rule 1 forbids.
+	//
+	// Nothing is kept from this call. The result was previously captured for a
+	// heartbeat that no longer exists, which read as though a follow-up were
+	// still coming.
 	if (statusMessage) {
 		await discordCall('updating the status message', () => statusMessage.edit(onlinePingText()));
 	}
 	else {
-		statusMessage = await discordCall('posting the status message', () => channel.send(onlinePingText()), null);
-		if (!statusMessage) return;
+		await discordCall('posting the status message', () => channel.send(onlinePingText()), null);
 	}
-
-	// Do not edit this forever just to change a timestamp. Discord presence and
-	// the web health endpoint are the real liveness signals; this legacy message
-	// is now only stamped once when the bot becomes ready.
 }
 
 client.honeypots = new Map();
@@ -1569,21 +1572,31 @@ client.on(Events.MessageCreate, async (message) => {
 		let spokenText = cleanText;
 		const speakerNamesEnabled = toBool(await database.getGuildVar(message.guild.id, 'tts_speaker_names_enabled'), true);
 		if (speakerNamesEnabled) {
-			const named = speakerTracker.shouldName({
+			// The name is resolved *before* asking whether to say it. shouldName()
+			// records this speaker as a side effect, so calling it first and then
+			// finding there is no name to say would consume the attribution and
+			// leave the next message — the first one actually spoken — unnamed.
+			const dbNick = await getUserNick(message.guild.id, message.author.id);
+			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
+			const fullName = customNick || message.member?.displayName || message.author.username;
+			const shortName = shortSpeakerName(fullName);
+
+			const named = shortName && speakerTracker.shouldName({
 				guildId: message.guild.id,
 				userId: message.author.id,
 				regroupMs: cooldownMsFromSeconds(await database.getGuildVar(message.guild.id, 'tts_speaker_regroup_sec')),
 			});
+
 			if (named) {
-				const dbNick = await getUserNick(message.guild.id, message.author.id);
-				const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
-				const fullName = customNick || message.member?.displayName || message.author.username;
-				const shortName = shortSpeakerName(fullName);
-				if (shortName) {
-					const template = (await database.getGuildVar(message.guild.id, 'tts_speaker_template')) || '{name} บอกว่า {text}';
-					spokenText = template
-						.replace(/{name}/gi, shortName)
-						.replace(/{text}/gi, cleanText);
+				const template = (await database.getGuildVar(message.guild.id, 'tts_speaker_template')) || '{name} บอกว่า {text}';
+				spokenText = template
+					.replace(/{name}/gi, shortName)
+					.replace(/{text}/gi, cleanText);
+				// tts_max_length bounds the clip, and the name is part of the
+				// clip. Truncating the message and then prefixing a name put the
+				// result back over the limit the guild had set.
+				if (spokenText.length > ttsMaxLength) {
+					spokenText = spokenText.substring(0, ttsMaxLength);
 				}
 			}
 		}

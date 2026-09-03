@@ -6,6 +6,7 @@ const { BotLogs, COLOR } = require('../bot/bot_functions.js');
 const DATA_DIR = path.join(__dirname, 'data');
 const VARS_DIR = path.join(DATA_DIR, 'variables');
 const NICK_DIR = path.join(DATA_DIR, 'nick');
+const PREFS_DIR = path.join(DATA_DIR, 'voice-prefs');
 const AUDIT_DIR = path.join(DATA_DIR, 'audit');
 const REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json');
 
@@ -148,6 +149,9 @@ async function initDatabase() {
 		}
 		if (!fs.existsSync(NICK_DIR)) {
 			fs.mkdirSync(NICK_DIR, { recursive: true });
+		}
+		if (!fs.existsSync(PREFS_DIR)) {
+			fs.mkdirSync(PREFS_DIR, { recursive: true });
 		}
 		BotLogs('Database', `${COLOR.blue}Using local JSON file-based database.`);
 	}
@@ -387,34 +391,76 @@ async function deleteGuildVar(guildId, key) {
  * below keeps that window small.
  */
 async function getAnnounceOptOut(guildId, userId) {
-	if (!pool) return false;
-	try {
-		const res = await pool.query(
-			'SELECT announce_opt_out FROM user_voice_prefs WHERE guild_id = $1 AND user_id = $2',
-			[guildId, userId],
-		);
-		return res.rows.length > 0 ? Boolean(res.rows[0].announce_opt_out) : false;
+	if (pool) {
+		try {
+			const res = await pool.query(
+				'SELECT announce_opt_out FROM user_voice_prefs WHERE guild_id = $1 AND user_id = $2',
+				[guildId, userId],
+			);
+			return res.rows.length > 0 ? Boolean(res.rows[0].announce_opt_out) : false;
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in getAnnounceOptOut: ${error.message}`);
+			return false;
+		}
 	}
-	catch (error) {
-		BotLogs('SYSTEM', `${COLOR.red}Database error in getAnnounceOptOut: ${error.message}`);
-		return false;
+	else {
+		if (!isValidSnowflake(guildId)) return false;
+		const dbPath = path.join(PREFS_DIR, `${guildId}.json`);
+		if (!fs.existsSync(dbPath)) return false;
+		try {
+			const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+			return Boolean(data.optOut && data.optOut.includes(userId));
+		}
+		catch {
+			return false;
+		}
 	}
 }
 
 async function setAnnounceOptOut(guildId, userId, optOut) {
-	if (!pool) return false;
-	try {
-		await pool.query(
-			`INSERT INTO user_voice_prefs (guild_id, user_id, announce_opt_out)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT (guild_id, user_id) DO UPDATE SET announce_opt_out = $3`,
-			[guildId, userId, Boolean(optOut)],
-		);
-		return true;
+	if (pool) {
+		try {
+			await pool.query(
+				`INSERT INTO user_voice_prefs (guild_id, user_id, announce_opt_out)
+				 VALUES ($1, $2, $3)
+				 ON CONFLICT (guild_id, user_id) DO UPDATE SET announce_opt_out = $3`,
+				[guildId, userId, Boolean(optOut)],
+			);
+			return true;
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Database error in setAnnounceOptOut: ${error.message}`);
+			return false;
+		}
 	}
-	catch (error) {
-		BotLogs('SYSTEM', `${COLOR.red}Database error in setAnnounceOptOut: ${error.message}`);
-		return false;
+	else {
+		if (!isValidSnowflake(guildId)) return false;
+		try {
+			if (!fs.existsSync(PREFS_DIR)) fs.mkdirSync(PREFS_DIR, { recursive: true });
+			const dbPath = path.join(PREFS_DIR, `${guildId}.json`);
+			let data = { optOut: [] };
+			if (fs.existsSync(dbPath)) {
+				try {
+					data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+					if (!Array.isArray(data.optOut)) data = { optOut: [] };
+				}
+				catch {
+					data = { optOut: [] };
+				}
+			}
+
+			const already = data.optOut.includes(userId);
+			if (optOut && !already) data.optOut.push(userId);
+			if (!optOut && already) data.optOut = data.optOut.filter(id => id !== userId);
+
+			fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+			return true;
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Failed to write voice prefs: ${error.message}`);
+			return false;
+		}
 	}
 }
 
