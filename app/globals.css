@@ -386,13 +386,9 @@ input, textarea, select, button {
    distance — the hero is a full viewport tall on a laptop and much shorter on
    a phone.
 
-   Everything here uses --band-ink rather than --band-dim, including the links
-   that are muted on the page. The hero's glow sits at the top left, directly
-   under the brand and the menu, and it lifts the ground there well above the
-   flat --band the tokens would be measured against; --band-dim over the
-   brightest part of that glow is around 3.5:1 in the dark theme. --band-ink
-   holds everywhere on the band, lit or not, and the current page is marked by
-   a tint and its weight instead of by colour.
+   The current landing hero follows the page material: warm paper in light
+   mode and ink in dark mode. The nav therefore borrows --ink, not --band-ink;
+   both flip with the same root theme tokens as the hero.
 
    The blur stays on in both states: it cannot be transitioned, and over a
    solid ground it has nothing to do anyway. */
@@ -406,55 +402,55 @@ input, textarea, select, button {
 .navbar.is-over-band .user-name,
 .navbar.is-over-band .tab-btn,
 .navbar.is-over-band .btn-ghost {
-	color: var(--band-ink);
+	color: var(--ink);
 }
 
 .navbar.is-over-band .tab-btn:hover,
 .navbar.is-over-band .btn-ghost:hover:not(:disabled) {
-	color: var(--band-ink);
-	background: color-mix(in srgb, var(--band-ink) 12%, transparent);
+	color: var(--ink);
+	background: color-mix(in srgb, var(--ink) 10%, transparent);
 }
 
 .navbar.is-over-band .tab-btn.active {
-	background: color-mix(in srgb, var(--band-ink) 14%, transparent);
+	background: color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
 .navbar.is-over-band .lang-switch {
-	background: color-mix(in srgb, var(--band-ink) 10%, transparent);
-	border-color: color-mix(in srgb, var(--band-ink) 20%, transparent);
+	background: color-mix(in srgb, var(--ink) 8%, transparent);
+	border-color: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
 .navbar.is-over-band .lang-switch button {
-	color: var(--band-ink);
+	color: var(--ink);
 }
 
 .navbar.is-over-band .lang-switch button[aria-pressed='true'] {
-	background: color-mix(in srgb, var(--band-ink) 20%, transparent);
-	color: var(--band-ink);
+	background: color-mix(in srgb, var(--ink) 16%, transparent);
+	color: var(--ink);
 	box-shadow: none;
 }
 
 .navbar.is-over-band .theme-toggle {
-	color: var(--band-ink);
-	border-color: color-mix(in srgb, var(--band-ink) 28%, transparent);
+	color: var(--ink);
+	border-color: color-mix(in srgb, var(--ink) 28%, transparent);
 }
 
 .navbar.is-over-band .theme-toggle:hover {
-	border-color: var(--band-ink);
+	border-color: var(--ink);
 }
 
 .navbar.is-over-band .btn-primary {
-	background: var(--band-cta);
+	background: var(--brand);
 	color: var(--on-brand);
 }
 
 .navbar.is-over-band .btn-primary:hover:not(:disabled) {
-	background: var(--band-cta-hover);
+	background: var(--brand-hover);
 }
 
 .navbar.is-over-band .user-avatar {
-	background: color-mix(in srgb, var(--band-ink) 12%, transparent);
-	border-color: color-mix(in srgb, var(--band-ink) 24%, transparent);
+	background: color-mix(in srgb, var(--ink) 10%, transparent);
+	border-color: color-mix(in srgb, var(--ink) 22%, transparent);
 }
 
 /* The bar's own contents fade with it rather than snapping at the boundary. */
@@ -622,15 +618,7 @@ input, textarea, select, button {
 	text-decoration: none;
 }
 
-.btn-google {
-	background: var(--surface-raised);
-	color: var(--text-primary);
-	border: 1px solid var(--border-strong);
-}
-
-.btn-google:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
-.provider-letter { width: 1.35rem; height: 1.35rem; display: inline-grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.16); font-weight: 800; font-size: .8rem; }
-.btn-google .provider-letter { background: #fff; color: #4285f4; border: 1px solid #ddd; }
+.discord-provider-icon { width: 1.35rem; height: 1.35rem; flex: 0 0 auto; }
 .login-options { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; }
 .login-options-compact { gap: .4rem; }
 

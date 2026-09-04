@@ -35,16 +35,13 @@ npm run dev              # เปิด bot + Express API + Next พร้อม
 เพราะ `DISCORD_REDIRECT_URI` ชี้ที่ 3100 ซึ่ง `next.config.js` proxy `/api/*`
 ต่อไปที่ Express อีกที
 
-### Google login และอีเมลแจ้งเตือน
+### Discord login และอีเมลแจ้งเตือน
 
-Google ใช้ OAuth สำหรับยืนยันตัวตนเท่านั้น (`openid profile email`) ไม่ได้ขอสิทธิ์
-Gmail ส่วนอีเมล transactional ส่งจากบัญชี Megu ผ่าน Resend:
+การเข้าสู่ระบบใช้ Discord เท่านั้น Google OAuth ไม่ได้เปิดเป็นช่องทางเข้าสู่ระบบหรือ
+เชื่อมบัญชีใหม่แล้ว บัญชีเดิมที่เคยมีอีเมลยืนยันยังรับอีเมล transactional จาก Megu
+ผ่าน Resend ได้ตามการตั้งค่าเดิม:
 
 ```dotenv
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=http://localhost:3100/api/auth/google/callback
-
 # สร้างด้วย: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 MEGU_OAUTH_CREDENTIAL_KEY=...
 
@@ -52,10 +49,8 @@ RESEND_API_KEY=...
 MEGU_EMAIL_FROM=Megu <notifications@example.com>
 ```
 
-เพิ่ม Google redirect URI ให้ตรงกันใน Google Cloud Console ด้วย
-`MEGU_OAUTH_CREDENTIAL_KEY` ใช้เข้ารหัส Discord refresh token แบบ AES-256-GCM;
-ถ้าไม่ตั้งค่า การเชื่อมบัญชียังสำเร็จแต่ผู้ใช้ที่ login ด้วย Google จะต้องเชื่อม
-Discord ใหม่ก่อนเปิดคอนโซลเซิร์ฟเวอร์
+`MEGU_OAUTH_CREDENTIAL_KEY` ใช้เข้ารหัส Discord refresh token แบบ AES-256-GCM
+เพื่อให้ผู้ใช้เดิมกลับมาเปิดคอนโซลเซิร์ฟเวอร์ได้โดยไม่ต้องอนุญาต Discord ใหม่ทุกครั้ง
 
 ## โครงสร้าง
 

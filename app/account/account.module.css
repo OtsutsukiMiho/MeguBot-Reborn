@@ -1,0 +1,200 @@
+.signInPage {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 1.08fr) minmax(340px, .72fr);
+	align-items: center;
+	gap: clamp(3rem, 8vw, 8rem);
+	width: min(1180px, calc(100% - 3rem));
+	min-height: calc(100svh - var(--nav-h) - 108px);
+	margin: 0 auto;
+	padding-block: clamp(4rem, 9vw, 8rem);
+}
+
+.signInPage::before {
+	content: '';
+	position: absolute;
+	inset: 0 auto 0 48%;
+	z-index: -1;
+	width: min(48vw, 620px);
+	background:
+		linear-gradient(color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px),
+		linear-gradient(90deg, color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px);
+	background-size: 48px 48px;
+	mask-image: radial-gradient(circle, black 0%, transparent 72%);
+	opacity: .7;
+}
+
+.story { max-width: 680px; }
+
+.eyebrow {
+	display: flex;
+	align-items: center;
+	gap: .55rem;
+	margin-bottom: 1.2rem;
+	color: var(--accent);
+	font-size: .78rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .1em;
+	text-transform: uppercase;
+}
+
+.eyebrow::before {
+	content: '';
+	width: 1.8rem;
+	height: 1px;
+	background: currentColor;
+}
+
+.story h1 {
+	max-width: 12ch;
+	margin: 0;
+	color: var(--ink);
+	font-size: clamp(3rem, 6vw, 5.5rem);
+	line-height: 1.02;
+	letter-spacing: -.055em;
+}
+
+.story h1 em { color: var(--gold); font-style: normal; }
+
+.lede {
+	max-width: 55ch;
+	margin-top: 1.5rem;
+	color: var(--muted);
+	font-size: 1.06rem;
+	line-height: 1.75;
+}
+
+.benefits {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1px;
+	max-width: 620px;
+	margin-top: 2.5rem;
+	border-block: 1px solid var(--line);
+	background: var(--line);
+}
+
+.benefit {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr);
+	gap: .8rem;
+	padding: 1.25rem 1.25rem 1.25rem 0;
+	background: var(--paper);
+}
+
+.benefit + .benefit { padding-left: 1.25rem; }
+.benefit svg { margin-top: .15rem; color: var(--gold); }
+.benefit strong { display: block; color: var(--ink); font-size: .94rem; }
+.benefit span { display: block; margin-top: .25rem; color: var(--muted); font-size: .82rem; line-height: 1.55; }
+
+.card {
+	position: relative;
+	overflow: hidden;
+	padding: clamp(1.5rem, 4vw, 2.5rem);
+	border: 1px solid var(--line-2);
+	border-radius: 20px;
+	background: var(--surface);
+	box-shadow: 0 32px 70px -48px var(--shadow), inset 0 1px var(--sheen);
+}
+
+.card::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: clamp(1.5rem, 4vw, 2.5rem);
+	width: 4.5rem;
+	height: 3px;
+	border-radius: 0 0 3px 3px;
+	background: var(--brand-gold);
+}
+
+.card::after {
+	content: '';
+	position: absolute;
+	top: 1.5rem;
+	right: 1.5rem;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--settled);
+	box-shadow: 0 0 0 5px color-mix(in srgb, var(--settled) 12%, transparent);
+}
+
+.mark {
+	display: grid;
+	width: 76px;
+	height: 76px;
+	place-items: center;
+	margin-bottom: 1.5rem;
+	border-radius: 18px;
+	background: var(--accent-soft);
+}
+
+.card h2 {
+	margin: 0;
+	color: var(--ink);
+	font-size: clamp(1.7rem, 3vw, 2.2rem);
+	letter-spacing: -.035em;
+}
+
+.cardLede {
+	margin-top: .7rem;
+	color: var(--muted);
+	font-size: .94rem;
+	line-height: 1.65;
+}
+
+.loginSlot { margin-top: 1.75rem; }
+.loginSlot :global(.login-options) { display: block; }
+.loginSlot :global(.btn-discord) { width: 100%; min-height: 52px; padding-inline: 1.2rem; border-radius: 10px; font-size: .98rem; }
+.loginSlot :global(.discord-provider-icon) { width: 1.35rem; height: 1.35rem; }
+.loginSlot :global(.login-arrow) { margin-left: auto; transition: transform .18s ease-out; }
+.loginSlot :global(.btn-discord:hover .login-arrow) { transform: translateX(3px); }
+
+.privacy {
+	display: flex;
+	align-items: flex-start;
+	gap: .6rem;
+	margin-top: 1rem;
+	color: var(--faint);
+	font-size: .76rem;
+	line-height: 1.55;
+}
+
+.privacy svg { flex: 0 0 auto; margin-top: .15rem; color: var(--settled); }
+
+@media (max-width: 860px) {
+	.signInPage {
+		grid-template-columns: 1fr;
+		width: min(700px, calc(100% - 2rem));
+		gap: 3rem;
+		padding-block: 4rem;
+	}
+
+	.signInPage::before { inset: auto 0 0 auto; width: 100%; height: 55%; }
+	.story h1 { max-width: 14ch; }
+	.card { width: min(100%, 520px); }
+}
+
+@media (max-width: 560px) {
+	.signInPage { width: min(100% - 2rem, 520px); padding-block: 2.75rem 4rem; }
+	.story h1 { font-size: clamp(2.65rem, 13vw, 4rem); }
+	.benefits { grid-template-columns: 1fr; }
+	.benefit,
+	.benefit + .benefit { padding: 1rem 0; }
+	.card { padding: 1.35rem; border-radius: 16px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.story > *,
+	.card { animation: enter .55s cubic-bezier(.22, .8, .24, 1) both; }
+	.story > :nth-child(2) { animation-delay: .05s; }
+	.story > :nth-child(3) { animation-delay: .1s; }
+	.story > :nth-child(4) { animation-delay: .15s; }
+	.card { animation-delay: .1s; }
+}
+
+@keyframes enter {
+	from { opacity: 0; transform: translateY(14px); }
+	to { opacity: 1; transform: translateY(0); }
+}

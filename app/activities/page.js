@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
-import LoginOptions from '../components/LoginOptions';
 import { useCopy } from '../copy';
 
 /**
@@ -67,16 +67,7 @@ export default function ActivitiesPage() {
 	if (loading) return <ActivitiesSkeleton title={t.activities.title} />;
 
 	if (!me?.loggedIn) {
-		return (
-			<div className="center-screen">
-				<MeguMark size={110} />
-				<h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.9rem, 5vw, 2.8rem)', letterSpacing: '-.03em' }}>
-					{t.activities.signedOutTitle}
-				</h1>
-				<p className="quiet-note" style={{ maxWidth: '42ch' }}>{t.activities.signedOutLede}</p>
-				<LoginOptions />
-			</div>
-		);
+		return <AuthGate title={t.activities.signedOutTitle} lede={t.activities.signedOutLede} />;
 	}
 
 	const live = activities.filter(a => !['done', 'cancelled'].includes(a.planState) || a.kind === 'recurring');

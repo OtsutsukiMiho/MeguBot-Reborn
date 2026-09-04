@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import LoginOptions from '../components/LoginOptions';
+import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
 import PaymentMethods from '../components/PaymentMethods';
 import { useCopy } from '../copy';
@@ -32,7 +32,7 @@ export default function AccountPage() {
 		{ id: 'both', available: hasDiscord && hasEmail }, { id: 'off', available: true },
 	];
 	if (!data) return <div className="center-screen"><MeguMark size={72} mood="asleep" /><p>{t.common.loading}</p></div>;
-	if (!data.loggedIn) return <div className="center-screen account-signin"><MeguMark size={92} /><h1>{t.account.signInTitle}</h1><p className="quiet-note">{t.account.signInLede}</p><LoginOptions /></div>;
+	if (!data.loggedIn) return <AuthGate />;
 
 	async function savePreferences() {
 		setSaving(true); setNotice('');
@@ -59,10 +59,10 @@ export default function AccountPage() {
 		{notice && <div className="account-notice" role="status">{notice}</div>}
 		<section className="panel account-profile">{data.user.avatarUrl ? <img src={data.user.avatarUrl} alt="" className="account-avatar" /> : <MeguMark size={58} />}<div><h2>{data.user.displayName}</h2><p className="quiet-note">{t.account.profileHint}</p></div></section>
 		<section className="panel stack-md"><div><h2>{t.account.connectedTitle}</h2><p className="quiet-note">{t.account.connectedHint}</p></div><div className="identity-list">
-			{['google', 'discord'].map(provider => { const identity = data.user.identities.find(item => item.provider === provider); return <div className="identity-row" key={provider}><div><strong>{t.account.providers[provider]}</strong><span>{identity ? (identity.email || identity.username || t.account.connected) : t.account.notConnected}</span></div>{identity ? <button className="btn btn-ghost btn-sm" onClick={() => unlink(provider)} disabled={data.user.identities.length === 1}>{t.account.unlink}</button> : <a className="btn btn-secondary btn-sm" href={`/api/auth/${provider}/link`}>{t.account.connect}</a>}</div>; })}
-		</div><p className="quiet-note">{t.account.noMergeNote}</p></section>
+			{['discord'].map(provider => { const identity = data.user.identities.find(item => item.provider === provider); return <div className="identity-row" key={provider}><div><strong>{t.account.providers[provider]}</strong><span>{identity ? (identity.email || identity.username || t.account.connected) : t.account.notConnected}</span></div>{identity ? <button className="btn btn-ghost btn-sm" onClick={() => unlink(provider)} disabled={data.user.identities.length === 1}>{t.account.unlink}</button> : <a className="btn btn-secondary btn-sm" href={`/api/auth/${provider}/link`}>{t.account.connect}</a>}</div>; })}
+		</div></section>
 		<section className="panel stack-md"><div><h2>{t.account.profileSourceTitle}</h2><p className="quiet-note">{t.account.profileSourceHint}</p></div><div className="notification-grid" role="radiogroup" aria-label={t.account.profileSourceTitle}>
-			{['google', 'discord', 'manual'].map(source => { const available = source === 'manual' || providers.has(source); return <button key={source} type="button" role="radio" aria-checked={data.user.profileSource === source} disabled={!available} className={`notification-choice ${data.user.profileSource === source ? 'selected' : ''}`} onClick={() => saveProfileSource(source)}><strong>{t.account.profileSources[source]}</strong><span>{available ? (data.user.identities.find(item => item.provider === source)?.displayName || t.account.profileHint) : t.account.connectFirst}</span></button>; })}
+			{['discord', 'manual'].map(source => { const available = source === 'manual' || providers.has(source); return <button key={source} type="button" role="radio" aria-checked={data.user.profileSource === source} disabled={!available} className={`notification-choice ${data.user.profileSource === source ? 'selected' : ''}`} onClick={() => saveProfileSource(source)}><strong>{t.account.profileSources[source]}</strong><span>{available ? (data.user.identities.find(item => item.provider === source)?.displayName || t.account.profileHint) : t.account.connectFirst}</span></button>; })}
 		</div></section>
 		<section className="panel stack-md"><div><h2>{t.paymentMethods.accountTitle}</h2><p className="quiet-note">{t.paymentMethods.accountHint}</p></div><PaymentMethods /></section>
 		<section className="panel stack-md"><div><h2>{t.account.notificationsTitle}</h2><p className="quiet-note">{t.account.notificationsHint}</p></div><div className="notification-grid" role="radiogroup" aria-label={t.account.notificationsTitle}>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
 import { useCopy } from '../copy';
 
@@ -146,10 +147,9 @@ export default function ServersPage() {
 	}
 
 	if (denial) {
-		// Three states, three different things to do next. The Discord ones send
-		// the reader to /account rather than straight at Discord: linking is done
-		// from there, and a signed-in person bounced through an OAuth round trip
-		// they did not ask for lands back where they started.
+		// The visual gate is shared with Account and Activities. The action still
+		// reflects the session state: a signed-out user logs in, while an older
+		// account missing Discord links or reconnects that identity directly.
 		const gate = {
 			'signed-out': {
 				title: copy.signedOutTitle,
@@ -161,13 +161,13 @@ export default function ServersPage() {
 				title: copy.discordNeededTitle,
 				lede: copy.discordNeededLede,
 				action: copy.discordNeededAction,
-				href: '/account',
+				href: '/api/auth/discord/link',
 			},
 			'discord-reconnect': {
 				title: copy.discordExpiredTitle,
 				lede: copy.discordExpiredLede,
 				action: copy.discordExpiredAction,
-				href: '/account',
+				href: '/api/auth/discord/link',
 			},
 		}[denial] || {
 			title: copy.signedOutTitle,
@@ -176,18 +176,7 @@ export default function ServersPage() {
 			href: '/api/auth/login',
 		};
 
-		return (
-			<div className="center-screen">
-				<MeguMark size={110} mood={denial === 'signed-out' ? 'calm' : 'asking'} />
-				<h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.9rem, 5vw, 2.8rem)', letterSpacing: '-.03em' }}>
-					{gate.title}
-				</h1>
-				<p className="quiet-note" style={{ maxWidth: '42ch' }}>
-					{gate.lede}
-				</p>
-				<a href={gate.href} className="btn btn-primary btn-lg">{gate.action}</a>
-			</div>
-		);
+		return <AuthGate title={gate.title} lede={gate.lede} action={gate.action} href={gate.href} mood={denial === 'signed-out' ? 'calm' : 'asking'} />;
 	}
 
 	const active = guilds.filter(g => g.isBotInGuild === true);

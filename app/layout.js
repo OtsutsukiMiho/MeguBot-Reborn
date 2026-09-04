@@ -5,10 +5,10 @@ import { LangProvider } from './components/LangProvider';
 
 export const metadata = {
 	title: {
-		default: 'Megu — Group activity manager',
+		default: 'Megu — ผู้ช่วยจัดการ Discord server',
 		template: '%s · Megu',
 	},
-	description: 'Plan together, collect responses, split expenses, and settle up in one shared activity.',
+	description: 'ให้ Megu เปลี่ยนบทสนทนาใน Discord เป็นอีเวนต์ งานเตือน และสิ่งที่ต้องตาม พร้อมช่วยดูแลสมาชิก ห้องเสียง และค่าใช้จ่ายของกลุ่ม',
 	applicationName: 'Megu',
 	authors: [{ name: 'Megux Corp' }],
 	creator: 'Megux Corp',

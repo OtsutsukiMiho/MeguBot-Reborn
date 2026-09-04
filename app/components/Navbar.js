@@ -62,7 +62,7 @@ export default function Navbar() {
 		let tries = 0;
 
 		const attach = () => {
-			const hero = document.querySelector('.hero-field');
+			const hero = document.querySelector('[data-landing-hero]');
 
 			if (!hero) {
 				if (tries++ < 60) frame = requestAnimationFrame(attach);
@@ -119,11 +119,14 @@ export default function Navbar() {
 					<Link href="/" className={`tab-btn ${pathname === '/' ? 'active' : ''}`}>
 						{t.nav.home}
 					</Link>
+					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
+						{t.nav.servers}
+					</Link>
 					<Link href="/activities" className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
 						{t.nav.activities}
 					</Link>
-					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
-						{t.nav.servers}
+					<Link href="/bills" className={`tab-btn ${pathname.startsWith('/bills') ? 'active' : ''}`}>
+						{t.nav.bills}
 					</Link>
 					{user && <Link href="/account" className={`tab-btn ${pathname.startsWith('/account') ? 'active' : ''}`}>{t.nav.account}</Link>}
 					{isDev && (
@@ -157,9 +160,9 @@ export default function Navbar() {
 							</button>
 						</div>
 					) : (
-						<Link href="/account" className="btn btn-primary btn-sm">
+						<a href="/api/auth/login" className="btn btn-primary btn-sm">
 							{t.nav.signIn}
-						</Link>
+						</a>
 					)}
 				</div>
 			</div>

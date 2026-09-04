@@ -251,13 +251,10 @@ export default function DeveloperPage() {
 						Developer Access Required
 					</h2>
 					<p style={{ color: 'var(--muted)', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '2rem' }}>
-						This command center requires registered Developer credentials. You can sign in using your authorized Discord or Google account.
+						This command center requires a registered Developer Discord account.
 					</p>
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
-						<a href="/api/auth/google" className="btn btn-google" style={{ width: '100%', maxWidth: '280px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}>
-							<span className="provider-letter">G</span> Sign in with Google
-						</a>
-						<a href="/api/auth/discord" className="btn btn-discord" style={{ width: '100%', maxWidth: '280px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}>
+						<a href="/api/auth/login" className="btn btn-discord" style={{ width: '100%', maxWidth: '280px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}>
 							Sign in with Discord
 						</a>
 						<Link href="/servers" className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }}>

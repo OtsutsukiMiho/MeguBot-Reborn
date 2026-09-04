@@ -11,6 +11,7 @@ const en = {
 	nav: {
 		home: 'Home',
 		activities: 'Activities',
+		bills: 'Bills',
 		servers: 'Servers',
 		account: 'Account',
 		signOut: 'Sign out',
@@ -18,18 +19,54 @@ const en = {
 	},
 
 	auth: {
-		google: 'Continue with Google',
-		discord: 'Continue with Discord',
+		discord: 'Sign in with Discord',
+	},
+
+	bills: {
+		eyebrow: 'Megu ledger',
+		title: 'Your bills',
+		lede: 'Start with the things you collect every month, then open a one-off bill whenever it needs work or another look.',
+		signedOutTitle: 'Bills and monthly costs',
+		signedOutLede: 'Sign in with Discord to see subscriptions, shared bills, and payments that still need your attention.',
+		monthlyTitle: 'Monthly costs',
+		monthlyLede: 'Subscriptions, internet, rent, and anything else the group comes back to every month.',
+		oneOffTitle: 'One-off bills',
+		oneOffLede: 'Meals, trips, and shared purchases — both bills in progress and ones already settled.',
+		monthlyCount: n => `${n} ${n === 1 ? 'monthly item' : 'monthly items'}`,
+		oneOffCount: n => `${n} one-off ${n === 1 ? 'bill' : 'bills'}`,
+		open: 'Open bill',
+		newBill: 'Add a bill',
+		emptyMonthly: 'No monthly costs yet. Create one from Activities and choose “Every month”.',
+		emptyOneOff: 'No one-off bills yet. Once an activity has an expense, it will appear here automatically.',
+		status: {
+			awaiting: n => `${n} ${n === 1 ? 'payment' : 'payments'} to confirm`,
+			outstanding: (amount, n) => `${amount} due · ${n} ${n === 1 ? 'person' : 'people'}`,
+			settled: 'This round is paid in full',
+			notStarted: 'No balance in this round yet',
+		},
+		guestTitle: 'Friends can still open a bill from its link',
+		guestBody: 'People who do not sign in can claim their name and see their share from the activity link. Megu reminds linked people through Discord and keeps the owner up to date on what remains.',
+		loadFailed: 'Megu could not load your bills. You can try again now.',
+		retry: 'Try again',
 	},
 
 	account: {
 		title: 'Your account',
-		lede: 'One Megu account, whichever sign-in works for you today.',
+		lede: 'Your Megu account connects to Discord to manage your servers and activities.',
+		signInEyebrow: 'One account for your servers',
+		signInHeadingBefore: 'Pick up every task',
+		signInHeadingAccent: 'where Discord left it',
 		signInTitle: 'Sign in to Megu',
-		signInLede: 'Use Google or Discord. Connect both later to reach the same activities and history.',
+		signInLede: 'Use your Discord account so Megu knows which servers you manage and can return you to the right work.',
+		signInCardLede: 'Authorize through Discord once, then manage your servers, activities, and Megu settings right away.',
+		signInManageTitle: 'Servers you manage',
+		signInManageHint: 'Only servers where you have management access appear.',
+		signInContinueTitle: 'Resume without losing context',
+		signInContinueHint: 'Your activities, settings, and history stay together.',
+		signInPrivacy: 'Megu requests only the Discord access needed to identify you and list the servers you manage.',
 		profileHint: 'This is your default Megu name. Each activity can still use a different nameplate.',
-		connectedTitle: 'Connected sign-ins',
-		connectedHint: 'A connected provider signs into this same Megu account; it does not create a copy.',
+		connectedTitle: 'Connected Discord account',
+		connectedHint: 'This account identifies you and finds the servers you are allowed to manage.',
 		providers: { google: 'Google', discord: 'Discord' },
 		connected: 'Connected', notConnected: 'Not connected', connect: 'Connect', unlink: 'Unlink',
 		unlinkConfirm: provider => `Unlink ${provider}?`,
@@ -38,7 +75,7 @@ const en = {
 		linkConflict: 'That sign-in already belongs to a Megu account that cannot be merged with this one — a Megu account holds one sign-in per provider. Unlink the one connected here first. Nothing was changed.',
 		linkSuccess: 'Sign-in method connected. You can now use either provider for this account.',
 		profileSourceTitle: 'Profile name and picture',
-		profileSourceHint: 'Which connected sign-in your Megu name and picture follow. This changes nothing about how you sign in — every connected provider keeps working.',
+		profileSourceHint: 'Use your Discord name and picture in Megu, or keep a name you set yourself.',
 		profileSources: { google: 'Follow Google', discord: 'Follow Discord', manual: 'Keep what I typed' },
 		profileSourceSaved: 'Profile source saved.',
 
@@ -61,7 +98,7 @@ const en = {
 			notificationTitle: 'Notifications afterwards',
 			notificationNote: mode => `Both channels you already use stay on: ${mode}. You can change this any time on this page.`,
 			profileTitle: 'Which name and picture to keep',
-			profileHint: 'Sign-in is unaffected either way — you will still be able to sign in with Google and with Discord.',
+			profileHint: 'This only changes the name and picture. Sign-in continues through Discord.',
 			irreversible: 'A merge cannot be undone. Megu records who did it and tells both your email and your Discord, each naming the other.',
 			confirm: 'Merge accounts',
 			merging: 'Merging…',
@@ -74,7 +111,7 @@ const en = {
 		notificationsHint: 'Choose where Megu sends payment and activity results. Email messages come from Megu, not from your Gmail account.',
 		modes: { discord: 'Discord only', email: 'Email only', both: 'Discord + Email', off: 'Off' },
 		modeHints: { discord: 'Send through the Megu Discord bot.', email: 'Send to your verified Google email.', both: 'Send an independent copy to each channel.', off: 'Do not send optional activity notifications.' },
-		connectFirst: 'Connect this provider first.',
+		connectFirst: 'This channel is not available for this account.',
 		saved: 'Notification settings saved.',
 	},
 
@@ -113,7 +150,7 @@ const en = {
 	},
 
 	footer: {
-		tagline: 'Your group activity manager',
+		tagline: 'Your Discord server companion',
 	},
 
 	theme: {
@@ -329,8 +366,8 @@ const en = {
 		create: 'Create it and give me the link',
 		creating: 'Creating…',
 
-		signedOutTitle: 'Hello, I’m Megu',
-		signedOutLede: 'I run your group’s plans, from asking who is coming to making sure everyone has paid.',
+		signedOutTitle: 'Your activities and plans',
+		signedOutLede: 'Sign in to return to schedules, participants, and the shared expenses attached to each activity.',
 		signIn: 'Sign in with Discord',
 	},
 

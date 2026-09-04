@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import AuthGate from '../../components/AuthGate';
 import WelcomeTab from '../../components/Tabs/WelcomeTab';
 import AutoroleTab from '../../components/Tabs/AutoroleTab';
 import RoleManagerTab from '../../components/Tabs/RoleManagerTab';
@@ -17,10 +18,12 @@ import EmbedCreatorTab from '../../components/Tabs/EmbedCreatorTab';
 import AudioQueueTab from '../../components/Tabs/AudioQueueTab';
 import FloatingSaveBar from '../../components/FloatingSaveBar';
 import Toast from '../../components/Toast';
+import { useCopy } from '../../copy';
 
 export default function ServerConfigPage({ params }) {
 	const { guildId } = use(params);
 	const router = useRouter();
+	const { t } = useCopy();
 
 	const [activeTab, setActiveTab] = useState('welcome');
 	const [guildData, setGuildData] = useState(null);
@@ -184,25 +187,7 @@ export default function ServerConfigPage({ params }) {
 	}
 
 	if (needLogin) {
-		return (
-			<div style={{ maxWidth: '540px', margin: '3rem auto 0', textAlign: 'center' }}>
-				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
-					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔐</div>
-					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--ink)' }}>
-						Discord Login Required
-					</h2>
-					<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: '1.6' }}>
-						You need to log in with your Discord account to view and manage this server's configuration.
-					</p>
-					<a href="/api/auth/login" className="btn btn-discord" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.75rem', fontSize: '1rem', fontWeight: 700 }}>
-						<svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor">
-							<path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1,105.25,105.25,0,0,0,32.19-16.14c2.64-27.38-4.51-51.11-18.91-72.15ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,45.92,53.86,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,45.92,96.09,53,91.08,65.69,84.69,65.69Z"/>
-						</svg>
-						Login with Discord
-					</a>
-				</div>
-			</div>
-		);
+		return <AuthGate title={t.servers.signedOutTitle} lede={t.servers.signedOutLede} mood="asking" />;
 	}
 
 	const channels = guildData?.channels || [];

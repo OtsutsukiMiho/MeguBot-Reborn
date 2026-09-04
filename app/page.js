@@ -1,95 +1,180 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import {
+	ArrowRight,
+	BellRing,
+	CalendarDays,
+	Check,
+	CircleDollarSign,
+	ClipboardCheck,
+	MessageCircle,
+	Mic2,
+	ReceiptText,
+	ShieldCheck,
+	Users,
+} from 'lucide-react';
 import MeguMark from './components/MeguMark';
 import { useLang } from './components/LangProvider';
 import { withFallback } from './copy/fallback';
+import styles from './landing.module.css';
 
-// WebGL cannot render on the server and must not block first paint, so the flat
-// vector is what ships in the HTML and the scene fades in over it once it is
-// ready. If three fails to load, or the device has no WebGL, the vector simply
-// stays — there is no broken state to fall back from.
-const MeguScene = dynamic(() => import('./components/MeguScene'), { ssr: false });
-
-// Decoration that reads the viewport, so it has nothing to say on the server.
-const MeguCompanion = dynamic(() => import('./components/MeguCompanion'), { ssr: false });
-
-/**
- * Every string on the landing page, both languages, in one object.
- *
- * The headline is stored as three pieces rather than marked up inline because
- * the accent word lands in a different place in each language, and the accent
- * has to sit on a word rather than at a fixed character offset.
- */
 const COPY = {
 	th: {
-		label: 'ไทย',
-		eyebrow: 'บอท Discord จาก Megux Corp',
-		h1: ['เลิกเป็นคนที่ต้อง', 'ทวง', 'เพื่อนเอง'],
-		lede: 'Megu พาเรื่องที่พวกคุณนัดกันไว้ ตั้งแต่ “เอาไงดี” จนถึง “ทุกคนจ่ายครบ” เขาถามแทน สรุปแทน เตือนแทน และทวงแทน โดยไม่มีใครต้องเสียเพื่อน',
-		ctaIn: 'ไปที่กิจกรรมของฉัน',
-		ctaOut: 'เริ่มใช้ฟรี',
-		ctaServers: 'ดูฝั่ง Discord',
-		scrollCue: 'เลื่อนดู',
+		eyebrow: 'ผู้ช่วยประจำ Discord server ของคุณ',
+		h1: ['คุยกันใน Discord', 'ที่เหลือให้ Megu', 'จัดการต่อ'],
+		lede: 'เปลี่ยนบทสนทนาให้เป็นอีเวนต์ งานเตือน และรายการที่ต้องตามต่อ พร้อมดูแลสมาชิก ห้องเสียง และความเรียบร้อยของเซิร์ฟเวอร์—โดยไม่ต้องย้ายทุกคนไปใช้แอปใหม่',
+		primaryOut: 'เพิ่ม Megu เข้าเซิร์ฟเวอร์',
+		primaryIn: 'จัดการเซิร์ฟเวอร์ของฉัน',
+		secondary: 'ดูวิธีทำงาน',
+		freeNote: 'เริ่มต้นใช้ฟรี · ตั้งค่าผ่านเว็บเท่าที่จำเป็น',
+		chatLabel: 'ตัวอย่างการทำงาน',
+		chatStatus: 'Megu กำลังฟังใน #general',
+		chatOneName: 'นัท',
+		chatOneInitial: 'น',
+		chatOne: 'วันนี้เรามีประชุมบ่ายโมงนะ',
+		chatTwoName: 'มินท์',
+		chatTwoInitial: 'ม',
+		chatTwo: 'Megu สร้างอีเวนต์ประชุมบ่ายโมงให้หน่อย แล้วแจ้งทีมโปรเจกต์ด้วย',
+		channelDescription: 'วางแผน คุยงาน และตามเรื่องในที่เดียว',
+		composer: 'ส่งข้อความไปที่ #general',
+		botName: 'Megu',
+		botBadge: 'BOT',
+		botReply: 'เรียบร้อย สร้างอีเวนต์ให้แล้ว และกำลังแจ้งคนที่เกี่ยวข้อง',
+		eventTitle: 'ประชุมทีมโปรเจกต์',
+		eventTime: 'วันนี้ · 13:00 น.',
+		eventNotice: 'แท็ก 6 คน · ส่ง DM แล้ว 4 คน',
+		planned: 'กำลังมาใน Megu รุ่นถัดไป',
+		proof: 'หนึ่งข้อความ กลายเป็นแผนที่ทุกคนเห็นตรงกัน',
+		workflowEyebrow: 'จากข้อความธรรมดา สู่งานที่เสร็จจริง',
+		workflowTitle: 'Megu รับช่วงต่อจากที่คุยกันค้างไว้',
+		workflowLede: 'ไม่ต้องเปิด dashboard เพื่อสร้างงานทุกครั้ง แค่บอก Megu ในห้องที่ทีมใช้อยู่แล้ว แล้วให้เธอจัดโครงสร้างและตามต่อให้',
 		steps: [
-			{ word: 'ถาม', h: 'ว่างวันไหนบ้าง', p: 'แปะลิงก์ในกลุ่มครั้งเดียว เพื่อนกดตอบได้เลย ไม่ต้องสมัคร ไม่ต้องโหลดแอป แล้ว Megu ไล่ตามคนที่ยังไม่ตอบให้เอง' },
-			{ word: 'ฟันธง', h: 'สรุปเสาร์ทุ่มนึง', p: 'ไม่มีใครอยากเป็นคนเคาะเพราะกลัวดูเผด็จการ ให้ Megu พูดแทน เขาไม่ใช่คน เลยไม่มีใครโกรธ' },
-			{ word: 'หาร', h: 'คนละเท่าไหร่', p: 'ค่าคอร์ท 400 หารกัน 4 คน เขาคิดให้ทันทีว่าใครติดเท่าไหร่ คนที่ไม่ได้ไปก็ไม่ต้องจ่าย' },
-			{ word: 'ทวง', h: 'จนกว่าจะครบ', p: 'ส่วนที่ไม่มีใครอยากทำ เขาจำได้ว่าใครยังค้าง ค้างมากี่วัน แล้วทักไปเองอย่างสุภาพ' },
+			{ label: 'เข้าใจ', title: 'รับเรื่องจากบทสนทนา', body: 'เรียกชื่อ Megu แล้วบอกเวลา คนที่เกี่ยวข้อง และสิ่งที่ต้องการด้วยภาษาปกติ' },
+			{ label: 'จัดให้', title: 'สร้างแผนในเซิร์ฟเวอร์', body: 'เปลี่ยนข้อความเป็นอีเวนต์ เช็กลิสต์ หรืองานเตือน พร้อมสรุปรายละเอียดให้ตรวจได้ทันที' },
+			{ label: 'ตามต่อ', title: 'แจ้งคนที่ต้องรู้', body: 'แท็ก role หรือสมาชิก ส่ง DM และเตือนอีกครั้งตามกติกาที่แอดมินกำหนด' },
 		],
-		signInNote: 'เข้าสู่ระบบด้วย Discord หรือ Google — เพื่อนที่กดลิงก์กิจกรรมไม่ต้องสมัครอะไรเลย',
-		serverH2: 'ถ้ากลุ่มคุณอยู่ใน Discord',
-		serverLede: 'Megu มีบอทฝั่ง Discord ให้ด้วย สำหรับแอดมินที่ต้องดูแลเซิร์ฟเวอร์ ไม่ใช่ตัวระบบหลัก แต่ถ้ากลุ่มคุณอยู่ที่นั่นอยู่แล้วก็ได้ของแถมนี้ไป ตั้งค่าจากหน้าเว็บทั้งหมด ไม่ต้องจำคำสั่ง',
-		serverCta: 'ดูเซิร์ฟเวอร์ของฉัน',
-		caps: [
-			{ h: 'กันสแปม กันลิงก์เชิญ', p: 'ข้อความรัวเกิน 5 ครั้งใน 3 วินาที ลิงก์เชิญเซิร์ฟเวอร์อื่น แท็กรัวเกิน 5 คน และคำที่คุณสั่งห้ามไว้ เลือกได้ว่าจะแค่ลบ ปิดปาก 1 นาที หรือเชิญออก — แอดมินกับคนคุมห้องไม่โดน' },
-			{ h: 'ห้องล่อไว้ดักบอทโฆษณา', p: 'ตั้งห้องหลอกไว้ห้องหนึ่ง ใครพิมพ์ลงไปโดนแบนทันที คนจริงไม่มีเหตุต้องพิมพ์ในห้องที่ไม่มีใครคุยกัน' },
-			{ h: 'ต้อนรับและให้ยศเอง', p: 'ข้อความต้อนรับตอนเข้า ข้อความบอกลาตอนออก และยศเริ่มต้นที่ติดให้ทันทีโดยไม่ต้องรอใครว่าง' },
-			{ h: 'ยศจากการกดอิโมจิ', p: 'แปะข้อความเดียวไว้ ใครอยากได้ยศไหนก็กดอิโมจิเอา ถอดอิโมจิยศก็หลุด ไม่ต้องมีใครมานั่งแจก' },
-			{ h: 'อ่านข้อความออกเสียง', p: 'ตั้งห้องแชทไว้ห้องหนึ่ง พิมพ์อะไรลงไป Megu อ่านให้ในห้องเสียง คนที่มือไม่ว่างก็ยังอยู่ในวงสนทนาได้ ตั้งชื่อที่ให้เขาเรียกเองได้ด้วย' },
-			{ h: 'บันทึกไว้ทุกเหตุการณ์', p: 'เข้า ออก ลบข้อความ แบน ปลดแบน เปลี่ยนยศ สร้างและลบห้อง คำเชิญ รวม 21 เหตุการณ์ ย้อนดูได้จากหน้าเว็บว่าใครทำอะไรไว้เมื่อไหร่' },
+		managerEyebrow: 'มากกว่า event bot',
+		managerTitle: 'ผู้จัดการเซิร์ฟเวอร์ที่อยู่ในวงสนทนาด้วย',
+		managerLede: 'Megu ไม่ได้รอให้คุณจำทุกคำสั่ง เธอช่วยดูทั้งแผนของทีม ประสบการณ์ในห้องเสียง และงานดูแลชุมชนที่กินเวลาทุกวัน',
+		groups: [
+			{
+				label: 'จัดการแผน',
+				items: [
+					{ title: 'อีเวนต์และนัดหมาย', body: 'สร้างจากบทสนทนา สรุปเวลา และรวมคำตอบว่าใครมาได้', icon: CalendarDays },
+					{ title: 'เตือนผ่าน mention และ DM', body: 'ส่งข่าวถึงเฉพาะคนที่เกี่ยวข้อง แล้วตามซ้ำแบบไม่รบกวนทั้งห้อง', icon: BellRing },
+					{ title: 'เช็กลิสต์และสิ่งที่ต้องตาม', body: 'จำหัวข้อ งานค้าง และเจ้าของงาน เพื่อให้การคุยจบด้วยคนลงมือทำ', icon: ClipboardCheck },
+				],
+			},
+			{
+				label: 'ดูแลชุมชน',
+				items: [
+					{ title: 'ต้อนรับ ยศ และ moderation', body: 'จัด role อัตโนมัติ กันสแปม ลิงก์เชิญ และบันทึกเหตุการณ์สำคัญ', icon: ShieldCheck },
+					{ title: 'อยู่ด้วยในห้องเสียง', body: 'ประกาศชื่อคนเข้า อ่านข้อความ และช่วยให้คนที่ไม่สะดวกใช้ไมค์ยังร่วมวงได้', icon: Mic2 },
+					{ title: 'รู้จักคนในเซิร์ฟเวอร์', body: 'ตั้งชื่อที่อยากให้เรียก แยกกลุ่มคน และสื่อสารให้ตรงกับบริบทของแต่ละห้อง', icon: Users },
+				],
+			},
 		],
-		closeH2: 'Megu ทำงานที่ที่กลุ่มคุณอยู่แล้ว',
-		closeLede: 'งานหลักของ Megu คือพากลุ่มคุณจากนัดกันไม่ลงตัว ไปจนถึงทุกคนจ่ายครบ ทำงานผ่านลิงก์ที่แปะในแชทไหนก็ได้ คนที่กดเข้ามาไม่ต้องมี Discord และไม่ต้องสมัครอะไรทั้งนั้น ส่วนบอทในเซิร์ฟเวอร์เป็นของแถมสำหรับกลุ่มที่อยู่บน Discord อยู่แล้ว',
+		moneyEyebrow: 'เรื่องเงินยังอยู่ เมื่อกิจกรรมต้องใช้มัน',
+		moneyTitle: 'หารเงินยังทำได้ แค่ไม่แย่งบทหลัก',
+		moneyBody: 'ทริป มื้ออาหาร หรือค่า subscription เริ่มจากแผนเดียวกันใน Discord แล้วค่อยเปิดเว็บเมื่อจำเป็นต้องดูยอด สแกน PromptPay หรือแนบหลักฐานการจ่าย',
+		moneyPoints: ['สรุปว่าใครร่วมรายการไหน', 'คำนวณยอดที่แต่ละคนต้องจ่าย', 'เก็บหลักฐานโดยที่ Megu ไม่ถือเงินแทนใคร'],
+		moneyCta: 'เปิดหน้าค่าใช้จ่าย',
+		activityName: 'ทริปหัวหิน',
+		activityMeta: '6 คน · 4 รายการ',
+		activityAmount: '฿1,240',
+		activityDue: 'ยอดของคุณ',
+		activityProgress: 'จ่ายแล้ว 4 จาก 6 คน',
+		webEyebrow: 'Web companion',
+		webTitle: 'เว็บเป็นห้องควบคุม ไม่ใช่ที่ทำงานหลัก',
+		webBody: 'ใช้เว็บเฉพาะตอนที่จอใหญ่ช่วยให้ทำงานง่ายกว่า—ตั้งค่าระบบ ดู audit log จัดรายละเอียดกิจกรรม และตรวจรายการค่าใช้จ่าย ส่วนชีวิตประจำวันเกิดขึ้นใน Discord',
+		webCta: 'เปิดหน้าจัดการเซิร์ฟเวอร์',
+		closeEyebrow: 'ให้เซิร์ฟเวอร์เดินหน้าต่อเองได้',
+		closeTitle: 'เพิ่ม Megu ครั้งเดียว แล้วให้เธอช่วยดูเรื่องที่หล่นระหว่างแชท',
+		closeBody: 'นัดหมาย งานเตือน ห้องเสียง สมาชิก และค่าใช้จ่ายของกลุ่ม—อยู่ในจังหวะเดียวกับที่ทุกคนคุยกันอยู่แล้ว',
 	},
-
 	en: {
-		label: 'EN',
-		eyebrow: 'A Discord bot by Megux Corp',
-		h1: ['Stop being the one who ', 'chases', ' everyone'],
-		lede: 'Megu carries a plan from “so what are we doing?” all the way to “everyone has paid.” It asks, it settles, it reminds, and it chases — so that none of you has to.',
-		ctaIn: 'Go to my activities',
-		ctaOut: 'Start free',
-		ctaServers: 'See the Discord side',
-		scrollCue: 'Scroll',
+		eyebrow: 'The assistant inside your Discord server',
+		h1: ['Talk in Discord.', 'Let Megu', 'take it from there.'],
+		lede: 'Turn conversations into events, reminders, and follow-ups while Megu helps with members, voice rooms, and everyday server operations—without moving everyone into another app.',
+		primaryOut: 'Add Megu to your server',
+		primaryIn: 'Manage my servers',
+		secondary: 'See how it works',
+		freeNote: 'Start free · Use the web only when it helps',
+		chatLabel: 'A real workflow',
+		chatStatus: 'Megu is listening in #general',
+		chatOneName: 'Nat',
+		chatOneInitial: 'N',
+		chatOne: 'We have a project meeting at one today.',
+		chatTwoName: 'Mint',
+		chatTwoInitial: 'M',
+		chatTwo: 'Megu, create a 1 PM event and let the project team know.',
+		channelDescription: 'Plan, coordinate, and follow through together',
+		composer: 'Message #general',
+		botName: 'Megu',
+		botBadge: 'BOT',
+		botReply: 'Done. The event is ready and I’m notifying everyone involved.',
+		eventTitle: 'Project team meeting',
+		eventTime: 'Today · 1:00 PM',
+		eventNotice: '6 mentioned · 4 DMs delivered',
+		planned: 'Coming in the next Megu release',
+		proof: 'One message becomes a plan everyone can see.',
+		workflowEyebrow: 'From loose chat to finished work',
+		workflowTitle: 'Megu picks up where the conversation leaves off',
+		workflowLede: 'You should not need a dashboard to create every task. Tell Megu in the channel your team already uses, then let her structure the plan and follow through.',
 		steps: [
-			{ word: 'ASK', h: 'Who is free, and when', p: 'Drop one link in the group chat. Your friends answer in a tap — no signup, no app to install. Megu goes after whoever has not replied.' },
-			{ word: 'SETTLE', h: 'Saturday, seven. Done.', p: 'Nobody wants to be the one who calls it and looks bossy. Let Megu say it — it is not a person, so nobody takes it personally.' },
-			{ word: 'SPLIT', h: 'What each of you owes', p: '฿400 for the court between four people, worked out the moment it is entered. Whoever did not come does not pay.' },
-			{ word: 'CHASE', h: 'Until everyone has paid', p: 'The part nobody wants. Megu remembers who is still short, how many days it has been, and asks them politely itself.' },
+			{ label: 'Understand', title: 'Take the request from chat', body: 'Mention Megu and describe the time, people, and outcome in ordinary language.' },
+			{ label: 'Organize', title: 'Create the plan in-server', body: 'Turn the message into an event, checklist, or reminder and show the structured details immediately.' },
+			{ label: 'Follow up', title: 'Reach the right people', body: 'Mention a role or members, send DMs, and remind again using rules the admins control.' },
 		],
-		signInNote: 'Sign in with Discord or Google — the friends who open an activity link need no account at all.',
-		serverH2: 'If your group lives on Discord',
-		serverLede: 'Megu also ships a Discord bot for admins who have a server to run. It is not the product — the planning and the money above are — but if your group is already there, you get this too. All of it is configured from the web, with no commands to memorise.',
-		serverCta: 'See my servers',
-		caps: [
-			{ h: 'Spam and invite links', p: 'Five messages in three seconds, invite links to other servers, more than five mentions at once, and any word you ban. Choose whether that just deletes the message, mutes for a minute, or removes the member — admins and moderators are never caught by it.' },
-			{ h: 'A decoy channel for ad bots', p: 'Set one channel as bait. Anyone who posts there is banned on the spot. A real member has no reason to type in a room nobody talks in.' },
-			{ h: 'Welcomes and starter roles', p: 'A greeting on the way in, a note on the way out, and the starting role applied the moment someone joins rather than whenever a human gets around to it.' },
-			{ h: 'Roles from a reaction', p: 'Post one message. Anyone who wants a role reacts to take it and un-reacts to drop it. Nobody has to hand them out.' },
-			{ h: 'Messages read aloud', p: 'Point Megu at a text channel and it speaks whatever is typed there into the voice channel, so whoever has their hands full is still part of the conversation. Each member can set the name it calls them by.' },
-			{ h: 'Every event on record', p: 'Joins, leaves, deleted messages, bans and unbans, role changes, channels created and destroyed, invites — twenty-one events in all, and the web shows you who did what, and when.' },
+		managerEyebrow: 'More than an event bot',
+		managerTitle: 'A server manager that stays in the conversation',
+		managerLede: 'Megu helps with team plans, the voice-room experience, and the repetitive community work that takes time every day.',
+		groups: [
+			{
+				label: 'Run the plan',
+				items: [
+					{ title: 'Events and schedules', body: 'Create them from chat, settle the time, and collect who can make it.', icon: CalendarDays },
+					{ title: 'Mentions and DM reminders', body: 'Reach only the people involved and follow up without disturbing the whole room.', icon: BellRing },
+					{ title: 'Checklists and follow-ups', body: 'Remember topics, open work, and owners so conversations end with action.', icon: ClipboardCheck },
+				],
+			},
+			{
+				label: 'Run the community',
+				items: [
+					{ title: 'Welcome, roles, and moderation', body: 'Automate roles, block spam and invite links, and keep an audit trail.', icon: ShieldCheck },
+					{ title: 'Present in voice', body: 'Announce joins, read messages aloud, and include people who cannot use a mic.', icon: Mic2 },
+					{ title: 'Know the server', body: 'Use preferred names, member groups, and the context of each room.', icon: Users },
+				],
+			},
 		],
-		closeH2: 'Megu works where your group already is',
-		closeLede: 'Megu’s job is carrying your group from “so what are we doing?” to “everyone has paid.” It works from a link you paste into any chat, and whoever opens it needs no Discord and no account of any kind. The server bot is a bonus for groups already living there.',
+		moneyEyebrow: 'Money stays when the activity needs it',
+		moneyTitle: 'Expense splitting still works. It just is not the headline.',
+		moneyBody: 'Trips, meals, and shared subscriptions begin with the same Discord plan. Open the web only when a larger screen helps with balances, PromptPay, or payment evidence.',
+		moneyPoints: ['Track who joined each expense', 'Calculate exactly what each person owes', 'Keep evidence without Megu ever holding the money'],
+		moneyCta: 'Open bills',
+		activityName: 'Hua Hin trip',
+		activityMeta: '6 people · 4 expenses',
+		activityAmount: '฿1,240',
+		activityDue: 'Your share',
+		activityProgress: '4 of 6 people settled',
+		webEyebrow: 'Web companion',
+		webTitle: 'The web is the control room, not the workplace',
+		webBody: 'Use it where a larger screen genuinely helps: configure the server, inspect the audit log, shape an activity, and review expenses. Everyday work stays in Discord.',
+		webCta: 'Open server controls',
+		closeEyebrow: 'Keep the server moving',
+		closeTitle: 'Add Megu once. Let her catch what falls between messages.',
+		closeBody: 'Schedules, reminders, voice rooms, members, and shared expenses—handled in the same rhythm as the conversation.',
 	},
 };
 
+function Avatar({ children, tone = 'blue' }) {
+	return <span className={`${styles.avatar} ${styles[`avatar${tone}`]}`} aria-hidden="true">{children}</span>;
+}
+
 export default function HomePage() {
 	const [user, setUser] = useState(null);
-	const [sceneUp, setSceneUp] = useState(false);
 	const { lang } = useLang();
 
 	useEffect(() => {
@@ -101,109 +186,148 @@ export default function HomePage() {
 			.catch(() => {});
 	}, []);
 
-	// `COPY[lang]` alone is undefined for any language this page has not been
-	// written in, and the destructure on the next line turns that into a blank
-	// screen rather than an untranslated one. English underneath means a new
-	// language ships with a landing page in English until somebody writes it,
-	// which is the difference between a translation being late and the front
-	// door being broken.
 	const t = withFallback(COPY.en, COPY[lang]);
-	const [h1a, h1accent, h1b] = t.h1;
-
-	// The card's light follows the pointer. Written straight to the element as
-	// custom properties rather than through state, because this fires on every
-	// pointer move and a re-render per frame would be a poor trade for a glow.
-	const spot = (e) => {
-		const r = e.currentTarget.getBoundingClientRect();
-		e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
-		e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
-	};
+	const [headlineLead, headlineAccent, headlineEnd] = t.h1;
 
 	return (
-		<div className="stage" lang={lang}>
-			<MeguCompanion />
-			{/* The one colour field on the site. It carries its own palette rather
-			    than the theme's, so the contrast here is the same at midnight as
-			    at noon and never has to be re-checked against a flipping ground. */}
-			<section className="hero-field band band-dark">
-				<div className="hero-block">
-					<div className="hero-copy">
-
-						<h1 className="enter" style={{ '--i': 1 }}>
-							{h1a}<em>{h1accent}</em>{h1b}
-						</h1>
-
-						<p className="lede enter" style={{ '--i': 2 }}>{t.lede}</p>
-
-						<div className="hero-actions enter" style={{ '--i': 3 }}>
-							{user
-								? <Link href="/activities" className="btn btn-primary btn-lg">{t.ctaIn}</Link>
-								: <a href="/api/auth/login" className="btn btn-primary btn-lg">{t.ctaOut}</a>}
-							<Link href="/servers" className="btn btn-secondary btn-lg">{t.ctaServers}</Link>
+		<div className={styles.landing} lang={lang}>
+			<section className={styles.hero} data-landing-hero>
+				<div className={styles.heroInner}>
+					<div className={styles.heroCopy}>
+						<p className={styles.eyebrow}><MessageCircle size={16} /> {t.eyebrow}</p>
+						<h1>{headlineLead}<br /><em>{headlineAccent}</em><br />{headlineEnd}</h1>
+						<p className={styles.heroLede}>{t.lede}</p>
+						<div className={styles.heroActions}>
+							<Link href="/servers" className={styles.primaryCta}>
+								{user ? t.primaryIn : t.primaryOut}<ArrowRight size={18} />
+							</Link>
+							<Link href="#workflow" className={styles.secondaryCta}>{t.secondary}</Link>
 						</div>
-
-						{/* The product's core claim, and until now it was buried four
-						    sections down under a heading about Discord: the people you
-						    send this to install nothing and sign up for nothing. */}
-						<p className="hero-note enter" style={{ '--i': 4 }}>{t.signInNote}</p>
+						<p className={styles.freeNote}><Check size={15} /> {t.freeNote}</p>
 					</div>
 
-					{/* The flat mark ships in the HTML so there is something on screen
-					    immediately and something left if WebGL never arrives. Once the
-					    scene has rendered a frame the flat one is hidden — navy on navy,
-					    it was showing through as a shadow behind the model. */}
-					<div className={`hero-portrait megu-stage enter${sceneUp ? ' scene-up' : ''}`} style={{ '--i': 2 }}>
-						<MeguMark size={340} className="megu-flat" />
-						<MeguScene className="megu-canvas" onReady={() => setSceneUp(true)} />
-					</div>
-				</div>
+					<div className={styles.demoWrap} aria-label={t.chatLabel}>
+						<div className={styles.demoTopline}>
+							<span>{t.chatLabel}</span>
+							<span className={styles.liveStatus}><i />{t.chatStatus}</span>
+						</div>
+						<div className={styles.discordWindow}>
+							<div className={styles.channelBar}>
+								<span className={styles.hash}>#</span>
+								<div><strong>general</strong><small>{t.channelDescription}</small></div>
+								<span className={styles.windowDots} aria-hidden="true"><i /><i /><i /></span>
+							</div>
 
-				<div className="scroll-cue" aria-hidden="true">
-					{t.scrollCue}
-					<span />
+							<div className={styles.chatBody}>
+								<div className={styles.message}>
+									<Avatar tone="gold">{t.chatOneInitial}</Avatar>
+									<div><div className={styles.messageMeta}><strong>{t.chatOneName}</strong><time>12:04</time></div><p>{t.chatOne}</p></div>
+								</div>
+								<div className={styles.message}>
+									<Avatar tone="mint">{t.chatTwoInitial}</Avatar>
+									<div><div className={styles.messageMeta}><strong>{t.chatTwoName}</strong><time>12:05</time></div><p><mark>@Megu</mark> {t.chatTwo.replace(/^Megu[,.]?\s*/i, '')}</p></div>
+								</div>
+								<div className={`${styles.message} ${styles.botMessage}`}>
+									<span className={styles.meguAvatar}><MeguMark size={40} mood="happy" /></span>
+									<div>
+										<div className={styles.messageMeta}><strong>{t.botName}</strong><b>{t.botBadge}</b><time>12:05</time></div>
+										<p>{t.botReply}</p>
+										<div className={styles.eventCard}>
+											<div className={styles.eventIcon}><CalendarDays size={20} /></div>
+											<div><strong>{t.eventTitle}</strong><span>{t.eventTime}</span><small><BellRing size={13} />{t.eventNotice}</small></div>
+											<span className={styles.eventReady}><Check size={14} /></span>
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<div className={styles.composer}><span>+</span><p>{t.composer}</p><span>☺</span></div>
+						</div>
+						<div className={styles.demoCaption}><span>{t.planned}</span><p>{t.proof}</p></div>
+					</div>
 				</div>
 			</section>
 
-			<div className="flow band reveal-stagger">
-				{t.steps.map((s, i) => (
-					<div className="flow-step reveal" key={s.word}>
-						<span className="flow-index">
-							{String(i + 1).padStart(2, '0')}
-							<span className="word">{s.word}</span>
-						</span>
-						<h3><span className="wipe">{s.h}</span></h3>
-						<p>{s.p}</p>
-					</div>
-				))}
-			</div>
-
-			<section className="server-side band band-dark">
-				<div className="section-head reveal">
-					<h2><span className="wipe">{t.serverH2}</span></h2>
-					<p className="lede">{t.serverLede}</p>
+			<section className={styles.workflow} id="workflow">
+				<div className={styles.sectionIntro}>
+					<p className={styles.sectionEyebrow}>{t.workflowEyebrow}</p>
+					<h2>{t.workflowTitle}</h2>
+					<p>{t.workflowLede}</p>
 				</div>
-
-				<div className="capabilities reveal-stagger">
-					{t.caps.map(c => (
-						<article className="capability lift spotlight" key={c.h} onPointerMove={spot}>
-							<h3>{c.h}</h3>
-							<p>{c.p}</p>
+				<div className={styles.steps}>
+					{t.steps.map((step, index) => (
+						<article className={styles.step} key={step.label}>
+							<div className={styles.stepNumber}>{String(index + 1).padStart(2, '0')}</div>
+							<p>{step.label}</p>
+							<h3>{step.title}</h3>
+							<span>{step.body}</span>
 						</article>
 					))}
 				</div>
-
-				<Link href="/servers" className="btn btn-secondary btn-lg reveal">{t.serverCta}</Link>
 			</section>
 
-			<section className="closing band band-dark reveal-stagger">
-				<h2><span className="wipe">{t.closeH2}</span></h2>
-				<p className="lede">{t.closeLede}</p>
-				<div className="hero-actions">
-					{user
-						? <Link href="/activities" className="btn btn-primary btn-lg">{t.ctaIn}</Link>
-						: <a href="/api/auth/login" className="btn btn-primary btn-lg">{t.ctaOut}</a>}
-					<Link href="/servers" className="btn btn-secondary btn-lg">{t.ctaServers}</Link>
+			<section className={styles.manager}>
+				<div className={styles.managerIntro}>
+					<p className={styles.sectionEyebrow}>{t.managerEyebrow}</p>
+					<h2>{t.managerTitle}</h2>
+					<p>{t.managerLede}</p>
+					<div className={styles.managerMark}><MeguMark size={128} mood="calm" /></div>
 				</div>
+				<div className={styles.capabilityGroups}>
+					{t.groups.map(group => (
+						<div className={styles.capabilityGroup} key={group.label}>
+							<p className={styles.groupLabel}>{group.label}</p>
+							{group.items.map(item => {
+								const Icon = item.icon;
+								return (
+									<article className={styles.capability} key={item.title}>
+										<Icon size={20} />
+										<div><h3>{item.title}</h3><p>{item.body}</p></div>
+									</article>
+								);
+							})}
+						</div>
+					))}
+				</div>
+			</section>
+
+			<section className={styles.moneySection}>
+				<div className={styles.moneyCopy}>
+					<p className={styles.sectionEyebrow}>{t.moneyEyebrow}</p>
+					<h2>{t.moneyTitle}</h2>
+					<p>{t.moneyBody}</p>
+					<ul>{t.moneyPoints.map(point => <li key={point}><Check size={16} />{point}</li>)}</ul>
+					<Link href="/bills" className={styles.textLink}>{t.moneyCta}<ArrowRight size={17} /></Link>
+				</div>
+				<div className={styles.expensePreview}>
+					<div className={styles.expenseTop}>
+						<div><ReceiptText size={20} /><span>{t.activityName}</span></div>
+						<small>{t.activityMeta}</small>
+					</div>
+					<p>{t.activityDue}</p>
+					<strong>{t.activityAmount}</strong>
+					<div className={styles.progressTrack}><span /></div>
+					<div className={styles.expenseBottom}><span>{t.activityProgress}</span><CircleDollarSign size={20} /></div>
+				</div>
+			</section>
+
+			<section className={styles.webCompanion}>
+				<div>
+					<p className={styles.sectionEyebrow}>{t.webEyebrow}</p>
+					<h2>{t.webTitle}</h2>
+				</div>
+				<div>
+					<p>{t.webBody}</p>
+					<Link href="/servers" className={styles.textLink}>{t.webCta}<ArrowRight size={17} /></Link>
+				</div>
+			</section>
+
+			<section className={styles.closing}>
+				<div className={styles.closingMark}><MeguMark size={88} mood="happy" /></div>
+				<p className={styles.closeEyebrow}>{t.closeEyebrow}</p>
+				<h2>{t.closeTitle}</h2>
+				<p>{t.closeBody}</p>
+				<Link href="/servers" className={styles.closeCta}>{user ? t.primaryIn : t.primaryOut}<ArrowRight size={18} /></Link>
 			</section>
 		</div>
 	);

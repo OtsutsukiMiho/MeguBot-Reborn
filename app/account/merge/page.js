@@ -7,7 +7,7 @@ import { useCopy } from '../../copy';
 /**
  * The screen that turns "that sign-in belongs to someone else" into a decision.
  *
- * There is deliberately no second trip to Discord or Google from here. Both
+ * There is deliberately no second trip to an identity provider from here. Both
  * sides are already proven by the time this page loads — the session proves one
  * account, and the OAuth round trip that redirected here proves the other — so
  * asking again would be a browser redirect into /api/auth/*, which is what

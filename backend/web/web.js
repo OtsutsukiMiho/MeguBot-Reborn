@@ -14,7 +14,6 @@ const database = require('../database/database.js');
 const core = require('../../core/index.js');
 const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
-const googleOAuth = require('../../adapters/google/oauth.js');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
@@ -102,12 +101,8 @@ if (process.env.NODE_ENV === 'production') {
 		missing.push('SESSION_SECRET — a random one is generated per boot, so every restart signs everyone out, and two instances never share a session at all.');
 	}
 
-	if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-		missing.push('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET — Google sign-in and account linking stay unavailable until both are configured.');
-	}
-
 	if (!process.env.MEGU_OAUTH_CREDENTIAL_KEY) {
-		missing.push('MEGU_OAUTH_CREDENTIAL_KEY — linked Discord refresh tokens cannot be stored, so Google sign-in cannot restore the Discord server dashboard.');
+		missing.push('MEGU_OAUTH_CREDENTIAL_KEY — Discord refresh tokens cannot be stored, so returning users may need to reconnect Discord.');
 	}
 
 	if (!process.env.RESEND_API_KEY || !process.env.MEGU_EMAIL_FROM) {
@@ -397,11 +392,9 @@ paymentDueSweep.start({
 	intervalMs: Number(process.env.MEGU_PAYMENT_DUE_INTERVAL_MS) || undefined,
 });
 
-// The guild list only ever entered the session at the moment of signing in, so
-// a Discord identity linked from /account worked for that session and no other:
-// signing in with Google the next day arrived at the console with no
-// adminGuilds and was told to sign in — while the bar above the message showed
-// the user's avatar. So the console asks for the guild list on demand.
+// The guild list normally enters the session at Discord sign-in. Older sessions
+// and sessions created before the Discord-only migration may not carry it, so
+// the console can restore the list on demand from the stored refresh token.
 //
 // It asks at most once every RESTORE_COOLDOWN_MS per session. The credential
 // can be permanently unusable (linked before MEGU_OAUTH_CREDENTIAL_KEY existed,
@@ -682,36 +675,29 @@ async function restoreDiscordConnection(userId, sessionObject) {
 	}
 }
 
-function beginOAuth(provider, intent) {
+function beginDiscordOAuth(intent) {
 	return (req, res) => {
 		if (intent === 'link' && !req.session?.meguUserId) return res.redirect('/activities');
-		if (provider === 'discord' && discordBlock.blocked()) return sendBlockedPage(res);
-		if (provider === 'google' && (!googleOAuth.clientId() || !googleOAuth.clientSecret())) {
-			return res.status(503).send('Google sign-in is not configured.');
-		}
+		if (discordBlock.blocked()) return sendBlockedPage(res);
 		const state = crypto.randomBytes(24).toString('hex');
 		req.session.oauth2Request = {
-			provider, intent, state,
+			provider: 'discord', intent, state,
 			linkingUserId: intent === 'link' ? req.session.meguUserId : null,
 			createdAt: Date.now(),
 		};
 		req.session.save(error => {
 			if (error) return res.status(500).send('Could not start sign-in.');
-			res.redirect(provider === 'google'
-				? googleOAuth.authorizeUrl({ state })
-				: discordOAuth.authorizeUrl({ state, port: process.env.NEXT_PORT || 3000 }));
+			res.redirect(discordOAuth.authorizeUrl({ state, port: process.env.NEXT_PORT || 3000 }));
 		});
 	};
 }
 
-app.get(['/api/auth/login', '/api/auth/discord'], beginOAuth('discord', 'login'));
-app.get('/api/auth/discord/link', beginOAuth('discord', 'link'));
-app.get('/api/auth/google', beginOAuth('google', 'login'));
-app.get('/api/auth/google/link', beginOAuth('google', 'link'));
+app.get(['/api/auth/login', '/api/auth/discord'], beginDiscordOAuth('login'));
+app.get('/api/auth/discord/link', beginDiscordOAuth('link'));
 
 // ── signing in without OAuth, on a scratch workspace ────────────────────────
 //
-// A cloud environment has no Discord or Google client secret — and should not,
+// A cloud environment has no Discord client secret — and should not,
 // because the box those go in is visible to anyone with access to it. Without
 // one, every owner surface is unreachable and half the product cannot be looked
 // at. This route closes that gap and nothing else: `scripts/dev-login.js` writes
@@ -766,10 +752,10 @@ function isLocalDatabase() {
 	}
 }
 
-async function finishOAuth(req, res, provider) {
+async function finishDiscordOAuth(req, res) {
 	const request = req.session?.oauth2Request;
 	const { code, state } = req.query;
-	if (!request || request.provider !== provider || !state || state !== request.state || Date.now() - request.createdAt > 10 * 60 * 1000) {
+	if (!request || request.provider !== 'discord' || !state || state !== request.state || Date.now() - request.createdAt > 10 * 60 * 1000) {
 		return res.status(403).send('This sign-in request expired. Start again from Megu.');
 	}
 	delete req.session.oauth2Request;
@@ -779,22 +765,13 @@ async function finishOAuth(req, res, provider) {
 	}
 
 	try {
-		let identityProfile;
-		let discordData = null;
-		let tokenData;
-		if (provider === 'google') {
-			tokenData = await googleOAuth.exchangeCode(code);
-			identityProfile = googleOAuth.toIdentityProfile(await googleOAuth.verifyIdToken(tokenData.id_token));
-			if (!identityProfile.emailVerified) return res.status(403).send('Google did not provide a verified email address.');
-		}
-		else {
-			if (discordBlock.blocked()) return sendBlockedPage(res);
-			tokenData = await discordOAuth.exchangeCode(code, process.env.NEXT_PORT || 3000);
-			const user = await discordOAuth.fetchMe(tokenData.access_token);
-			const guilds = await discordOAuth.fetchMyGuilds(tokenData.access_token);
-			identityProfile = discordOAuth.toIdentityProfile(user);
-			discordData = { user, guilds };
-		}
+		if (discordBlock.blocked()) return sendBlockedPage(res);
+		const tokenData = await discordOAuth.exchangeCode(code, process.env.NEXT_PORT || 3000);
+		const user = await discordOAuth.fetchMe(tokenData.access_token);
+		const guilds = await discordOAuth.fetchMyGuilds(tokenData.access_token);
+		const identityProfile = discordOAuth.toIdentityProfile(user);
+		const discordData = { user, guilds };
+		const provider = 'discord';
 
 		let account;
 		if (request.intent === 'link') {
@@ -837,7 +814,7 @@ async function finishOAuth(req, res, provider) {
 			await core.users.claimParticipants(account.id);
 		}
 
-		if (provider === 'discord' && tokenData.refresh_token) {
+		if (tokenData.refresh_token) {
 			const stored = await core.oauthCredentials.save(account.id, 'discord', {
 				accessToken: tokenData.access_token,
 				refreshToken: tokenData.refresh_token,
@@ -849,8 +826,7 @@ async function finishOAuth(req, res, provider) {
 			req.session.meguUserId = account.id;
 			req.session.account = { id: account.id, displayName: account.displayName, avatarUrl: account.avatarUrl, loginProvider: provider };
 			req.session.identity = identityProfile;
-			if (discordData) setDiscordSession(req.session, discordData.user, discordData.guilds);
-			else if (provider === 'google') await restoreDiscordConnection(account.id, req.session);
+			setDiscordSession(req.session, discordData.user, discordData.guilds);
 			req.session.userAgent = req.headers['user-agent'] || '';
 			req.session.loginTimestamp = req.session.loginTimestamp || Date.now();
 			req.session.lastActivity = Date.now();
@@ -866,14 +842,13 @@ async function finishOAuth(req, res, provider) {
 		return establish();
 	}
 	catch (error) {
-		BotLogs('SYSTEM', `${provider} OAuth callback error: ${error.message}`);
-		if (provider === 'discord' && recordDiscordBlock(error, 'finishing Discord OAuth')) return sendBlockedPage(res);
-		return res.status(500).send(`Could not complete ${provider} sign-in.`);
+		BotLogs('SYSTEM', `discord OAuth callback error: ${error.message}`);
+		if (recordDiscordBlock(error, 'finishing Discord OAuth')) return sendBlockedPage(res);
+		return res.status(500).send('Could not complete Discord sign-in.');
 	}
 }
 
-app.get(['/api/auth/callback', '/api/auth/discord/callback'], (req, res) => finishOAuth(req, res, 'discord'));
-app.get('/api/auth/google/callback', (req, res) => finishOAuth(req, res, 'google'));
+app.get(['/api/auth/callback', '/api/auth/discord/callback'], finishDiscordOAuth);
 
 // Kept temporarily for old bookmarks while the provider-neutral routes above
 // become the only entry points.
@@ -2056,32 +2031,19 @@ function isUserDeveloper(userId) {
 async function checkDeveloperSessionAsync(req) {
 	if (!req || !req.session) return false;
 
-	// 1. Check direct Discord User ID in session
+	// Check the Discord identity held by the current session first.
 	const discordUserId = req.session.user?.id || req.session.discordUser?.id;
 	if (discordUserId && await isUserDeveloperAsync(discordUserId)) {
 		return true;
 	}
 
-	// 2. Check Google email in DEVELOPER_EMAILS env variable
-	const devEmails = (process.env.DEVELOPER_EMAILS || '')
-		.split(',')
-		.map(e => e.trim().toLowerCase())
-		.filter(Boolean);
-
-	const sessionEmail = (req.session.identity?.email || req.session.user?.email || '').toLowerCase().trim();
-	if (sessionEmail && devEmails.includes(sessionEmail)) {
-		return true;
-	}
-
-	// 3. Check Megu User Account's linked identities in DB
+	// Fall back to the Discord identity stored on the Megu account. This covers
+	// an older session shape without keeping Google as a developer-login path.
 	if (req.session.meguUserId) {
 		try {
 			const identities = await core.users.getIdentities(req.session.meguUserId);
 			for (const id of identities) {
 				if (id.provider === 'discord' && await isUserDeveloperAsync(id.provider_uid)) {
-					return true;
-				}
-				if (id.provider === 'google' && id.email && devEmails.includes(id.email.toLowerCase().trim())) {
 					return true;
 				}
 			}
@@ -2096,12 +2058,12 @@ async function requireDeveloper(req, res, next) {
 	try {
 		const isDev = await checkDeveloperSessionAsync(req);
 		if (!isDev) {
-			return res.status(403).json({ error: 'Forbidden: Developer access required. Please sign in with an authorized Discord or Google account.' });
+			return res.status(403).json({ error: 'Forbidden: Developer access requires an authorized Discord account.' });
 		}
 		if (!req.session.user) {
 			req.session.user = {
-				id: req.session.meguUserId || 'dev_google',
-				username: req.session.identity?.displayName || req.session.identity?.email || 'Google Developer',
+				id: req.session.meguUserId || 'discord_developer',
+				username: req.session.identity?.displayName || 'Discord Developer',
 			};
 		}
 		next();
