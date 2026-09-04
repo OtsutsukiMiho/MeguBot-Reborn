@@ -179,6 +179,13 @@ function startWeb() {
 			// attached its listener yet is simply dropped.
 			tellChildAboutBlock(webProcess);
 		}
+		else if (message.type === 'clear_discord_block') {
+			discordBlockedUntil = 0;
+			logMaster('System', `${COLOR.green}Discord block guard manually reset by Developer.`);
+			for (const child of [webProcess, botProcess]) {
+				if (child && child.connected) child.send({ type: 'clear_discord_block' });
+			}
+		}
 		else if (message.type === 'ping_bot') {
 			if (botProcess && botProcess.connected) {
 				botProcess.send({ type: 'ping' });

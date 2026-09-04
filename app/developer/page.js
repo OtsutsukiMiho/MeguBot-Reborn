@@ -246,15 +246,24 @@ export default function DeveloperPage() {
 		return (
 			<div className="container" style={{ padding: '4rem 1.5rem', textAlign: 'center' }}>
 				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '3rem', maxWidth: '540px', margin: '0 auto' }}>
-					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--due)', marginBottom: '0.75rem' }}>
-						Access Restricted
+					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔐</div>
+					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--ink)', marginBottom: '0.75rem' }}>
+						Developer Access Required
 					</h2>
-					<p style={{ color: 'var(--muted)', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '1.5rem' }}>
-						This terminal requires registered <strong>Developer Credentials</strong> in the PostgreSQL database.
+					<p style={{ color: 'var(--muted)', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '2rem' }}>
+						This command center requires registered Developer credentials. You can sign in using your authorized Discord or Google account.
 					</p>
-					<Link href="/servers" className="btn btn-primary">
-						Return to Servers
-					</Link>
+					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+						<a href="/api/auth/google" className="btn btn-google" style={{ width: '100%', maxWidth: '280px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}>
+							<span className="provider-letter">G</span> Sign in with Google
+						</a>
+						<a href="/api/auth/discord" className="btn btn-discord" style={{ width: '100%', maxWidth: '280px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}>
+							Sign in with Discord
+						</a>
+						<Link href="/servers" className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }}>
+							Return to Servers
+						</Link>
+					</div>
 				</div>
 			</div>
 		);
@@ -295,6 +304,17 @@ export default function DeveloperPage() {
 				</div>
 
 				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+					{stats?.discordBlock?.isBlocked && (
+						<button
+							onClick={() => handleAction('clear_discord_block')}
+							disabled={actionLoading}
+							className="btn btn-secondary btn-sm"
+							style={{ color: 'var(--gold)', borderColor: 'var(--gold)', background: 'color-mix(in srgb, var(--gold) 15%, transparent)' }}
+							title="Manually clear the Discord rate-limit cooldown guard."
+						>
+							Reset Discord Block Guard
+						</button>
+					)}
 					<button
 						onClick={() => handleAction('reload_cache')}
 						disabled={actionLoading}
@@ -330,7 +350,7 @@ export default function DeveloperPage() {
 			</div>
 
 			{/* Telemetry Metric Cards */}
-			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
 				{/* RAM Usage */}
 				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
 					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
@@ -354,6 +374,21 @@ export default function DeveloperPage() {
 					</div>
 					<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>
 						Bot Status: <strong style={{ color: stats?.bot?.status === 'online' ? 'var(--settled)' : 'var(--due)' }}>{stats?.bot?.status || 'offline'}</strong>
+					</div>
+				</div>
+
+				{/* Discord Rate-Limit Status */}
+				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem' }}>
+					<div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+						Discord Rate-Limit
+					</div>
+					<div style={{ fontSize: '1.3rem', fontWeight: 800, color: stats?.discordBlock?.isBlocked ? 'var(--due)' : 'var(--settled)' }}>
+						{stats?.discordBlock?.isBlocked ? '⛔ Cooldown' : '🟢 Operational'}
+					</div>
+					<div style={{ fontSize: '0.8rem', color: stats?.discordBlock?.isBlocked ? 'var(--due)' : 'var(--text-secondary)', marginTop: '0.3rem' }}>
+						{stats?.discordBlock?.isBlocked
+							? `${Math.max(1, Math.ceil(stats.discordBlock.retryAfterSeconds / 60))}m wait remaining`
+							: '0 rate-limit holds'}
 					</div>
 				</div>
 

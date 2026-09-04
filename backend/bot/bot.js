@@ -145,7 +145,7 @@ const discordBlock = createBlockGuard({
 		BotLogs('SYSTEM', `${COLOR.red}Discord has blocked this server's IP. Pausing every Discord call for ${Math.round(seconds / 60)} minutes — see DISCORD-RATE-LIMITS.md.`);
 		if (process.send) {
 			try { process.send({ type: 'discord_block', untilMs: discordBlock.blockedUntil() }); }
-			catch {}
+			catch { }
 		}
 	},
 });
@@ -161,7 +161,7 @@ const invalidRequestDiagnostics = createInvalidRequestDiagnostics();
 // supervisor is the only thing here that outlives a restart, so ask it.
 if (process.send) {
 	try { process.send({ type: 'discord_block_query' }); }
-	catch {}
+	catch { }
 }
 
 /**
@@ -332,7 +332,7 @@ async function ensureGuildMembersCached(guild, { limit = 100, query = '' } = {})
 	if (pendingMemberFetches.has(key)) {
 		try {
 			await pendingMemberFetches.get(key);
-		} catch {}
+		} catch { }
 		return;
 	}
 
@@ -354,7 +354,7 @@ async function ensureGuildMembersCached(guild, { limit = 100, query = '' } = {})
 	pendingMemberFetches.set(key, fetchPromise);
 	try {
 		await fetchPromise;
-	} catch {}
+	} catch { }
 }
 
 // The online-ping status message. Boot-time Discord work has to be cheap enough
@@ -824,13 +824,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 			try {
 				if (interaction.replied || interaction.deferred) {
-					await interaction.followUp({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral }).catch(() => {});
+					await interaction.followUp({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral }).catch(() => { });
 				}
 				else {
-					await interaction.reply({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral }).catch(() => {});
+					await interaction.reply({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral }).catch(() => { });
 				}
 			}
-			catch {}
+			catch { }
 		}
 		finally {
 			stopDeadlineGuard();
@@ -1667,11 +1667,11 @@ client.on(Events.MessageCreate, async (message) => {
 				const val = parseFloat(num);
 				const u = unit.toLowerCase();
 				switch (u) {
-				case 'k': return (val * 1000).toString();
-				case 'm': return (val * 1000000).toString();
-				case 'b': return (val * 1000000000).toString();
-				case 't': return (val * 1000000000000).toString();
-				default: return match;
+					case 'k': return (val * 1000).toString();
+					case 'm': return (val * 1000000).toString();
+					case 'b': return (val * 1000000000).toString();
+					case 't': return (val * 1000000000000).toString();
+					default: return match;
 				}
 			});
 
@@ -2438,7 +2438,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
 					await member.roles.add(role);
 					BotLogs(guild.name, `${COLOR.green}Reaction role assigned: added ${COLOR.white}${role.name}${COLOR.green} to user ${COLOR.white}${user.tag || user.username} for emoji ${COLOR.white}${reaction.emoji.name}`);
-					
+
 					database.logAuditEvent(
 						guildId,
 						'REACTION_ROLE',
@@ -2508,7 +2508,7 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 				if (botMember && botMember.permissions.has(PermissionFlagsBits.ManageRoles) && botMember.roles.highest.position > role.position) {
 					await member.roles.remove(role);
 					BotLogs(guild.name, `${COLOR.green}Reaction role removed: took ${COLOR.white}${role.name}${COLOR.green} from user ${COLOR.white}${user.tag || user.username} for emoji ${COLOR.white}${reaction.emoji.name}`);
-					
+
 					database.logAuditEvent(
 						guildId,
 						'REACTION_ROLE',
@@ -2538,6 +2538,11 @@ process.on('message', async (msg) => {
 		if (discordBlock.adopt(msg.untilMs)) {
 			BotLogs('SYSTEM', `${COLOR.yellow}Discord is blocking this server's IP (reported elsewhere). Pausing Discord calls for ${Math.round(discordBlock.retryAfterSeconds() / 60)} minutes.`);
 		}
+		return;
+	}
+	if (msg.type === 'clear_discord_block') {
+		discordBlock.clear();
+		BotLogs('SYSTEM', `${COLOR.green}Discord rate-limit block guard reset via Supervisor.`);
 		return;
 	}
 
@@ -3273,7 +3278,7 @@ process.on('message', async (msg) => {
 		try {
 			if (client) client.destroy();
 		}
-		catch {}
+		catch { }
 		setTimeout(() => process.exit(0), 500);
 	}
 	else if (msg.type === 'add_reaction_role_react') {

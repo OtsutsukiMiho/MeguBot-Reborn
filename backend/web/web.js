@@ -308,6 +308,10 @@ process.on('message', (msg) => {
 			BotLogs('SYSTEM', `${COLOR.yellow}Discord is blocking this server's IP (reported elsewhere). Sign-ins are paused for ${Math.round(discordBlock.retryAfterSeconds() / 60)} minutes.`);
 		}
 	}
+	else if (msg.type === 'clear_discord_block') {
+		discordBlock.clear();
+		BotLogs('SYSTEM', `${COLOR.green}Discord rate-limit block guard reset via Supervisor.`);
+	}
 	else if (msg.type === 'log_entry' && msg.log) {
 		addLogEntry(msg.log);
 	}
@@ -1996,7 +2000,8 @@ async function isUserDeveloperAsync(userId) {
 			dbDevIdsCache = await database.getDeveloperUserIds();
 			lastDbDevFetch = Date.now();
 		}
-		return dbDevIdsCache.includes(String(userId));
+		const envDevIds = [process.env.DEVELOPER_USER_ID, process.env.OWNER_ID, process.env.BOT_OWNER_ID].filter(Boolean);
+		return dbDevIdsCache.includes(String(userId)) || envDevIds.includes(String(userId));
 	}
 	catch {
 		return false;
@@ -2005,17 +2010,60 @@ async function isUserDeveloperAsync(userId) {
 
 function isUserDeveloper(userId) {
 	if (!userId) return false;
-	return dbDevIdsCache.includes(String(userId));
+	const envDevIds = [process.env.DEVELOPER_USER_ID, process.env.OWNER_ID, process.env.BOT_OWNER_ID].filter(Boolean);
+	return dbDevIdsCache.includes(String(userId)) || envDevIds.includes(String(userId));
+}
+
+async function checkDeveloperSessionAsync(req) {
+	if (!req || !req.session) return false;
+
+	// 1. Check direct Discord User ID in session
+	const discordUserId = req.session.user?.id || req.session.discordUser?.id;
+	if (discordUserId && await isUserDeveloperAsync(discordUserId)) {
+		return true;
+	}
+
+	// 2. Check Google email in DEVELOPER_EMAILS env variable
+	const devEmails = (process.env.DEVELOPER_EMAILS || '')
+		.split(',')
+		.map(e => e.trim().toLowerCase())
+		.filter(Boolean);
+
+	const sessionEmail = (req.session.identity?.email || req.session.user?.email || '').toLowerCase().trim();
+	if (sessionEmail && devEmails.includes(sessionEmail)) {
+		return true;
+	}
+
+	// 3. Check Megu User Account's linked identities in DB
+	if (req.session.meguUserId) {
+		try {
+			const identities = await core.users.getIdentities(req.session.meguUserId);
+			for (const id of identities) {
+				if (id.provider === 'discord' && await isUserDeveloperAsync(id.provider_uid)) {
+					return true;
+				}
+				if (id.provider === 'google' && id.email && devEmails.includes(id.email.toLowerCase().trim())) {
+					return true;
+				}
+			}
+		}
+		catch {}
+	}
+
+	return false;
 }
 
 async function requireDeveloper(req, res, next) {
 	try {
-		if (!req.session || !req.session.user) {
-			return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
-		}
-		const isDev = await isUserDeveloperAsync(req.session.user.id);
+		const isDev = await checkDeveloperSessionAsync(req);
 		if (!isDev) {
-			return res.status(403).json({ error: 'Forbidden: Developer access required.' });
+			return res.status(403).json({ error: 'Forbidden: Developer access required. Please sign in with an authorized Discord or Google account.' });
+		}
+		if (!req.session.user) {
+			req.session.user = {
+				id: req.session.meguUserId || 'dev_google',
+				username: req.session.identity?.displayName || req.session.identity?.email || 'Google Developer',
+			};
 		}
 		next();
 	}
@@ -2026,7 +2074,7 @@ async function requireDeveloper(req, res, next) {
 
 app.get('/api/developer/check', async (req, res) => {
 	try {
-		const isDev = req.session && req.session.user ? await isUserDeveloperAsync(req.session.user.id) : false;
+		const isDev = await checkDeveloperSessionAsync(req);
 		res.json({ success: true, isDeveloper: isDev });
 	}
 	catch {
@@ -2057,6 +2105,11 @@ app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
 				voiceConnections: botStats.voiceConnectionsCount || 0,
 				readyTimestamp: botStats.readyTimestamp || null,
 				guilds: botStats.guilds || [],
+			},
+			discordBlock: {
+				isBlocked: discordBlock.blocked(),
+				retryAfterSeconds: discordBlock.retryAfterSeconds(),
+				blockedUntil: discordBlock.blockedUntil(),
 			},
 			services: {
 				botStatus: botStats.exists ? 'online' : 'offline',
@@ -2222,6 +2275,15 @@ app.post('/api/developer/action', requireDeveloper, async (req, res) => {
 			}
 			BotLogs('SYSTEM', `Developer triggered Bot Process Restart via Web Console (${req.session.user.username})`);
 			return res.json({ success: true, message: 'Bot process restart signal dispatched!' });
+		}
+		if (action === 'clear_discord_block') {
+			discordBlock.clear();
+			if (process.send) {
+				process.send({ target: 'bot', type: 'clear_discord_block' });
+				process.send({ type: 'clear_discord_block' });
+			}
+			BotLogs('SYSTEM', `Developer cleared Discord rate-limit block guard via Web Console (${req.session.user.username})`);
+			return res.json({ success: true, message: 'Discord rate-limit block guard reset successfully!' });
 		}
 		res.status(400).json({ error: 'Unknown developer action.' });
 	}
