@@ -19,6 +19,7 @@ const { createDispatcher } = require('../../adapters/notifications/dispatcher.js
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
 const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
+const healthLog = require('../../adapters/health/health-log.js');
 
 // When Cloudflare blocks our IP, every sign-in fails at the token exchange. The
 // old behaviour was a bare 400 with "Failed to exchange code", which reads to a
@@ -592,6 +593,37 @@ function sendBlockedPage(res) {
 	`);
 }
 
+/**
+ * Record the first web-side refusal durably before returning the quiet page.
+ * A normal OAuth 429 is route-scoped, so it pauses sign-ins for Discord's own
+ * Retry-After without broadcasting a false global outage to the bot.
+ */
+function recordDiscordBlock(value, context) {
+	const tripped = discordBlock.record(value);
+	if (tripped) {
+		healthLog.record({
+			kind: 'block',
+			service: 'Web OAuth',
+			detail: `${context}: ${value && value.message ? value.message : String(value)}`,
+		});
+		return true;
+	}
+
+	if (Number(value?.status) === 429) {
+		const retryMs = Math.min(Math.max(Number(value.retryAfterMs) || 60_000, 1_000), 15 * 60_000);
+		if (!discordBlock.blocked() && discordBlock.adopt(Date.now() + retryMs)) {
+			healthLog.record({
+				kind: 'invalid_requests',
+				service: 'Web OAuth',
+				detail: `${context}: Discord returned 429; sign-ins paused for ${Math.ceil(retryMs / 1000)} seconds`,
+			});
+		}
+		return true;
+	}
+
+	return false;
+}
+
 function manageableGuilds(guilds) {
 	return (Array.isArray(guilds) ? guilds : []).filter(guild => {
 		if (guild.owner) return true;
@@ -645,7 +677,7 @@ async function restoreDiscordConnection(userId, sessionObject) {
 		BotLogs('SYSTEM', `Linked Discord credential needs reconnection: ${error.message}`);
 		// This catch used to swallow a Cloudflare block whole: the guard never
 		// saw it, so the next sign-in went straight back to Discord.
-		discordBlock.record(error);
+		recordDiscordBlock(error, 'restoring a linked Discord credential');
 		sessionObject.discordReconnectRequired = true;
 	}
 }
@@ -835,7 +867,7 @@ async function finishOAuth(req, res, provider) {
 	}
 	catch (error) {
 		BotLogs('SYSTEM', `${provider} OAuth callback error: ${error.message}`);
-		if (provider === 'discord' && discordBlock.record(error)) return sendBlockedPage(res);
+		if (provider === 'discord' && recordDiscordBlock(error, 'finishing Discord OAuth')) return sendBlockedPage(res);
 		return res.status(500).send(`Could not complete ${provider} sign-in.`);
 	}
 }
@@ -927,11 +959,11 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 		});
 
 		if (!tokenRes.ok) {
-			const errText = await tokenRes.text();
-			BotLogs('SYSTEM', `OAuth2 token exchange failed: ${errText}`);
+			const discordError = await discordOAuth.discordResponseError(tokenRes, 'OAuth2 token exchange failed');
+			BotLogs('SYSTEM', discordError.message);
 			// A Cloudflare block is not this user's problem and not something a
 			// retry fixes, so it gets its own answer and shuts sign-ins down.
-			if (discordBlock.record(errText)) {
+			if (recordDiscordBlock(discordError, 'exchanging a legacy Discord OAuth code')) {
 				return sendBlockedPage(res);
 			}
 			return res.status(400).send('Failed to exchange code for token with Discord.');
@@ -948,9 +980,9 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
 		if (!userRes.ok) {
-			const errText = await userRes.text();
-			BotLogs('SYSTEM', `Discord profile read failed: ${errText}`);
-			if (discordBlock.record(errText)) return sendBlockedPage(res);
+			const discordError = await discordOAuth.discordResponseError(userRes, 'Discord profile read failed');
+			BotLogs('SYSTEM', discordError.message);
+			if (recordDiscordBlock(discordError, 'reading a legacy Discord profile')) return sendBlockedPage(res);
 			return res.status(502).send('Could not read your Discord profile.');
 		}
 		const userData = await userRes.json();
@@ -959,9 +991,9 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
 		if (!guildsRes.ok) {
-			const errText = await guildsRes.text();
-			BotLogs('SYSTEM', `Discord guild list read failed: ${errText}`);
-			if (discordBlock.record(errText)) return sendBlockedPage(res);
+			const discordError = await discordOAuth.discordResponseError(guildsRes, 'Discord guild list read failed');
+			BotLogs('SYSTEM', discordError.message);
+			if (recordDiscordBlock(discordError, 'reading legacy Discord servers')) return sendBlockedPage(res);
 			return res.status(502).send('Could not read your Discord servers.');
 		}
 		const guildsData = await guildsRes.json();
@@ -1037,7 +1069,7 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 		BotLogs('SYSTEM', `OAuth2 Callback error: ${error.toString()}`);
 		// A block can also arrive as a thrown fetch failure rather than a
 		// response, so the guard gets a look at this path too.
-		if (discordBlock.record(error)) {
+		if (recordDiscordBlock(error, 'finishing legacy Discord OAuth')) {
 			return sendBlockedPage(res);
 		}
 		res.status(500).send('An unexpected error occurred during Discord authentication.');
@@ -2279,7 +2311,6 @@ app.post('/api/developer/action', requireDeveloper, async (req, res) => {
 		if (action === 'clear_discord_block') {
 			discordBlock.clear();
 			if (process.send) {
-				process.send({ target: 'bot', type: 'clear_discord_block' });
 				process.send({ type: 'clear_discord_block' });
 			}
 			BotLogs('SYSTEM', `Developer cleared Discord rate-limit block guard via Web Console (${req.session.user.username})`);

@@ -125,6 +125,32 @@ which is how fifteen minutes became an afternoon.
 
 `index.js` also refuses to restart the bot into a live block, whatever killed it.
 
+The supervisor itself does **not** outlive Render hibernate or a full service
+restart. The global deadline is therefore persisted in
+`discord_rate_limit_state` before it is broadcast. On boot, `index.js` reads
+that row before it forks any child and does not even create the bot process
+until the deadline has passed. This closes the cold-wake race where a new
+supervisor had an empty in-memory guard and immediately sent a gateway IDENTIFY
+into the same live block.
+
+Late responses from requests that were already in flight are the same incident,
+not new blocks. `createBlockGuard().record()` is edge-triggered: once the circuit
+is open, duplicate refusals neither fire `onTrip` nor move the local deadline.
+Otherwise the protection code itself renews its 75-minute wait a few
+milliseconds at a time.
+
+An ordinary OAuth `429` is different from the global Cloudflare block. The web
+process preserves Discord's `retry_after`/`Retry-After`, pauses only sign-ins for
+that duration, and does not broadcast a false global outage to the bot. A 429
+without a usable delay gets a conservative one-minute sign-in pause instead of
+letting repeated clicks hammer the token endpoint.
+
+The developer console's manual reset clears the in-memory guards, the durable
+database deadline, and any pending bot restart timer as one operation. Clearing
+only RAM makes the block return on the next wake; leaving the old timer alive
+can start a second bot after the manually started one. Use this escape hatch
+only after confirming Discord is reachable again—the normal path is to wait.
+
 ### 3b. Never let the REST client retry on its own
 
 This one is not in your code, it is in `@discordjs/rest`, and it is the single
@@ -269,6 +295,8 @@ is nothing to search for.
 - [ ] Any repeating call sends something that actually changed since last time.
 - [ ] Every `login()` and every `fetch` to `discord.com` has a failure path that
       is not "immediately try again".
+- [ ] OAuth 429 handling preserves and honours `retry_after`; route-scoped OAuth
+      limits must not be broadcast as a global bot outage.
 - [ ] Every Discord call in the bot goes through `discordCall()`; no new
       `.catch(() => undefined)` around one.
 - [ ] New failure paths call `guard.record()` so a block shuts the feature down
@@ -282,7 +310,8 @@ is nothing to search for.
 - [ ] Nothing loops over guilds, channels or members issuing a request per item
       without a cap and a blocked-check.
 - [ ] `npm test` — `rate-limit.test.js` covers the guard, `session-store.test.js`
-      covers sessions outliving a restart.
+      covers sessions outliving a restart, and `discord-oauth.test.js` covers
+      OAuth `Retry-After` parsing.
 
 ## Watching for it
 

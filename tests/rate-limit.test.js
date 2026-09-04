@@ -24,6 +24,7 @@ const {
 	BLOCK_EXIT_CODE,
 	INVALID_REQUEST_STOP_THRESHOLD,
 	LOCAL_BLOCK_ERROR_CODE,
+	BLOCK_TRIP_ERROR,
 	RATE_LIMIT_WAIT_CEILING_MS,
 } = require('../adapters/discord/rate-limit.js');
 
@@ -109,9 +110,11 @@ function main() {
 		assert.strictEqual(guard.blocked(), true, 'and we are now blocked');
 		assert.strictEqual(trips, 1, 'announced once');
 
-		guard.record(CLOUDFLARE_BODY);
-		guard.record(CLOUDFLARE_BODY);
+		const firstDeadline = guard.blockedUntil();
+		assert.strictEqual(guard.record(CLOUDFLARE_BODY), false, 'a duplicate refusal is not a new trip');
+		assert.strictEqual(guard.record(CLOUDFLARE_BODY), false, 'nor is the next duplicate');
 		assert.strictEqual(trips, 1, 'and not again while the same block is live');
+		assert.strictEqual(guard.blockedUntil(), firstDeadline, 'duplicate refusals do not renew our own cooldown');
 		ok('a live block announces itself once, not once per refused request');
 	}
 
@@ -208,11 +211,16 @@ async function restCircuitBreakerStopsEveryCall() {
 	assert.strictEqual(await rest.request({ answer: 'ok' }), 'ok', 'ordinary calls still reach Discord');
 	assert.strictEqual(requests, 1);
 
+	let refusal;
 	await assert.rejects(
 		rest.request({ fail: new Error(CLOUDFLARE_BODY) }),
-		/blocked from accessing our API/i,
+		error => {
+			refusal = error;
+			return /blocked from accessing our API/i.test(error.message);
+		},
 		'the refusal is preserved for the caller',
 	);
+	assert.strictEqual(refusal[BLOCK_TRIP_ERROR], true, 'the first refusal is marked for the feature-level diagnostic');
 	assert.strictEqual(guard.blocked(), true, 'a swallowed feature error cannot hide the block from the REST guard');
 
 	await assert.rejects(

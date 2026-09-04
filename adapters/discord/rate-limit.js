@@ -43,6 +43,9 @@ const INVALID_REQUEST_STOP_THRESHOLD = 100;
 /** Stable code for calls skipped locally; callers may log or quietly discard it. */
 const LOCAL_BLOCK_ERROR_CODE = 'MEGU_DISCORD_BLOCKED';
 
+/** Marks the one rejection that opened the lower-level REST circuit. */
+const BLOCK_TRIP_ERROR = Symbol('megu.discordBlockTrip');
+
 /** The same rolling window Discord and @discordjs/rest use for invalid requests. */
 const INVALID_REQUEST_WINDOW_MS = 10 * 60 * 1000;
 
@@ -138,8 +141,13 @@ function createBlockGuard({ cooldownMs = BLOCK_COOLDOWN_MS, onTrip = null } = {}
 	 */
 	function trip(untilMs = Date.now() + cooldownMs) {
 		const wasBlocked = Date.now() < until;
+		// A refusal that was already in flight can arrive after the first one has
+		// opened the circuit. It is evidence of the same incident, not a new
+		// 75-minute incident. Extending the deadline for every late response makes
+		// our own cooldown behave like the Discord ban we are trying not to renew.
+		if (wasBlocked) return false;
 		until = Math.max(until, untilMs);
-		if (!wasBlocked && onTrip) onTrip(Math.max(0, Math.ceil((until - Date.now()) / 1000)));
+		if (onTrip) onTrip(Math.max(0, Math.ceil((until - Date.now()) / 1000)));
 		return true;
 	}
 
@@ -219,7 +227,9 @@ function guardRestClient(rest, guard) {
 			return await request(options);
 		}
 		catch (error) {
-			guard.record(error);
+			if (guard.record(error) && error && typeof error === 'object') {
+				error[BLOCK_TRIP_ERROR] = true;
+			}
 			throw error;
 		}
 	};
@@ -276,6 +286,7 @@ module.exports = {
 	INVALID_REQUEST_WARNING_INTERVAL,
 	INVALID_REQUEST_STOP_THRESHOLD,
 	LOCAL_BLOCK_ERROR_CODE,
+	BLOCK_TRIP_ERROR,
 	RATE_LIMIT_WAIT_CEILING_MS,
 	isGlobalBlock,
 	isSevereRateLimit,

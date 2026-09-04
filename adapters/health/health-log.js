@@ -30,6 +30,9 @@ const { Pool } = require('pg');
 /** Long enough for a healthy write, short enough not to hold up an exit path. */
 const WRITE_TIMEOUT_MS = 2000;
 
+/** A cold database may need longer during boot; no Discord call leaves first. */
+const STATE_READ_TIMEOUT_MS = 10_000;
+
 /**
  * The kinds worth keeping. A closed set, because free text becomes unqueryable
  * within a month and the point of this table is that it can be asked questions.
@@ -58,7 +61,7 @@ function poolFor(url) {
 		connectionString: url,
 		ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(url) ? false : { rejectUnauthorized: false },
 		max: 1,
-		connectionTimeoutMillis: WRITE_TIMEOUT_MS,
+		connectionTimeoutMillis: STATE_READ_TIMEOUT_MS,
 	});
 	// A pool error with no listener is an uncaught exception, which would make
 	// this module the thing that kills the supervisor.
@@ -74,18 +77,32 @@ function poolFor(url) {
  */
 async function ensureTable(url) {
 	if (ready) return ready;
-	ready = poolFor(url).query(`
-		CREATE TABLE IF NOT EXISTS bot_health_events (
-			id         SERIAL PRIMARY KEY,
-			kind       VARCHAR(40) NOT NULL,
-			instance   VARCHAR(160),
-			service    VARCHAR(60),
-			detail     TEXT,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		)
-	`).then(() => poolFor(url).query(
-		'CREATE INDEX IF NOT EXISTS bot_health_events_created_at_idx ON bot_health_events (created_at DESC)',
-	)).catch(error => {
+	ready = (async () => {
+		await poolFor(url).query(`
+			CREATE TABLE IF NOT EXISTS bot_health_events (
+				id         SERIAL PRIMARY KEY,
+				kind       VARCHAR(40) NOT NULL,
+				instance   VARCHAR(160),
+				service    VARCHAR(60),
+				detail     TEXT,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`);
+		await poolFor(url).query(
+			'CREATE INDEX IF NOT EXISTS bot_health_events_created_at_idx ON bot_health_events (created_at DESC)',
+		);
+		// The block guard used to live only in RAM. A Render hibernate or a full
+		// service restart erased it, then the newly started bot immediately sent a
+		// fresh IDENTIFY into an IP that could still be blocked. Keep the one
+		// deadline that must survive the process in the database that already does.
+		await poolFor(url).query(`
+			CREATE TABLE IF NOT EXISTS discord_rate_limit_state (
+				scope         VARCHAR(40) PRIMARY KEY,
+				blocked_until BIGINT NOT NULL,
+				updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`);
+	})().catch(error => {
 		// Let the next call try again rather than caching the failure forever.
 		ready = null;
 		throw error;
@@ -126,6 +143,85 @@ async function record({ kind, instance = null, service = null, detail = null } =
 	}
 }
 
+/**
+ * Persist the global Discord cooldown so a whole-service restart cannot forget
+ * it. GREATEST is deliberate: an older child must never shorten a deadline a
+ * newer observer already saved.
+ */
+async function saveDiscordBlockUntil(untilMs) {
+	const stamp = Number(untilMs);
+	const url = process.env.DATABASE_URL;
+	if (!url || !Number.isFinite(stamp) || stamp <= Date.now()) return false;
+
+	const timeout = new Promise(resolve => {
+		const timer = setTimeout(() => resolve('timeout'), WRITE_TIMEOUT_MS);
+		if (typeof timer.unref === 'function') timer.unref();
+	});
+
+	try {
+		const write = ensureTable(url).then(() => poolFor(url).query(`
+			INSERT INTO discord_rate_limit_state (scope, blocked_until, updated_at)
+			VALUES ('global', $1, now())
+			ON CONFLICT (scope) DO UPDATE
+			SET blocked_until = GREATEST(discord_rate_limit_state.blocked_until, EXCLUDED.blocked_until),
+				updated_at = now()
+		`, [Math.trunc(stamp)]));
+		return await Promise.race([write, timeout]) !== 'timeout';
+	}
+	catch {
+		return false;
+	}
+}
+
+/**
+ * Read the durable deadline during supervisor boot. Returns zero on any
+ * failure: observability and protection may degrade when Postgres is down, but
+ * the health helper must never become the reason the service cannot start.
+ */
+async function loadDiscordBlockUntil() {
+	const url = process.env.DATABASE_URL;
+	if (!url) return 0;
+
+	const timeout = new Promise(resolve => {
+		const timer = setTimeout(() => resolve('timeout'), STATE_READ_TIMEOUT_MS);
+		if (typeof timer.unref === 'function') timer.unref();
+	});
+
+	try {
+		const read = ensureTable(url).then(() => poolFor(url).query(
+			'SELECT blocked_until FROM discord_rate_limit_state WHERE scope = \'global\'',
+		));
+		const result = await Promise.race([read, timeout]);
+		if (result === 'timeout') return 0;
+		const stamp = Number(result.rows[0]?.blocked_until) || 0;
+		return stamp > Date.now() ? stamp : 0;
+	}
+	catch {
+		return 0;
+	}
+}
+
+/** Remove a developer-cleared cooldown so it does not return after restart. */
+async function clearDiscordBlock() {
+	const url = process.env.DATABASE_URL;
+	if (!url) return false;
+
+	const timeout = new Promise(resolve => {
+		const timer = setTimeout(() => resolve('timeout'), WRITE_TIMEOUT_MS);
+		if (typeof timer.unref === 'function') timer.unref();
+	});
+
+	try {
+		const write = ensureTable(url).then(() => poolFor(url).query(
+			'DELETE FROM discord_rate_limit_state WHERE scope = \'global\'',
+		));
+		return await Promise.race([write, timeout]) !== 'timeout';
+	}
+	catch {
+		return false;
+	}
+}
+
 /** Let a short-lived process (a script, a dying child) release the connection. */
 async function close() {
 	if (!pool) return;
@@ -135,4 +231,13 @@ async function close() {
 	await closing.end().catch(() => undefined);
 }
 
-module.exports = { record, close, KINDS, WRITE_TIMEOUT_MS };
+module.exports = {
+	record,
+	saveDiscordBlockUntil,
+	loadDiscordBlockUntil,
+	clearDiscordBlock,
+	close,
+	KINDS,
+	WRITE_TIMEOUT_MS,
+	STATE_READ_TIMEOUT_MS,
+};

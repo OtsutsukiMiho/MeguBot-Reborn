@@ -21,6 +21,32 @@ function redirectUri(fallbackPort) {
 }
 
 /**
+ * Keep the response body for Cloudflare detection, plus enough structured
+ * metadata for the web process to honour an ordinary OAuth route cooldown.
+ */
+async function discordResponseError(res, label) {
+	const body = await res.text();
+	const error = new Error(`${label}: ${body}`);
+	error.name = 'DiscordHttpError';
+	error.status = res.status;
+	error.body = body;
+
+	if (res.status === 429) {
+		const payload = (() => {
+			try { return JSON.parse(body); }
+			catch { return null; }
+		})();
+		const bodySeconds = Number(payload?.retry_after);
+		const headerSeconds = Number(res.headers.get('retry-after') || res.headers.get('x-ratelimit-reset-after'));
+		const seconds = Number.isFinite(bodySeconds) && bodySeconds > 0 ? bodySeconds : headerSeconds;
+		error.retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1000) : 60_000;
+		error.rateLimitGlobal = payload?.global === true || res.headers.get('x-ratelimit-global') === 'true';
+	}
+
+	return error;
+}
+
+/**
  * `guilds` gives us each guild's permission bitfield in the same response,
  * so membership and role checks cost no extra API calls.
  */
@@ -49,12 +75,12 @@ async function exchangeCode(code, port) {
 	});
 
 	if (!res.ok) {
-		throw new Error(`Discord token exchange failed: ${await res.text()}`);
+		throw await discordResponseError(res, 'Discord token exchange failed');
 	}
 	return res.json();
 }
 
-async function refreshToken(refreshToken) {
+async function refreshToken(refreshTokenValue) {
 	const res = await fetch(`${API}/oauth2/token`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -62,10 +88,10 @@ async function refreshToken(refreshToken) {
 			client_id: clientId(),
 			client_secret: clientSecret(),
 			grant_type: 'refresh_token',
-			refresh_token: String(refreshToken),
+			refresh_token: String(refreshTokenValue),
 		}),
 	});
-	if (!res.ok) throw new Error(`Discord token refresh failed: ${await res.text()}`);
+	if (!res.ok) throw await discordResponseError(res, 'Discord token refresh failed');
 	return res.json();
 }
 
@@ -81,7 +107,7 @@ async function fetchMe(accessToken) {
 	const res = await fetch(`${API}/users/@me`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
-	if (!res.ok) throw new Error(`Failed to read Discord profile: ${await res.text()}`);
+	if (!res.ok) throw await discordResponseError(res, 'Failed to read Discord profile');
 	return res.json();
 }
 
@@ -89,7 +115,7 @@ async function fetchMyGuilds(accessToken) {
 	const res = await fetch(`${API}/users/@me/guilds`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
-	if (!res.ok) throw new Error(`Failed to read Discord servers: ${await res.text()}`);
+	if (!res.ok) throw await discordResponseError(res, 'Failed to read Discord servers');
 	const data = await res.json();
 	return Array.isArray(data) ? data : [];
 }
@@ -128,4 +154,5 @@ module.exports = {
 	avatarUrl,
 	toIdentityProfile,
 	redirectUri,
+	discordResponseError,
 };

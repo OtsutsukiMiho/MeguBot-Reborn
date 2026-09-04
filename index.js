@@ -33,6 +33,7 @@ const EXPRESS_PORT = process.env.EXPRESS_PORT || 3001;
 let webProcess = null;
 let botProcess = null;
 let nextProcess = null;
+let botStartTimer = null;
 
 // A child that dies on boot used to come back three seconds later, forever. For
 // the bot that is not a restart policy, it is a denial-of-service against
@@ -72,13 +73,20 @@ function tellChildAboutBlock(child) {
 
 function noteDiscordBlock(untilMs, source) {
 	const stamp = Number(untilMs) || 0;
-	if (stamp <= discordBlockedUntil) return;
+	if (stamp <= Date.now()) return;
 
 	const first = discordBlockRemainingMs() <= 0;
+	// Several requests can already be in flight when the first refusal arrives.
+	// Their responses describe the same incident and must not keep pushing our
+	// own deadline forward. A fresh incident can only begin after this one ends,
+	// because every child is circuit-broken in the meantime.
+	if (!first) return;
 	discordBlockedUntil = stamp;
-	if (first) {
-		logMaster('System', `${COLOR.red}Discord has blocked this server's IP (reported by ${source}). Pausing every Discord call for ${Math.round(discordBlockRemainingMs() / 60000)} minutes — see DISCORD-RATE-LIMITS.md.`);
-	}
+	logMaster('System', `${COLOR.red}Discord has blocked this server's IP (reported by ${source}). Pausing every Discord call for ${Math.round(discordBlockRemainingMs() / 60000)} minutes — see DISCORD-RATE-LIMITS.md.`);
+	// The supervisor used to remember this only until Render hibernated the
+	// whole service. Persisting the timestamp prevents the next wake from
+	// immediately sending a fresh gateway IDENTIFY into the same live block.
+	healthLog.saveDiscordBlockUntil(discordBlockedUntil);
 
 	// Everyone, including the reporter: adopt() ignores a deadline it already
 	// has, so telling it twice costs nothing and forgetting one is the bug.
@@ -126,7 +134,15 @@ function scheduleRestart(name, start, startedAt, exitCode) {
 	}
 
 	logMaster('System', `${COLOR.yellow}Restarting ${name} in ${Math.round(delay / 1000)}s (attempt ${state.attempts}).`);
-	setTimeout(start, delay);
+	const restart = () => {
+		if (name === 'Discord Bot') botStartTimer = null;
+		start();
+	};
+	const timer = setTimeout(restart, delay);
+	if (name === 'Discord Bot') {
+		if (botStartTimer) clearTimeout(botStartTimer);
+		botStartTimer = timer;
+	}
 }
 
 function logMaster(host, msg) {
@@ -181,10 +197,16 @@ function startWeb() {
 		}
 		else if (message.type === 'clear_discord_block') {
 			discordBlockedUntil = 0;
+			healthLog.clearDiscordBlock();
+			if (botStartTimer) {
+				clearTimeout(botStartTimer);
+				botStartTimer = null;
+			}
 			logMaster('System', `${COLOR.green}Discord block guard manually reset by Developer.`);
 			for (const child of [webProcess, botProcess]) {
 				if (child && child.connected) child.send({ type: 'clear_discord_block' });
 			}
+			if (!botProcess) startBot();
 		}
 		else if (message.type === 'ping_bot') {
 			if (botProcess && botProcess.connected) {
@@ -269,6 +291,27 @@ function startNext() {
 }
 
 function startBot() {
+	const remaining = discordBlockRemainingMs();
+	if (remaining > 0) {
+		// This check is below every caller of startBot, including restart timers.
+		// A persisted cooldown therefore protects both a cold wake and a child
+		// crash without relying on the caller to remember the special case.
+		if (!botStartTimer) {
+			logMaster('System', `${COLOR.yellow}Discord cooldown is still active. Holding the bot process down for ${Math.ceil(remaining / 60000)} more minutes before gateway login.`);
+			healthLog.record({
+				kind: 'block_hold',
+				instance: SUPERVISOR,
+				service: 'Discord Bot',
+				detail: `startup held until ${new Date(discordBlockedUntil).toISOString()}`,
+			});
+			botStartTimer = setTimeout(() => {
+				botStartTimer = null;
+				startBot();
+			}, remaining);
+		}
+		return;
+	}
+
 	logMaster('System', `${COLOR.cyan}Starting Discord Bot process...`);
 	const startedAt = Date.now();
 	// Every bot start is a fresh gateway IDENTIFY, and that is the number this
@@ -311,6 +354,7 @@ function startBot() {
 			service: 'Discord Bot',
 			detail: `code ${code}, signal ${signal}, after ${Math.round((Date.now() - startedAt) / 1000)}s of uptime`,
 		});
+		botProcess = null;
 		scheduleRestart('Discord Bot', startBot, startedAt, code);
 	});
 }
@@ -319,13 +363,31 @@ function startBot() {
 // on a plan that sleeps — a wake. Those are indistinguishable in the audit log
 // and each one costs a full round of boot-time Discord work, so counting them
 // is the first step to reducing them.
-healthLog.record({
-	kind: 'boot',
-	instance: SUPERVISOR,
-	service: 'supervisor',
-	detail: `node ${process.version} on ${process.platform}, NODE_ENV=${process.env.NODE_ENV || 'unset'}`,
-});
+async function boot() {
+	const persistedBlock = await healthLog.loadDiscordBlockUntil();
+	if (persistedBlock > Date.now()) {
+		discordBlockedUntil = persistedBlock;
+		logMaster('System', `${COLOR.yellow}Restored a Discord cooldown from durable state. No Discord traffic will leave this service for ${Math.ceil(discordBlockRemainingMs() / 60000)} more minutes.`);
+	}
 
-startWeb();
-startNext();
-startBot();
+	healthLog.record({
+		kind: 'boot',
+		instance: SUPERVISOR,
+		service: 'supervisor',
+		detail: `node ${process.version} on ${process.platform}, NODE_ENV=${process.env.NODE_ENV || 'unset'}`,
+	});
+
+	startWeb();
+	startNext();
+	startBot();
+}
+
+boot().catch((error) => {
+	// loadDiscordBlockUntil is fail-open and should never throw. Keep this last
+	// boundary anyway: a diagnostic store must not prevent the service itself
+	// from starting if its contract is ever accidentally weakened.
+	logMaster('System', `${COLOR.red}Could not restore Discord cooldown state: ${error.message}. Starting with in-memory protection only.`);
+	startWeb();
+	startNext();
+	startBot();
+});

@@ -29,6 +29,7 @@ const {
 	INVALID_REQUEST_WARNING_INTERVAL,
 	INVALID_REQUEST_STOP_THRESHOLD,
 	BLOCK_EXIT_CODE,
+	BLOCK_TRIP_ERROR,
 } = require('../../adapters/discord/rate-limit.js');
 const DISCORD_TEST_MODE = process.env.MEGU_DISCORD_TEST_MODE === '1';
 const DISCORD_TEST_GUILD_ID = String(process.env.MEGU_DISCORD_TEST_GUILD_ID || '');
@@ -104,7 +105,14 @@ function shouldStopForRateLimit(data) {
 	if (severeRateLimits.length >= SEVERE_429_LIMIT && !discordBlock.blocked()) {
 		BotLogs('SYSTEM', `${COLOR.red}${severeRateLimits.length} severe rate limits in the last minute. Backing off before Discord does it for us.`);
 		severeRateLimits = [];
-		discordBlock.trip();
+		if (discordBlock.trip()) {
+			healthLog.record({
+				kind: 'invalid_requests',
+				instance: INSTANCE,
+				service: 'Discord Bot',
+				detail: `three severe 429 responses in one minute; last route ${data.method || 'UNKNOWN'} ${data.route || 'unknown'}`,
+			});
+		}
 	}
 
 	return true;
@@ -180,7 +188,7 @@ async function discordCall(label, run, fallback = undefined) {
 		return await run();
 	}
 	catch (error) {
-		if (discordBlock.record(error)) {
+		if (error?.[BLOCK_TRIP_ERROR] || discordBlock.record(error)) {
 			BotLogs('SYSTEM', `${COLOR.red}Blocked by Discord while ${label}. Everything else is paused too.`);
 			// Edge-triggered: record() is only truthy the first time it
 			// recognises a block, so a burst of refused calls writes one row.
@@ -3334,6 +3342,12 @@ client.rest.on('invalidRequestWarning', (info) => {
 	BotLogs('SYSTEM', `${COLOR.yellow}[Discord Invalid Requests] ${info.count}/${INVALID_REQUEST_STOP_THRESHOLD} in the current window (${minutes}m left).${routes ? ` Top routes: ${routes}` : ''}`);
 	if (recordInvalidRequestWarning(info, discordBlock)) {
 		BotLogs('SYSTEM', `${COLOR.red}Invalid Discord requests reached the safety threshold. Pausing REST before Cloudflare blocks the IP.`);
+		healthLog.record({
+			kind: 'invalid_requests',
+			instance: INSTANCE,
+			service: 'Discord Bot',
+			detail: `${info.count} invalid requests in the active window${routes ? `; top routes: ${routes}` : ''}`,
+		});
 	}
 });
 

@@ -29,6 +29,9 @@ async function main() {
 		delete process.env.DATABASE_URL;
 
 		assert.strictEqual(await healthLog.record({ kind: 'boot' }), false);
+		assert.strictEqual(await healthLog.saveDiscordBlockUntil(Date.now() + 60_000), false);
+		assert.strictEqual(await healthLog.loadDiscordBlockUntil(), 0);
+		assert.strictEqual(await healthLog.clearDiscordBlock(), false);
 		ok('no DATABASE_URL returns false rather than throwing');
 
 		assert.strictEqual(await healthLog.record({ kind: 'nonsense' }), false);
@@ -81,6 +84,11 @@ async function main() {
 		const second = await healthLog.record({ kind: 'exit', detail: 'a second attempt' });
 		assert.strictEqual(second, false);
 		ok('a second call after a failure still answers, and does not throw either');
+
+		assert.strictEqual(await healthLog.saveDiscordBlockUntil(Date.now() + 60_000), false);
+		assert.strictEqual(await healthLog.loadDiscordBlockUntil(), 0);
+		assert.strictEqual(await healthLog.clearDiscordBlock(), false);
+		ok('durable Discord cooldown state also fails open when the database is unavailable');
 
 		await healthLog.close();
 		ok('closing a pool that never connected is safe');
