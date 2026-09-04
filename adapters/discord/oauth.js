@@ -2,7 +2,26 @@
 // the permission maths lives in core/auth/access.js so it stays testable
 // without a network.
 
-const API = 'https://discord.com/api/v10';
+const DEFAULT_API = 'https://discord.com/api/v10';
+
+function apiEndpoint() {
+	let endpoint = (process.env.DISCORD_API_ENDPOINT || DEFAULT_API).trim().replace(/\/+$/, '');
+	if (!endpoint.includes('/api')) {
+		endpoint = `${endpoint}/api/v10`;
+	}
+	else if (!/\/v\d+$/.test(endpoint)) {
+		endpoint = `${endpoint}/v10`;
+	}
+	return endpoint;
+}
+
+function proxyHeaders() {
+	const headers = {};
+	if (process.env.DISCORD_PROXY_SECRET) {
+		headers['x-proxy-secret'] = process.env.DISCORD_PROXY_SECRET;
+	}
+	return headers;
+}
 
 function clientId() {
 	return process.env.DISCORD_CLIENT_ID || '';
@@ -62,9 +81,12 @@ function authorizeUrl({ state, port, scope = 'identify guilds' }) {
 }
 
 async function exchangeCode(code, port) {
-	const res = await fetch(`${API}/oauth2/token`, {
+	const res = await fetch(`${apiEndpoint()}/oauth2/token`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		headers: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+			...proxyHeaders(),
+		},
 		body: new URLSearchParams({
 			client_id: clientId(),
 			client_secret: clientSecret(),
@@ -81,9 +103,12 @@ async function exchangeCode(code, port) {
 }
 
 async function refreshToken(refreshTokenValue) {
-	const res = await fetch(`${API}/oauth2/token`, {
+	const res = await fetch(`${apiEndpoint()}/oauth2/token`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		headers: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+			...proxyHeaders(),
+		},
 		body: new URLSearchParams({
 			client_id: clientId(),
 			client_secret: clientSecret(),
@@ -104,16 +129,22 @@ async function refreshToken(refreshTokenValue) {
 // those clicks is another request into a block that lengthens under traffic.
 // Keep the body: rate-limit.js reads it, and the guard exists to be tripped.
 async function fetchMe(accessToken) {
-	const res = await fetch(`${API}/users/@me`, {
-		headers: { Authorization: `Bearer ${accessToken}` },
+	const res = await fetch(`${apiEndpoint()}/users/@me`, {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			...proxyHeaders(),
+		},
 	});
 	if (!res.ok) throw await discordResponseError(res, 'Failed to read Discord profile');
 	return res.json();
 }
 
 async function fetchMyGuilds(accessToken) {
-	const res = await fetch(`${API}/users/@me/guilds`, {
-		headers: { Authorization: `Bearer ${accessToken}` },
+	const res = await fetch(`${apiEndpoint()}/users/@me/guilds`, {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			...proxyHeaders(),
+		},
 	});
 	if (!res.ok) throw await discordResponseError(res, 'Failed to read Discord servers');
 	const data = await res.json();
@@ -145,7 +176,9 @@ function toIdentityProfile(user) {
 }
 
 module.exports = {
-	API,
+	API: DEFAULT_API,
+	apiEndpoint,
+	proxyHeaders,
 	authorizeUrl,
 	exchangeCode,
 	refreshToken,

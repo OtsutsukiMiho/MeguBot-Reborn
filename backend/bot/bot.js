@@ -79,6 +79,12 @@ const client = new Client({
 		globalRequestsPerSecond: 25,
 		invalidRequestWarningInterval: INVALID_REQUEST_WARNING_INTERVAL,
 		rejectOnRateLimit: (data) => shouldStopForRateLimit(data),
+		...(process.env.DISCORD_REST_ENDPOINT || process.env.DISCORD_API_ENDPOINT ? {
+			api: (process.env.DISCORD_REST_ENDPOINT || process.env.DISCORD_API_ENDPOINT).replace(/\/v\d+$/, ''),
+		} : {}),
+		...(process.env.DISCORD_PROXY_SECRET ? {
+			headers: { 'x-proxy-secret': process.env.DISCORD_PROXY_SECRET },
+		} : {}),
 	},
 });
 

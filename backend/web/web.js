@@ -944,10 +944,11 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 	}
 
 	try {
-		const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
+		const tokenRes = await fetch(`${discordOAuth.apiEndpoint()}/oauth2/token`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/x-www-form-urlencoded',
+				...discordOAuth.proxyHeaders(),
 			},
 			body: new URLSearchParams({
 				client_id: clientId,
@@ -976,8 +977,11 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 		// or a 401 arrived here as an error object, `userData.id` came out
 		// undefined, and the session was written anyway — a logged-in user with
 		// no identity. Both are checked now, and both feed the same guard.
-		const userRes = await fetch('https://discord.com/api/v10/users/@me', {
-			headers: { Authorization: `Bearer ${accessToken}` },
+		const userRes = await fetch(`${discordOAuth.apiEndpoint()}/users/@me`, {
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				...discordOAuth.proxyHeaders(),
+			},
 		});
 		if (!userRes.ok) {
 			const discordError = await discordOAuth.discordResponseError(userRes, 'Discord profile read failed');
@@ -987,8 +991,11 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 		}
 		const userData = await userRes.json();
 
-		const guildsRes = await fetch('https://discord.com/api/v10/users/@me/guilds', {
-			headers: { Authorization: `Bearer ${accessToken}` },
+		const guildsRes = await fetch(`${discordOAuth.apiEndpoint()}/users/@me/guilds`, {
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				...discordOAuth.proxyHeaders(),
+			},
 		});
 		if (!guildsRes.ok) {
 			const discordError = await discordOAuth.discordResponseError(guildsRes, 'Discord guild list read failed');

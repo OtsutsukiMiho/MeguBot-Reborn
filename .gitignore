@@ -57,6 +57,7 @@ desktop.ini
 !DATABASE.md
 !DISCORD-RATE-LIMITS.md
 !DIRECTION.md
+!DISCORD-PROXY-SETUP.md
 
 # Local env backups
 .env.backup*

@@ -383,7 +383,7 @@ export default function DeveloperPage() {
 						Discord Rate-Limit
 					</div>
 					<div style={{ fontSize: '1.3rem', fontWeight: 800, color: stats?.discordBlock?.isBlocked ? 'var(--due)' : 'var(--settled)' }}>
-						{stats?.discordBlock?.isBlocked ? '⛔ Cooldown' : '🟢 Operational'}
+						{stats?.discordBlock?.isBlocked ? 'Cooldown' : 'Operational'}
 					</div>
 					<div style={{ fontSize: '0.8rem', color: stats?.discordBlock?.isBlocked ? 'var(--due)' : 'var(--text-secondary)', marginTop: '0.3rem' }}>
 						{stats?.discordBlock?.isBlocked

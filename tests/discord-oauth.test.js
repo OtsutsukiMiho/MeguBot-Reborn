@@ -32,7 +32,26 @@ async function main() {
 	assert.strictEqual(blocked.status, 403);
 	assert.match(blocked.message, /40333/);
 
-	console.log('Discord OAuth response handling passed');
+	// Test proxy endpoint and headers configuration
+	assert.strictEqual(oauth.apiEndpoint(), 'https://discord.com/api/v10', 'defaults to official discord endpoint');
+	assert.deepStrictEqual(oauth.proxyHeaders(), {}, 'defaults to empty proxy headers');
+
+	const prevEndpoint = process.env.DISCORD_API_ENDPOINT;
+	const prevSecret = process.env.DISCORD_PROXY_SECRET;
+	try {
+		process.env.DISCORD_API_ENDPOINT = 'https://my-proxy.workers.dev/api/v10/';
+		process.env.DISCORD_PROXY_SECRET = 'super-secret-token';
+		assert.strictEqual(oauth.apiEndpoint(), 'https://my-proxy.workers.dev/api/v10', 'strips trailing slash');
+		assert.deepStrictEqual(oauth.proxyHeaders(), { 'x-proxy-secret': 'super-secret-token' });
+	}
+	finally {
+		if (prevEndpoint !== undefined) process.env.DISCORD_API_ENDPOINT = prevEndpoint;
+		else delete process.env.DISCORD_API_ENDPOINT;
+		if (prevSecret !== undefined) process.env.DISCORD_PROXY_SECRET = prevSecret;
+		else delete process.env.DISCORD_PROXY_SECRET;
+	}
+
+	console.log('Discord OAuth response and proxy handling passed');
 }
 
 main().catch(error => {
