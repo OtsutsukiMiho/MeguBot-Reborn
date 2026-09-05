@@ -64,7 +64,9 @@ function ServerCard({ g, copy }) {
 			    process cannot be reached — genuinely unknown. Showing "ยังไม่มี Megu"
 			    for the third one tells the admin something false about their server. */}
 			<div className="server-card-badges">
-				<span className="server-role-badge">{g.owner ? copy.owner : copy.manager}</span>
+				<span className={`server-role-badge ${g.owner ? 'role-owner' : (g.isAdmin ? 'role-manager' : 'role-member')}`}>
+					{g.owner ? copy.owner : (g.isAdmin ? copy.manager : copy.member)}
+				</span>
 				{g.isBotInGuild === null
 					? <span className="server-status-badge">{copy.unknown}</span>
 					: g.isBotInGuild
@@ -90,7 +92,14 @@ function ServerCard({ g, copy }) {
 			<div className="server-card-footer">
 				{g.isBotInGuild === false
 					? <a href={g.inviteUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm server-card-btn">{copy.invite}</a>
-					: <Link href={`/servers/${g.id}`} className="btn btn-primary btn-sm server-card-btn">{copy.configure}</Link>}
+					: (
+						<Link
+							href={`/servers/${g.id}`}
+							className={`btn ${g.isAdmin ? 'btn-primary' : 'btn-secondary'} btn-sm server-card-btn`}
+						>
+							{g.isAdmin ? copy.configure : copy.mySettings}
+						</Link>
+					)}
 			</div>
 		</div>
 	);
@@ -105,6 +114,7 @@ export default function ServersPage() {
 	// out" and showing a Sign in button to somebody already signed in.
 	const [denial, setDenial] = useState(null);
 	const [guilds, setGuilds] = useState([]);
+	const [filter, setFilter] = useState('all');
 	const [botOnline, setBotOnline] = useState(true);
 	const [loading, setLoading] = useState(true);
 
@@ -181,6 +191,14 @@ export default function ServersPage() {
 
 	const active = guilds.filter(g => g.isBotInGuild === true);
 	const missing = guilds.filter(g => g.isBotInGuild === false);
+	const manageable = guilds.filter(g => g.isAdmin);
+	const memberOnly = guilds.filter(g => !g.isAdmin);
+
+	const displayedGuilds = guilds.filter(g => {
+		if (filter === 'manageable') return g.isAdmin;
+		if (filter === 'member') return !g.isAdmin;
+		return true;
+	});
 
 	return (
 		<div className="stack-lg">
@@ -204,7 +222,34 @@ export default function ServersPage() {
 				</div>
 			)}
 
-			{guilds.length === 0
+			{/* Filter Tabs */}
+			{guilds.length > 0 && memberOnly.length > 0 && (
+				<div className="rise" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+					<button
+						type="button"
+						onClick={() => setFilter('all')}
+						className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+					>
+						{copy.filterAll} ({guilds.length})
+					</button>
+					<button
+						type="button"
+						onClick={() => setFilter('manageable')}
+						className={`btn ${filter === 'manageable' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+					>
+						{copy.filterManageable} ({manageable.length})
+					</button>
+					<button
+						type="button"
+						onClick={() => setFilter('member')}
+						className={`btn ${filter === 'member' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+					>
+						{copy.filterMember} ({memberOnly.length})
+					</button>
+				</div>
+			)}
+
+			{displayedGuilds.length === 0
 				? (
 					<section className="panel rise rise-2">
 						<p className="quiet-note">
@@ -214,7 +259,7 @@ export default function ServersPage() {
 				)
 				: (
 					<div className="server-grid rise rise-2">
-						{guilds.map(g => <ServerCard key={g.id} g={g} copy={copy} />)}
+						{displayedGuilds.map(g => <ServerCard key={g.id} g={g} copy={copy} />)}
 					</div>
 				)}
 		</div>

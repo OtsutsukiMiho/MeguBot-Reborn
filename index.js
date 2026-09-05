@@ -241,10 +241,12 @@ function startNext() {
 	// NODE_ENV stays the decision, because a developer who has run `npm run
 	// build` once should still get `next dev` locally. But PORT is injected by
 	// the host and never set by hand here, so PORT plus a build present is a
-	// deploy that forgot to say so — and that is worth saying out loud.
-	const deployed = Boolean(process.env.PORT);
+	// In local development, PORT may be in .env (e.g. PORT=3000). A cloud deploy is
+	// identified by RENDER=true or explicit NODE_ENV=production, not by PORT alone,
+	// so a developer who built once locally does not get stuck in a stale `next start`.
+	const deployed = Boolean(process.env.RENDER || process.env.IS_PULL_REQUEST || (process.env.PORT && process.env.NODE_ENV === 'production'));
 	const built = fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'));
-	const mode = (process.env.NODE_ENV === 'production' || (deployed && built)) ? 'start' : 'dev';
+	const mode = process.env.NEXT_MODE || ((process.env.NODE_ENV === 'production' || (deployed && built)) ? 'start' : 'dev');
 	if (mode === 'start' && process.env.NODE_ENV !== 'production') {
 		logMaster('System', `${COLOR.yellow}NODE_ENV is not "production" but this looks like a deploy with a build present, so Next is starting in production mode. Set NODE_ENV=production to make it explicit.`);
 	}

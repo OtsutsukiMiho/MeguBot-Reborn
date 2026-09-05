@@ -405,7 +405,7 @@ paymentDueSweep.start({
 const RESTORE_COOLDOWN_MS = 5 * 60 * 1000;
 
 async function ensureDiscordGuilds(session) {
-	if (!session?.meguUserId || session.adminGuilds) return;
+	if (!session?.meguUserId || (session.adminGuilds && session.allGuilds)) return;
 	const last = session.discordRestoreAttemptedAt || 0;
 	if (Date.now() - last < RESTORE_COOLDOWN_MS) return;
 	session.discordRestoreAttemptedAt = Date.now();
@@ -420,10 +420,10 @@ async function discordConsoleDenial(session) {
 	// adminGuilds even when the Megu account behind it could not be created —
 	// meguUserId is null there — and asking for that id first would close a
 	// console that has everything it needs open in front of it.
-	if (session?.adminGuilds) return null;
+	if (session?.adminGuilds || session?.allGuilds) return null;
 
 	if (!session?.meguUserId) {
-		return { status: 401, body: { error: 'Sign in to see the servers you manage.', reason: 'signed-out' } };
+		return { status: 401, body: { error: 'Sign in to see your servers.', reason: 'signed-out' } };
 	}
 
 	let linked = false;
@@ -450,11 +450,36 @@ function requireAdminGuild(req, res, next) {
 		return res.status(400).json({ error: 'Invalid server ID format.' });
 	}
 
-	const hasAccess = req.session.adminGuilds.some(g => g.id === guildId);
+	const hasAccess = req.session.adminGuilds.some(g => String(g.id) === String(guildId));
 	if (!hasAccess) {
 		BotLogs('SYSTEM', `Security Warning: Unauthorized access attempt to Guild ID ${guildId} by User ${req.session.user.username} (${req.session.user.id}).`);
 		return res.status(403).json({ error: 'Forbidden. You do not have Administrator or Manage Server permissions for this server.' });
 	}
+	next();
+}
+
+function requireGuildAccess(req, res, next) {
+	if (!req.session || !req.session.user) {
+		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+	}
+
+	const guildId = req.params.guildId;
+	if (typeof guildId !== 'string' || !/^\d{17,20}$/.test(guildId)) {
+		return res.status(400).json({ error: 'Invalid server ID format.' });
+	}
+
+	const adminGuild = req.session.adminGuilds && req.session.adminGuilds.find(g => String(g.id) === String(guildId));
+	const memberGuild = req.session.allGuilds && req.session.allGuilds.find(g => String(g.id) === String(guildId));
+	const isAdmin = Boolean(adminGuild);
+	const isMember = Boolean(memberGuild);
+	const isOwner = Boolean((adminGuild && adminGuild.owner) || (memberGuild && memberGuild.owner));
+
+	if (!isAdmin && !isMember) {
+		BotLogs('SYSTEM', `Security Warning: Unauthorized server access attempt to Guild ID ${guildId} by User ${req.session.user.username} (${req.session.user.id}).`);
+		return res.status(403).json({ error: 'Forbidden. You are not a member of this server.' });
+	}
+
+	req.guildAccess = { isAdmin, isMember, isOwner };
 	next();
 }
 
@@ -631,7 +656,15 @@ function setDiscordSession(sessionObject, user, guilds) {
 		global_name: user.global_name || user.username, avatar: user.avatar,
 	};
 	sessionObject.discordUser = sessionObject.user;
-	sessionObject.allGuilds = guilds.map(g => ({ id: g.id, name: g.name, icon: g.icon, permissions: g.permissions }));
+	sessionObject.allGuilds = (Array.isArray(guilds) ? guilds : []).map(g => ({
+		id: g.id,
+		name: g.name,
+		icon: g.icon,
+		banner: g.banner,
+		splash: g.splash,
+		owner: g.owner,
+		permissions: g.permissions,
+	}));
 	sessionObject.adminGuilds = manageableGuilds(guilds).map(g => ({
 		id: g.id, name: g.name, icon: g.icon, banner: g.banner, splash: g.splash,
 		owner: g.owner, permissions: g.permissions,
@@ -1024,6 +1057,9 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 				id: g.id,
 				name: g.name,
 				icon: g.icon,
+				banner: g.banner,
+				splash: g.splash,
+				owner: g.owner,
 				permissions: g.permissions,
 			}));
 
@@ -1200,8 +1236,9 @@ app.get('/api/guilds', async (req, res) => {
 	const denial = await discordConsoleDenial(req.session);
 	if (denial) return res.status(denial.status).json(denial.body);
 
-	const userGuilds = req.session.adminGuilds;
-	const guildIds = userGuilds.map(g => g.id);
+	const adminGuildMap = new Map((req.session.adminGuilds || []).map(g => [String(g.id), g]));
+	const allUserGuilds = req.session.allGuilds || req.session.adminGuilds || [];
+	const guildIds = [...new Set([...allUserGuilds.map(g => g.id), ...(req.session.adminGuilds || []).map(g => g.id)])];
 
 	const ipcRes = await sendIpcRequest({ type: 'check_guilds_presence', guildIds });
 
@@ -1219,36 +1256,108 @@ app.get('/api/guilds', async (req, res) => {
 	}
 
 	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
-	const enrichedGuilds = userGuilds.map(g => {
-		const botInfo = guildInfoMap[g.id] || {};
-		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${g.id}`;
-		return {
+	const seenIds = new Set();
+	const enrichedGuilds = [];
+
+	// 1. Process all guilds user is part of
+	for (const g of allUserGuilds) {
+		const gid = String(g.id);
+		if (seenIds.has(gid)) continue;
+		seenIds.add(gid);
+
+		const adminGuild = adminGuildMap.get(gid);
+		const isAdmin = Boolean(adminGuild);
+		const isBotInGuild = botOnline ? !!presenceMap[gid] : null;
+
+		// Non-admin servers: only include if the bot is present in the server
+		// (Regular members cannot invite Megu anyway)
+		if (!isAdmin && isBotInGuild === false) {
+			continue;
+		}
+
+		const botInfo = guildInfoMap[gid] || {};
+		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${gid}`;
+
+		const isOwner = Boolean((adminGuild && adminGuild.owner) || g.owner);
+		let role = 'member';
+		if (isOwner) role = 'owner';
+		else if (isAdmin) role = 'admin';
+
+		enrichedGuilds.push({
 			...g,
-			banner: g.banner || botInfo.banner,
-			splash: g.splash || botInfo.splash,
+			...(adminGuild || {}),
+			owner: isOwner,
+			isAdmin,
+			role,
+			banner: (adminGuild && adminGuild.banner) || g.banner || botInfo.banner || null,
+			splash: (adminGuild && adminGuild.splash) || g.splash || botInfo.splash || null,
 			memberCount: botInfo.memberCount,
-			isBotInGuild: botOnline ? !!presenceMap[g.id] : null,
+			isBotInGuild,
 			inviteUrl,
-		};
-	});
+		});
+	}
+
+	// 2. Also ensure any adminGuilds not present in allUserGuilds are included
+	for (const [gid, ag] of adminGuildMap) {
+		if (seenIds.has(gid)) continue;
+		seenIds.add(gid);
+
+		const botInfo = guildInfoMap[gid] || {};
+		const isBotInGuild = botOnline ? !!presenceMap[gid] : null;
+		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${gid}`;
+
+		enrichedGuilds.push({
+			...ag,
+			isAdmin: true,
+			role: ag.owner ? 'owner' : 'admin',
+			banner: ag.banner || botInfo.banner || null,
+			splash: ag.splash || botInfo.splash || null,
+			memberCount: botInfo.memberCount,
+			isBotInGuild,
+			inviteUrl,
+		});
+	}
 
 	res.json({ success: true, botOnline, guilds: enrichedGuilds });
 });
 
-app.get('/api/guilds/:guildId', requireAdminGuild, async (req, res) => {
+app.get('/api/guilds/:guildId', requireGuildAccess, async (req, res) => {
 	const { guildId } = req.params;
 
 	const botDetails = await sendIpcRequest({ type: 'get_guild_details', guildId }, 8000);
-	const vars = await database.getAllGuildVars(guildId);
-	const sessionGuild = (req.session.adminGuilds || []).find(g => String(g.id) === String(guildId));
+	const sessionGuild = (req.session.adminGuilds || []).find(g => String(g.id) === String(guildId))
+		|| (req.session.allGuilds || []).find(g => String(g.id) === String(guildId));
 	const guildName = (botDetails && botDetails.name) || (sessionGuild && sessionGuild.name) || 'Discord Server';
 	const guildIcon = (botDetails && botDetails.icon) || (sessionGuild && sessionGuild.icon) || null;
+	const isBotInGuild = botDetails ? botDetails.exists : false;
+
+	if (!req.guildAccess.isAdmin) {
+		const textChannels = (botDetails && botDetails.channels)
+			? botDetails.channels.filter(c => c.type === 0 || c.type === 5 || c.type === 'GUILD_TEXT' || c.type === 'GUILD_ANNOUNCEMENT')
+			: [];
+		return res.json({
+			success: true,
+			guildId,
+			name: guildName,
+			icon: guildIcon,
+			isBotInGuild,
+			isAdmin: false,
+			isOwner: Boolean(req.guildAccess.isOwner),
+			isMember: true,
+			channels: textChannels,
+		});
+	}
+
+	const vars = await database.getAllGuildVars(guildId);
 
 	res.json({
 		success: true,
 		guildId,
 		name: guildName,
-		isBotInGuild: botDetails ? botDetails.exists : false,
+		isBotInGuild,
+		isAdmin: true,
+		isOwner: Boolean(req.guildAccess.isOwner),
+		isMember: true,
 		channels: (botDetails && botDetails.channels) || [],
 		roles: (botDetails && botDetails.roles) || [],
 		members: (botDetails && botDetails.members) || [],
@@ -1284,6 +1393,242 @@ app.get('/api/guilds/:guildId', requireAdminGuild, async (req, res) => {
 			automod: parseAutomodConfig(vars.automod),
 		},
 	});
+});
+
+function parseReminderTimeInput(timeStr) {
+	if (!timeStr || typeof timeStr !== 'string') return null;
+	timeStr = timeStr.trim().toLowerCase();
+
+	const relativeRegex = /^(\d+)([smhd])$/;
+	const relativeMatch = timeStr.match(relativeRegex);
+	if (relativeMatch) {
+		const value = parseInt(relativeMatch[1], 10);
+		const unit = relativeMatch[2];
+		let ms = 0;
+		switch (unit) {
+		case 's': ms = value * 1000; break;
+		case 'm': ms = value * 60000; break;
+		case 'h': ms = value * 3600000; break;
+		case 'd': ms = value * 86400000; break;
+		}
+		return {
+			targetTime: Date.now() + ms,
+			recurring: false,
+		};
+	}
+
+	const dailyRegex = /^(\d{1,2})[:.](\d{2})(?:\s*everyday)?$/;
+	const dailyMatch = timeStr.match(dailyRegex);
+	if (dailyMatch) {
+		const hours = parseInt(dailyMatch[1], 10);
+		const minutes = parseInt(dailyMatch[2], 10);
+
+		if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+			return null;
+		}
+
+		const nowUTC = Date.now();
+		const offsetMs = 7 * 60 * 60 * 1000;
+		const nowICT = new Date(nowUTC + offsetMs);
+
+		const targetICT = new Date(nowUTC + offsetMs);
+		targetICT.setUTCHours(hours, minutes, 0, 0);
+
+		if (targetICT.getTime() <= nowICT.getTime()) {
+			targetICT.setUTCDate(targetICT.getUTCDate() + 1);
+		}
+
+		return {
+			targetTime: targetICT.getTime() - offsetMs,
+			recurring: true,
+		};
+	}
+
+	return null;
+}
+
+app.get('/api/guilds/:guildId/my-settings', requireGuildAccess, async (req, res) => {
+	const { guildId } = req.params;
+	const userId = req.session.user.id;
+
+	try {
+		const [nick, announceOptOut, allReminders, botDetails] = await Promise.all([
+			database.getUserNick(guildId, userId),
+			database.getAnnounceOptOut(guildId, userId),
+			database.getActiveReminders(),
+			sendIpcRequest({ type: 'get_guild_details', guildId }, 5000),
+		]);
+
+		const userReminders = (Array.isArray(allReminders) ? allReminders : [])
+			.filter(r => String(r.user_id) === String(userId) && String(r.guild_id) === String(guildId))
+			.map(r => ({
+				id: r.id,
+				channelId: r.channel_id,
+				reminderTime: Number(r.reminder_time),
+				message: r.message,
+				recurring: Boolean(r.recurring),
+			}));
+
+		const textChannels = (botDetails && botDetails.channels)
+			? botDetails.channels.filter(c => c.type === 0 || c.type === 5 || c.type === 'GUILD_TEXT' || c.type === 'GUILD_ANNOUNCEMENT')
+			: [];
+
+		res.json({
+			success: true,
+			guildId,
+			userId,
+			nickname: (nick && nick !== 'ใครไม่รู้') ? nick : null,
+			announceOptOut: Boolean(announceOptOut),
+			reminders: userReminders,
+			channels: textChannels,
+		});
+	}
+	catch (error) {
+		BotLogs('Web', `Error fetching my-settings for guild ${guildId}: ${error.message}`);
+		res.status(500).json({ error: 'Failed to load personal settings.' });
+	}
+});
+
+app.put('/api/guilds/:guildId/my-settings/nickname', requireGuildAccess, async (req, res) => {
+	const { guildId } = req.params;
+	const userId = req.session.user.id;
+	const username = req.session.user.global_name || req.session.user.username || 'User';
+
+	let nickname = (req.body && req.body.nickname);
+	if (typeof nickname === 'string') {
+		nickname = nickname.trim();
+	} else {
+		nickname = '';
+	}
+
+	if (nickname.length > 100) {
+		return res.status(400).json({ error: 'Nickname must be 100 characters or less.' });
+	}
+
+	try {
+		const sessionGuild = (req.session.allGuilds || []).find(g => String(g.id) === String(guildId))
+			|| (req.session.adminGuilds || []).find(g => String(g.id) === String(guildId));
+		const gName = sessionGuild ? sessionGuild.name : 'Discord Server';
+
+		if (nickname) {
+			await database.setUserNick(guildId, userId, nickname);
+			await database.logAuditEvent(
+				guildId,
+				'NICKNAME_SELF_UPDATE',
+				userId,
+				username,
+				`Updated their own TTS nickname to "${nickname}"`,
+				gName,
+			).catch(() => undefined);
+		} else {
+			await database.deleteUserNick(guildId, userId);
+			await database.logAuditEvent(
+				guildId,
+				'NICKNAME_SELF_RESET',
+				userId,
+				username,
+				'Reset their own TTS nickname to default',
+				gName,
+			).catch(() => undefined);
+		}
+
+		res.json({ success: true, nickname: nickname || null });
+	} catch (err) {
+		BotLogs('Web', `Error saving self nickname: ${err.message}`);
+		res.status(500).json({ error: 'Failed to update nickname.' });
+	}
+});
+
+app.put('/api/guilds/:guildId/my-settings/announce', requireGuildAccess, async (req, res) => {
+	const { guildId } = req.params;
+	const userId = req.session.user.id;
+	const optOut = Boolean(req.body && req.body.optOut);
+
+	try {
+		await database.setAnnounceOptOut(guildId, userId, optOut);
+		res.json({ success: true, announceOptOut: optOut });
+	} catch (err) {
+		BotLogs('Web', `Error updating voice announcement pref: ${err.message}`);
+		res.status(500).json({ error: 'Failed to update announcement preference.' });
+	}
+});
+
+app.post('/api/guilds/:guildId/my-settings/reminders', requireGuildAccess, async (req, res) => {
+	const { guildId } = req.params;
+	const userId = req.session.user.id;
+	const { time, message, channelId } = req.body || {};
+
+	if (!message || typeof message !== 'string' || !message.trim()) {
+		return res.status(400).json({ error: 'Reminder message cannot be empty.' });
+	}
+	if (message.trim().length > 500) {
+		return res.status(400).json({ error: 'Reminder message must be 500 characters or less.' });
+	}
+	if (!channelId || typeof channelId !== 'string' || !/^\d{17,20}$/.test(channelId)) {
+		return res.status(400).json({ error: 'A valid text channel must be selected.' });
+	}
+
+	const parsed = parseReminderTimeInput(time);
+	if (!parsed) {
+		return res.status(400).json({ error: 'Invalid time format. Use 10m, 2h, 1d, or 18:00 everyday.' });
+	}
+
+	const { targetTime, recurring } = parsed;
+
+	if (!recurring && (targetTime - Date.now() < 5000)) {
+		return res.status(400).json({ error: 'Reminder must be set at least 5 seconds in the future.' });
+	}
+	if (!recurring && (targetTime - Date.now() > 30 * 24 * 60 * 60 * 1000)) {
+		return res.status(400).json({ error: 'Reminder cannot be set for more than 30 days.' });
+	}
+
+	try {
+		await database.addReminder(
+			userId,
+			guildId,
+			channelId,
+			targetTime,
+			message.trim(),
+			recurring,
+		);
+
+		res.json({
+			success: true,
+			reminder: {
+				channelId,
+				reminderTime: targetTime,
+				message: message.trim(),
+				recurring,
+			},
+		});
+	} catch (err) {
+		BotLogs('Web', `Error creating reminder: ${err.message}`);
+		res.status(500).json({ error: 'Failed to create reminder.' });
+	}
+});
+
+app.delete('/api/guilds/:guildId/my-settings/reminders/:reminderId', requireGuildAccess, async (req, res) => {
+	const { guildId, reminderId } = req.params;
+	const userId = req.session.user.id;
+
+	try {
+		const activeReminders = await database.getActiveReminders();
+		const reminder = activeReminders.find(r => String(r.id) === String(reminderId));
+
+		if (!reminder) {
+			return res.status(404).json({ error: 'Reminder not found.' });
+		}
+
+		if (String(reminder.user_id) !== String(userId) || String(reminder.guild_id) !== String(guildId)) {
+			return res.status(403).json({ error: 'Forbidden. You can only delete your own reminders.' });
+		}
+
+		await database.deleteReminder(reminder.id);
+		res.json({ success: true, deletedId: reminderId });
+	} catch (err) {
+		BotLogs('Web', `Error deleting reminder: ${err.message}`);
+		res.status(500).json({ error: 'Failed to delete reminder.' });
+	}
 });
 
 app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {

@@ -16,6 +16,7 @@ import ReactionRolesTab from '../../components/Tabs/ReactionRolesTab';
 import AuditLogsTab from '../../components/Tabs/AuditLogsTab';
 import EmbedCreatorTab from '../../components/Tabs/EmbedCreatorTab';
 import AudioQueueTab from '../../components/Tabs/AudioQueueTab';
+import PersonalSettingsTab from '../../components/Tabs/PersonalSettingsTab';
 import FloatingSaveBar from '../../components/FloatingSaveBar';
 import Toast from '../../components/Toast';
 import { useCopy } from '../../copy';
@@ -68,6 +69,9 @@ export default function ServerConfigPage({ params }) {
 				if (!data) return;
 				if (data.success) {
 					setGuildData(data);
+					if (data.isAdmin === false) {
+						setActiveTab('personal');
+					}
 					const cfg = data.config || {};
 					const am = cfg.automod || {};
 					setConfig(cfg);
@@ -162,7 +166,7 @@ export default function ServerConfigPage({ params }) {
 	if (loading) {
 		return (
 			<div style={{ color: 'var(--text-secondary)', padding: '3rem 0', textAlign: 'center' }}>
-				Loading server configuration...
+				{t.common.loading}
 			</div>
 		);
 	}
@@ -171,15 +175,14 @@ export default function ServerConfigPage({ params }) {
 		return (
 			<div style={{ maxWidth: '540px', margin: '3rem auto 0', textAlign: 'center' }}>
 				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
-					<div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⛔</div>
 					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--due)' }}>
-						Access Forbidden
+						{t.servers.accessForbiddenTitle}
 					</h2>
 					<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: '1.6' }}>
-						You do not have Administrator or Manage Server permissions for this server. Redirecting to server selector...
+						{t.servers.accessForbiddenLede}
 					</p>
 					<Link href="/servers" className="btn btn-primary btn-sm">
-						Back to Server Selector
+						{t.servers.backToServerSelector}
 					</Link>
 				</div>
 			</div>
@@ -221,13 +224,18 @@ export default function ServerConfigPage({ params }) {
 						/>
 					) : (
 						<div className="server-card-avatar" style={{ width: '64px', height: '64px', fontSize: '1.5rem', fontWeight: 800 }}>
-							{serverName ? serverName.substring(0, 2).toUpperCase() : '⚙️'}
+							{serverName ? serverName.substring(0, 2).toUpperCase() : '#'}
 						</div>
 					)}
 					<div>
-						<h2 style={{ fontSize: '1.8rem', fontWeight: 800 }}>
-							{serverName}
-						</h2>
+						<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+							<h2 style={{ fontSize: '1.8rem', fontWeight: 800, margin: 0 }}>
+								{serverName}
+							</h2>
+							<span className={`server-role-badge ${guildData?.isOwner ? 'role-owner' : (guildData?.isAdmin ? 'role-manager' : 'role-member')}`}>
+								{guildData?.isOwner ? t.servers.owner : (guildData?.isAdmin ? t.servers.manager : t.servers.member)}
+							</span>
+						</div>
 						<span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
 							ID: {guildId}
 						</span>
@@ -235,118 +243,142 @@ export default function ServerConfigPage({ params }) {
 				</div>
 
 				<Link href="/servers" className="btn btn-secondary btn-sm">
-					Back to Server List
+					{t.servers.backToServerList}
 				</Link>
 			</div>
 
-			{/* Dashboard Layout */}
-			<div className="config-layout">
-				{/* Sidebar Menu */}
-				<div className="sidebar-menu">
-					<button className={`tab-btn ${activeTab === 'welcome' ? 'active' : ''}`} onClick={() => setActiveTab('welcome')}>
-						Welcome & Leave
-					</button>
-					<button className={`tab-btn ${activeTab === 'autorole' ? 'active' : ''}`} onClick={() => setActiveTab('autorole')}>
-						Autorole
-					</button>
-					<button className={`tab-btn ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>
-						Role Manager
-					</button>
-					<button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>
-						Member Manager
-					</button>
-					<button className={`tab-btn ${activeTab === 'nicknames' ? 'active' : ''}`} onClick={() => setActiveTab('nicknames')}>
-						Nickname Manager
-					</button>
-					<button className={`tab-btn ${activeTab === 'tts' ? 'active' : ''}`} onClick={() => setActiveTab('tts')}>
-						Voice TTS Channel
-					</button>
-					<button className={`tab-btn ${activeTab === 'honeypot' ? 'active' : ''}`} onClick={() => setActiveTab('honeypot')}>
-						Honeypot
-					</button>
-					<button className={`tab-btn ${activeTab === 'automod' ? 'active' : ''}`} onClick={() => setActiveTab('automod')}>
-						Auto-Mod
-					</button>
-					<button className={`tab-btn ${activeTab === 'reactionroles' ? 'active' : ''}`} onClick={() => setActiveTab('reactionroles')}>
-						Reaction Roles
-					</button>
-					<button className={`tab-btn ${activeTab === 'audioqueue' ? 'active' : ''}`} onClick={() => setActiveTab('audioqueue')}>
-						Audio Queue
-					</button>
-					<button className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
-						Audit Logs
-					</button>
-					<button className={`tab-btn ${activeTab === 'embeds' ? 'active' : ''}`} onClick={() => setActiveTab('embeds')}>
-						Embed Creator
-					</button>
+			{guildData?.isAdmin === false ? (
+				/* Member-Only Dedicated View */
+				<div className="card-panel">
+					<PersonalSettingsTab
+						guildId={guildId}
+						serverName={serverName}
+						initialChannels={channels}
+						showToast={showToast}
+					/>
 				</div>
+			) : (
+				/* Admin Full Dashboard Layout */
+				<div className="config-layout">
+					{/* Sidebar Menu */}
+					<div className="sidebar-menu">
+						<button className={`tab-btn ${activeTab === 'personal' ? 'active' : ''}`} onClick={() => setActiveTab('personal')}>
+							{t.servers.tabs.personal}
+						</button>
+						<div style={{ height: '1px', background: 'var(--border-color)', margin: '0.25rem 0.5rem' }} />
+						<button className={`tab-btn ${activeTab === 'welcome' ? 'active' : ''}`} onClick={() => setActiveTab('welcome')}>
+							{t.servers.tabs.welcome}
+						</button>
+						<button className={`tab-btn ${activeTab === 'autorole' ? 'active' : ''}`} onClick={() => setActiveTab('autorole')}>
+							{t.servers.tabs.autorole}
+						</button>
+						<button className={`tab-btn ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>
+							{t.servers.tabs.roles}
+						</button>
+						<button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>
+							{t.servers.tabs.members}
+						</button>
+						<button className={`tab-btn ${activeTab === 'nicknames' ? 'active' : ''}`} onClick={() => setActiveTab('nicknames')}>
+							{t.servers.tabs.nicknames}
+						</button>
+						<button className={`tab-btn ${activeTab === 'tts' ? 'active' : ''}`} onClick={() => setActiveTab('tts')}>
+							{t.servers.tabs.tts}
+						</button>
+						<button className={`tab-btn ${activeTab === 'honeypot' ? 'active' : ''}`} onClick={() => setActiveTab('honeypot')}>
+							{t.servers.tabs.honeypot}
+						</button>
+						<button className={`tab-btn ${activeTab === 'automod' ? 'active' : ''}`} onClick={() => setActiveTab('automod')}>
+							{t.servers.tabs.automod}
+						</button>
+						<button className={`tab-btn ${activeTab === 'reactionroles' ? 'active' : ''}`} onClick={() => setActiveTab('reactionroles')}>
+							{t.servers.tabs.reactionroles}
+						</button>
+						<button className={`tab-btn ${activeTab === 'audioqueue' ? 'active' : ''}`} onClick={() => setActiveTab('audioqueue')}>
+							{t.servers.tabs.audioqueue}
+						</button>
+						<button className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
+							{t.servers.tabs.audit}
+						</button>
+						<button className={`tab-btn ${activeTab === 'embeds' ? 'active' : ''}`} onClick={() => setActiveTab('embeds')}>
+							{t.servers.tabs.embeds}
+						</button>
+					</div>
 
-				{/* Main Tab Panel */}
-				<div className="card-panel" style={{ marginBottom: 0 }}>
-					{activeTab === 'welcome' && (
-						<WelcomeTab config={config} channels={channels} onChange={handleConfigChange} serverName={serverName} />
-					)}
-					{activeTab === 'autorole' && (
-						<AutoroleTab config={config} roles={roles} onChange={handleConfigChange} />
-					)}
-					{activeTab === 'roles' && (
-						<RoleManagerTab roles={roles} guildId={guildId} showToast={showToast} onRefresh={fetchServerData} />
-					)}
-					{activeTab === 'members' && (
-						<MemberManagerTab
-							guildId={guildId}
-							roles={roles}
-							initialMembers={guildData?.members || []}
-							showToast={showToast}
-							onRefresh={fetchServerData}
-						/>
-					)}
-					{activeTab === 'nicknames' && (
-						<NicknameManagerTab
-							guildId={guildId}
-							initialMembers={guildData?.members || []}
-							showToast={showToast}
-							onRefresh={fetchServerData}
-						/>
-					)}
-					{activeTab === 'tts' && (
-						<VoiceTtsTab config={config} channels={channels} onChange={handleConfigChange} />
-					)}
-					{activeTab === 'audioqueue' && (
-						<AudioQueueTab guildId={guildId} showToast={showToast} />
-					)}
-					{activeTab === 'honeypot' && (
-						<HoneypotTab config={config} channels={channels} onChange={handleConfigChange} />
-					)}
-					{activeTab === 'automod' && (
-						<AutomodTab automod={automod} onChange={handleAutomodChange} />
-					)}
-					{activeTab === 'reactionroles' && (
-						<ReactionRolesTab
-							guildId={guildId}
-							reactionRoles={config.reaction_roles}
-							roles={roles}
-							channels={channels}
-							onRefresh={fetchServerData}
-							showToast={showToast}
-						/>
-					)}
-					{activeTab === 'audit' && (
-						<AuditLogsTab guildId={guildId} />
-					)}
-					{activeTab === 'embeds' && (
-						<EmbedCreatorTab
-							currentGuildId={guildId}
-							activeGuilds={activeGuilds}
-							channels={channels}
-							showToast={showToast}
-						/>
-					)}
+					{/* Main Tab Panel */}
+					<div className="card-panel" style={{ marginBottom: 0 }}>
+						{activeTab === 'personal' && (
+							<PersonalSettingsTab
+								guildId={guildId}
+								serverName={serverName}
+								initialChannels={channels}
+								showToast={showToast}
+							/>
+						)}
+						{activeTab === 'welcome' && (
+							<WelcomeTab config={config} channels={channels} onChange={handleConfigChange} serverName={serverName} />
+						)}
+						{activeTab === 'autorole' && (
+							<AutoroleTab config={config} roles={roles} onChange={handleConfigChange} />
+						)}
+						{activeTab === 'roles' && (
+							<RoleManagerTab roles={roles} guildId={guildId} showToast={showToast} onRefresh={fetchServerData} />
+						)}
+						{activeTab === 'members' && (
+							<MemberManagerTab
+								guildId={guildId}
+								roles={roles}
+								initialMembers={guildData?.members || []}
+								showToast={showToast}
+								onRefresh={fetchServerData}
+							/>
+						)}
+						{activeTab === 'nicknames' && (
+							<NicknameManagerTab
+								guildId={guildId}
+								initialMembers={guildData?.members || []}
+								showToast={showToast}
+								onRefresh={fetchServerData}
+							/>
+						)}
+						{activeTab === 'tts' && (
+							<VoiceTtsTab config={config} channels={channels} onChange={handleConfigChange} />
+						)}
+						{activeTab === 'audioqueue' && (
+							<AudioQueueTab guildId={guildId} showToast={showToast} />
+						)}
+						{activeTab === 'honeypot' && (
+							<HoneypotTab config={config} channels={channels} onChange={handleConfigChange} />
+						)}
+						{activeTab === 'automod' && (
+							<AutomodTab automod={automod} onChange={handleAutomodChange} />
+						)}
+						{activeTab === 'reactionroles' && (
+							<ReactionRolesTab
+								guildId={guildId}
+								reactionRoles={config.reaction_roles}
+								roles={roles}
+								channels={channels}
+								onRefresh={fetchServerData}
+								showToast={showToast}
+							/>
+						)}
+						{activeTab === 'audit' && (
+							<AuditLogsTab guildId={guildId} />
+						)}
+						{activeTab === 'embeds' && (
+							<EmbedCreatorTab
+								currentGuildId={guildId}
+								activeGuilds={activeGuilds}
+								channels={channels}
+								showToast={showToast}
+							/>
+						)}
+					</div>
 				</div>
-			</div>
+			)}
 
 			{/* Floating Unsaved Changes Bar */}
-			{isDirty && (
+			{isDirty && activeTab !== 'personal' && guildData?.isAdmin !== false && (
 				<FloatingSaveBar onSave={handleSaveAll} saving={saving} />
 			)}
 		</div>

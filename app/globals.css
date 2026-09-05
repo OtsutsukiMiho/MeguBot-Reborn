@@ -2247,6 +2247,24 @@ textarea.form-control {
 	white-space: nowrap;
 }
 
+.server-role-badge.role-owner {
+	background: color-mix(in srgb, var(--gold) 15%, var(--surface));
+	border-color: color-mix(in srgb, var(--gold) 35%, transparent);
+	color: var(--gold);
+}
+
+.server-role-badge.role-manager {
+	background: color-mix(in srgb, var(--cat-blue) 15%, var(--surface));
+	border-color: color-mix(in srgb, var(--cat-blue) 35%, transparent);
+	color: var(--cat-blue);
+}
+
+.server-role-badge.role-member {
+	background: color-mix(in srgb, var(--settled) 15%, var(--surface));
+	border-color: color-mix(in srgb, var(--settled) 35%, transparent);
+	color: var(--settled);
+}
+
 .server-status-badge.status-online {
 	background: var(--settled-soft);
 	border-color: color-mix(in srgb, var(--settled) 25%, transparent);
@@ -2378,6 +2396,24 @@ textarea.form-control {
 	background: color-mix(in srgb, var(--surface) 88%, transparent);
 	-webkit-backdrop-filter: blur(6px);
 	backdrop-filter: blur(6px);
+}
+
+.server-card-badges .server-role-badge.role-owner {
+	background: color-mix(in srgb, var(--gold) 20%, color-mix(in srgb, var(--surface) 80%, transparent));
+	border-color: color-mix(in srgb, var(--gold) 45%, transparent);
+	color: var(--gold);
+}
+
+.server-card-badges .server-role-badge.role-manager {
+	background: color-mix(in srgb, var(--cat-blue) 20%, color-mix(in srgb, var(--surface) 80%, transparent));
+	border-color: color-mix(in srgb, var(--cat-blue) 45%, transparent);
+	color: var(--cat-blue);
+}
+
+.server-card-badges .server-role-badge.role-member {
+	background: color-mix(in srgb, var(--settled) 20%, color-mix(in srgb, var(--surface) 80%, transparent));
+	border-color: color-mix(in srgb, var(--settled) 45%, transparent);
+	color: var(--settled);
 }
 
 .server-card-avatar-wrapper {
