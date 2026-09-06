@@ -16,7 +16,7 @@ const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
-const { createBlockGuard } = require('../../adapters/discord/rate-limit.js');
+const { createBlockGuard, INVALID_REQUEST_STOP_THRESHOLD } = require('../../adapters/discord/rate-limit.js');
 const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
 const healthLog = require('../../adapters/health/health-log.js');
 
@@ -2456,6 +2456,7 @@ app.get('/api/developer/stats', requireDeveloper, async (req, res) => {
 				isBlocked: discordBlock.blocked(),
 				retryAfterSeconds: discordBlock.retryAfterSeconds(),
 				blockedUntil: discordBlock.blockedUntil(),
+				invalidRequestStopThreshold: INVALID_REQUEST_STOP_THRESHOLD,
 			},
 			services: {
 				botStatus: botStats.exists ? 'online' : 'offline',
@@ -2475,6 +2476,19 @@ app.get('/api/developer/logs', requireDeveloper, (req, res) => {
 	}
 	catch (err) {
 		res.status(500).json({ success: false, logs: [] });
+	}
+});
+
+// Durable process history: database-only observability. This route never
+// probes Discord and is intentionally separate from the frequently refreshed
+// in-memory log buffer.
+app.get('/api/developer/health-events', requireDeveloper, async (req, res) => {
+	try {
+		const limit = Math.min(Math.max(parseInt(req.query.limit || '40', 10) || 40, 1), 100);
+		res.json({ success: true, events: await healthLog.list({ limit }) });
+	}
+	catch {
+		res.status(500).json({ success: false, events: [], error: 'Failed to fetch process health history.' });
 	}
 });
 
@@ -2616,6 +2630,15 @@ app.post('/api/developer/action', requireDeveloper, async (req, res) => {
 			return res.json({ success: true, message: 'All audio queues cleared successfully!' });
 		}
 		if (action === 'restart_bot') {
+			// A restart is a fresh gateway IDENTIFY. During a known IP cooldown it
+			// can only prolong the incident, so this rule belongs on the server and
+			// cannot be bypassed by an old or hand-written console client.
+			if (discordBlock.blocked()) {
+				return res.status(409).json({
+					success: false,
+					error: `Bot restart is disabled during the Discord cooldown. Wait ${Math.max(1, Math.ceil(discordBlock.retryAfterSeconds() / 60))} more minute(s).`,
+				});
+			}
 			if (process.send) {
 				process.send({ target: 'bot', type: 'restart_bot' });
 			}

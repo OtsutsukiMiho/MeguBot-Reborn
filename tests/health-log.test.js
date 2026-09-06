@@ -32,6 +32,7 @@ async function main() {
 		assert.strictEqual(await healthLog.saveDiscordBlockUntil(Date.now() + 60_000), false);
 		assert.strictEqual(await healthLog.loadDiscordBlockUntil(), 0);
 		assert.strictEqual(await healthLog.clearDiscordBlock(), false);
+		assert.deepStrictEqual(await healthLog.list(), []);
 		ok('no DATABASE_URL returns false rather than throwing');
 
 		assert.strictEqual(await healthLog.record({ kind: 'nonsense' }), false);
@@ -88,6 +89,7 @@ async function main() {
 		assert.strictEqual(await healthLog.saveDiscordBlockUntil(Date.now() + 60_000), false);
 		assert.strictEqual(await healthLog.loadDiscordBlockUntil(), 0);
 		assert.strictEqual(await healthLog.clearDiscordBlock(), false);
+		assert.deepStrictEqual(await healthLog.list({ limit: 10 }), []);
 		ok('durable Discord cooldown state also fails open when the database is unavailable');
 
 		await healthLog.close();

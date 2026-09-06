@@ -198,3 +198,554 @@
 	from { opacity: 0; transform: translateY(14px); }
 	to { opacity: 1; transform: translateY(0); }
 }
+
+/* --------------------------------------------------------------------------
+   Signed-in account workspace
+
+   The account page is intentionally a rail and one reading column rather than
+   a dashboard grid. Identity is the visual anchor; every setting follows in a
+   predictable vertical sequence, with direct anchors for returning to it.
+   ----------------------------------------------------------------------- */
+
+.accountPage {
+	display: grid;
+	grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
+	align-items: start;
+	gap: clamp(2.5rem, 6vw, 5.5rem);
+	width: 100%;
+	max-width: 1040px;
+	margin-inline: auto;
+	padding: clamp(2.8rem, 6vw, 5.2rem) 0 7rem;
+}
+
+.accountRail {
+	position: sticky;
+	top: calc(var(--nav-h) + 2rem);
+}
+
+.identityCard {
+	position: relative;
+	overflow: hidden;
+	padding: 1.45rem;
+	border: 1px solid var(--line);
+	border-radius: 16px;
+	background:
+		linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 78%, transparent), transparent 55%),
+		var(--surface);
+	box-shadow:
+		inset 0 1px 0 var(--sheen),
+		0 26px 55px -42px color-mix(in srgb, var(--shadow) 70%, transparent);
+}
+
+.identityCard::before {
+	content: '';
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 3px;
+	background: linear-gradient(var(--brand-gold), var(--accent));
+}
+
+.avatarWrap {
+	position: relative;
+	display: grid;
+	width: 78px;
+	height: 78px;
+	place-items: center;
+	margin-bottom: 1.2rem;
+	border-radius: 22px;
+	background: var(--sunk);
+}
+
+.avatar {
+	display: block;
+	width: 78px;
+	height: 78px;
+	border: 1px solid var(--line);
+	border-radius: 22px;
+	object-fit: cover;
+}
+
+.onlineDot {
+	position: absolute;
+	right: -2px;
+	bottom: -2px;
+	width: 18px;
+	height: 18px;
+	border: 4px solid var(--surface);
+	border-radius: 50%;
+	background: var(--settled);
+}
+
+.accountEyebrow,
+.kicker {
+	margin: 0;
+	color: var(--gold);
+	font-size: .72rem;
+	font-weight: var(--w-strong);
+	letter-spacing: .1em;
+	text-transform: uppercase;
+}
+
+.identityCard h2 {
+	margin: .3rem 0 .55rem;
+	font-size: 1.35rem;
+	line-height: 1.25;
+	overflow-wrap: anywhere;
+}
+
+.connectionState {
+	display: flex;
+	align-items: center;
+	gap: .4rem;
+	color: var(--settled);
+	font-size: .78rem;
+	font-weight: var(--w-medium);
+}
+
+.sectionNav {
+	display: grid;
+	gap: .2rem;
+	margin-top: 1rem;
+}
+
+.sectionNav a {
+	display: flex;
+	align-items: center;
+	gap: .7rem;
+	min-height: 42px;
+	padding: .55rem .75rem;
+	border-radius: var(--r-sm);
+	color: var(--muted);
+	font-size: .86rem;
+	font-weight: var(--w-medium);
+	transition: color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease);
+}
+
+.sectionNav a:hover {
+	color: var(--ink);
+	background: var(--sunk);
+	text-decoration: none;
+	transform: translateX(3px);
+}
+
+.sectionNav svg { flex: none; color: var(--accent); }
+
+.accountMain {
+	min-width: 0;
+	max-width: 720px;
+}
+
+.pageHeader {
+	padding-bottom: clamp(2.3rem, 5vw, 3.8rem);
+	border-bottom: 1px solid var(--line);
+}
+
+.pageHeader h1 {
+	max-width: 14ch;
+	margin: .45rem 0 .8rem;
+	font-size: clamp(2.65rem, 7vw, 4.6rem);
+	line-height: 1;
+	letter-spacing: -.055em;
+	overflow-wrap: anywhere;
+}
+
+.pageHeader > p:last-child {
+	max-width: 55ch;
+	color: var(--muted);
+	font-size: 1rem;
+	line-height: 1.7;
+}
+
+.notice {
+	display: flex;
+	align-items: flex-start;
+	gap: .7rem;
+	margin-top: 1.4rem;
+	padding: .85rem 1rem;
+	border: 1px solid color-mix(in srgb, var(--settled) 35%, var(--line));
+	border-radius: var(--r);
+	background: var(--settled-soft);
+	color: var(--ink-2);
+	font-size: .9rem;
+	line-height: 1.5;
+}
+
+.notice svg { flex: none; margin-top: .1rem; color: var(--settled); }
+
+.noticeError {
+	border-color: color-mix(in srgb, var(--due) 35%, var(--line));
+	background: var(--due-soft);
+}
+
+.noticeError svg { color: var(--due); }
+
+.accountSection {
+	scroll-margin-top: calc(var(--nav-h) + 1.5rem);
+	padding: clamp(2.7rem, 6vw, 4.4rem) 0;
+	border-bottom: 1px solid var(--line);
+}
+
+.sectionHeading {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr);
+	gap: 1rem;
+	margin-bottom: 2rem;
+}
+
+.sectionIndex {
+	padding-top: .17rem;
+	color: var(--gold);
+	font-family: var(--font-mono);
+	font-size: .72rem;
+	font-weight: 600;
+	letter-spacing: .04em;
+}
+
+.sectionHeading h2 {
+	margin: 0;
+	font-size: clamp(1.55rem, 3.5vw, 2rem);
+	letter-spacing: -.035em;
+}
+
+.sectionHeading p {
+	max-width: 58ch;
+	margin-top: .45rem;
+	color: var(--muted);
+	font-size: .92rem;
+	line-height: 1.65;
+}
+
+.settingGroup + .settingGroup {
+	margin-top: 2rem;
+	padding-top: 2rem;
+	border-top: 1px solid var(--line);
+}
+
+.settingLabel {
+	display: grid;
+	grid-template-columns: 1.5rem minmax(0, 1fr);
+	gap: .7rem;
+	margin-bottom: 1rem;
+}
+
+.settingLabel > svg { margin-top: .15rem; color: var(--accent); }
+
+.settingLabel strong,
+.settingLabel span { display: block; }
+
+.settingLabel strong {
+	color: var(--ink);
+	font-size: .94rem;
+}
+
+.settingLabel span {
+	margin-top: .18rem;
+	color: var(--muted);
+	font-size: .82rem;
+	line-height: 1.5;
+}
+
+.identityRow {
+	display: grid;
+	grid-template-columns: 42px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: .85rem;
+	padding: .85rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	background: var(--surface);
+	box-shadow: inset 0 1px 0 var(--sheen);
+}
+
+.providerMark,
+.choiceIcon {
+	display: grid;
+	place-items: center;
+	color: var(--accent);
+	background: var(--accent-soft);
+}
+
+.providerMark {
+	width: 42px;
+	height: 42px;
+	border-radius: 11px;
+}
+
+.identityDetails { min-width: 0; }
+.identityDetails strong,
+.identityDetails span { display: block; }
+.identityDetails strong { color: var(--ink); font-size: .93rem; }
+.identityDetails span { margin-top: .08rem; color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }
+
+.identityAction {
+	display: grid;
+	justify-items: end;
+	gap: .25rem;
+}
+
+.identityAction small {
+	max-width: 20ch;
+	color: var(--faint);
+	font-size: .68rem;
+	line-height: 1.35;
+	text-align: right;
+}
+
+.choiceGrid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: .65rem;
+}
+
+.choice {
+	position: relative;
+	display: grid;
+	grid-template-columns: 38px minmax(0, 1fr) 20px;
+	align-items: start;
+	gap: .75rem;
+	min-height: 100px;
+	padding: .9rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	background: var(--surface);
+	color: var(--ink);
+	text-align: left;
+	cursor: pointer;
+	box-shadow: inset 0 1px 0 var(--sheen);
+	transition: border-color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease), box-shadow .16s var(--ease);
+}
+
+.choice:hover:not(:disabled) {
+	border-color: var(--line-2);
+	transform: translateY(-2px);
+	box-shadow:
+		inset 0 1px 0 var(--sheen),
+		0 15px 30px -26px color-mix(in srgb, var(--shadow) 65%, transparent);
+}
+
+.choice.selected {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent-soft) 62%, var(--surface));
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.choice:disabled { opacity: .48; cursor: not-allowed; }
+
+.choiceIcon {
+	width: 38px;
+	height: 38px;
+	border-radius: 10px;
+}
+
+.choiceCopy { min-width: 0; }
+.choiceCopy strong,
+.choiceCopy small { display: block; }
+.choiceCopy strong { font-size: .9rem; line-height: 1.35; }
+.choiceCopy small { margin-top: .25rem; color: var(--muted); font-size: .76rem; line-height: 1.45; }
+
+.radioMark {
+	display: grid;
+	width: 19px;
+	height: 19px;
+	place-items: center;
+	margin-top: 1px;
+	border: 1px solid var(--line-2);
+	border-radius: 50%;
+	color: var(--on-brand);
+}
+
+.selected .radioMark {
+	border-color: var(--accent);
+	background: var(--accent);
+}
+
+.paymentWorkspace {
+	margin-left: 3rem;
+}
+
+.paymentWorkspace :global(.method-list) { gap: .65rem; }
+
+.paymentWorkspace :global(.method-row) {
+	padding: .85rem 1rem;
+	background: var(--surface);
+}
+
+.paymentWorkspace :global(.method-empty) {
+	display: grid;
+	grid-template-columns: 42px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: .85rem;
+	padding: 1rem;
+	border: 1px dashed var(--line-2);
+	border-radius: var(--r);
+	background: color-mix(in srgb, var(--surface) 68%, transparent);
+}
+
+.paymentWorkspace :global(.method-empty-icon) {
+	display: grid;
+	width: 42px;
+	height: 42px;
+	place-items: center;
+	border-radius: 11px;
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+.paymentWorkspace :global(.method-empty strong) {
+	display: block;
+	font-size: .92rem;
+}
+
+.paymentWorkspace :global(.method-empty p) {
+	margin: .12rem 0 0;
+	color: var(--muted);
+	font-size: .8rem;
+	line-height: 1.45;
+}
+
+.paymentWorkspace :global(.method-toolbar) {
+	display: flex;
+	justify-content: flex-start;
+	margin-top: .85rem;
+}
+
+.paymentWorkspace :global(.method-form) {
+	margin-top: 1.4rem;
+	padding: 1.25rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	background: var(--surface-2);
+}
+
+.saveRow {
+	position: sticky;
+	bottom: 1rem;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-top: 1.1rem;
+	padding: .7rem .75rem .7rem 1rem;
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	background: color-mix(in srgb, var(--surface) 94%, transparent);
+	box-shadow: 0 18px 40px -28px color-mix(in srgb, var(--shadow) 75%, transparent);
+	-webkit-backdrop-filter: blur(12px);
+	backdrop-filter: blur(12px);
+}
+
+.saveRow p {
+	margin: 0;
+	color: var(--muted);
+	font-size: .78rem;
+	line-height: 1.4;
+}
+
+.loadingPage {
+	display: grid;
+	grid-template-columns: 250px minmax(0, 1fr);
+	gap: clamp(2.5rem, 6vw, 5.5rem);
+	max-width: 1040px;
+	min-height: 70vh;
+	margin-inline: auto;
+	padding-top: 5rem;
+}
+
+.loadingRail,
+.loadingContent span {
+	border-radius: 12px;
+	background: var(--sunk);
+	animation: accountPulse 1.4s var(--ease) infinite;
+}
+
+.loadingRail { height: 250px; }
+.loadingContent { display: grid; align-content: start; gap: 1rem; }
+.loadingContent span { display: block; height: 84px; }
+.loadingContent span:first-child { width: 65%; height: 120px; margin-bottom: 2rem; }
+.loadingContent p { color: var(--muted); font-size: .82rem; }
+
+@keyframes accountPulse {
+	50% { opacity: .48; }
+}
+
+@media (max-width: 820px) {
+	.accountPage {
+		grid-template-columns: 1fr;
+		gap: 2.7rem;
+		padding-top: 2.5rem;
+	}
+
+	.accountRail { position: static; }
+
+	.identityCard {
+		display: grid;
+		grid-template-columns: 78px minmax(0, 1fr);
+		column-gap: 1.1rem;
+		align-items: center;
+	}
+
+	.avatarWrap { grid-row: 1 / 4; margin: 0; }
+	.accountEyebrow { align-self: end; }
+	.identityCard h2 { align-self: center; margin: .1rem 0; }
+	.connectionState { align-self: start; }
+
+	.sectionNav {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: .4rem;
+	}
+
+	.sectionNav a {
+		justify-content: center;
+		padding-inline: .55rem;
+		border: 1px solid var(--line);
+		background: var(--surface);
+		text-align: center;
+	}
+
+	.sectionNav a:hover { transform: translateY(-2px); }
+	.accountMain { max-width: none; }
+
+	.loadingPage { grid-template-columns: 1fr; padding-top: 2.5rem; }
+	.loadingRail { height: 150px; }
+}
+
+@media (max-width: 580px) {
+	.accountPage { gap: 2rem; padding: 1.5rem 0 5rem; }
+	.identityCard { padding: 1.1rem; }
+	.sectionNav { display: flex; overflow-x: auto; padding-bottom: .2rem; }
+	.sectionNav a { flex: 1 0 max-content; min-height: 40px; }
+	.pageHeader { padding-bottom: 2.2rem; }
+	.pageHeader h1 { font-size: clamp(2.35rem, 13vw, 3.4rem); }
+	.accountSection { padding-block: 2.7rem; }
+	.sectionHeading { grid-template-columns: 1.6rem minmax(0, 1fr); gap: .65rem; margin-bottom: 1.6rem; }
+	.choiceGrid { grid-template-columns: 1fr; }
+	.choice { min-height: 88px; }
+	.paymentWorkspace { margin-left: 0; }
+	.paymentWorkspace :global(.method-empty) { grid-template-columns: 42px minmax(0, 1fr); }
+	.paymentWorkspace :global(.method-empty .btn) { grid-column: 1 / -1; width: 100%; min-height: 42px; }
+	.identityRow { grid-template-columns: 42px minmax(0, 1fr); }
+	.identityRow > :global(.btn),
+	.identityAction { grid-column: 1 / -1; width: 100%; }
+	.identityRow :global(.btn) { width: 100%; min-height: 40px; }
+	.identityAction small { max-width: none; text-align: left; }
+	.saveRow { bottom: .65rem; }
+	.saveRow p { display: none; }
+	.saveRow :global(.btn) { width: 100%; min-height: 44px; }
+	.paymentWorkspace :global(.method-form) { padding: 1rem; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.accountRail,
+	.pageHeader,
+	.accountSection { animation: accountEnter .52s cubic-bezier(.22, .8, .24, 1) both; }
+	.pageHeader { animation-delay: .04s; }
+	.accountSection:nth-of-type(1) { animation-delay: .08s; }
+	.accountSection:nth-of-type(2) { animation-delay: .12s; }
+	.accountSection:nth-of-type(3) { animation-delay: .16s; }
+}
+
+@keyframes accountEnter {
+	from { opacity: 0; transform: translateY(12px); }
+	to { opacity: 1; transform: translateY(0); }
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Plus, WalletCards } from 'lucide-react';
 import { useCopy } from '../copy';
 
 // Where people can pay you.
@@ -64,6 +65,7 @@ export default function PaymentMethods() {
 	const [methods, setMethods] = useState(null);
 	const [draft, setDraft] = useState(EMPTY);
 	const [editing, setEditing] = useState(null);
+	const [showForm, setShowForm] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [problem, setProblem] = useState('');
 
@@ -114,7 +116,13 @@ export default function PaymentMethods() {
 		if (done) {
 			setDraft(EMPTY);
 			setEditing(null);
+			setShowForm(false);
 		}
+	}
+
+	function remove(method) {
+		if (!window.confirm(copy.removeConfirm(method.label))) return;
+		call('DELETE', `/${method.id}`);
 	}
 
 	if (!methods) return <p className="quiet-note">{t.common.loading}</p>;
@@ -126,11 +134,20 @@ export default function PaymentMethods() {
 			{problem && <div className="error-note">{problem}</div>}
 
 			{methods.length === 0 ? (
-				<p className="quiet-note">{copy.empty}</p>
+				<div className="method-empty">
+					<span className="method-empty-icon"><WalletCards size={22} aria-hidden="true" /></span>
+					<div><strong>{copy.accountTitle}</strong><p>{copy.empty}</p></div>
+					{!showForm && (
+						<button type="button" className="btn btn-secondary" onClick={() => setShowForm(true)}>
+							<Plus size={17} aria-hidden="true" />{copy.addTitle}
+						</button>
+					)}
+				</div>
 			) : (
-				<ul className="method-list">
-					{methods.map((method, index) => (
-						<li key={method.id} className="method-row">
+				<>
+					<ul className="method-list">
+						{methods.map((method, index) => (
+							<li key={method.id} className="method-row">
 							<div className="method-row-main">
 								<div className="method-row-label">
 									{method.label}
@@ -162,6 +179,7 @@ export default function PaymentMethods() {
 									disabled={busy}
 									onClick={() => {
 										setEditing(method.id);
+										setShowForm(true);
 										setDraft({
 											type: method.type,
 											label: method.label,
@@ -178,17 +196,25 @@ export default function PaymentMethods() {
 									type="button"
 									className="btn btn-sm btn-danger"
 									disabled={busy}
-									onClick={() => call('DELETE', `/${method.id}`)}
+									onClick={() => remove(method)}
 								>
 									{t.common.remove}
 								</button>
 							</div>
-						</li>
-					))}
-				</ul>
+							</li>
+						))}
+					</ul>
+					{!showForm && (
+						<div className="method-toolbar">
+							<button type="button" className="btn btn-secondary" onClick={() => { setEditing(null); setDraft(EMPTY); setShowForm(true); }}>
+								<Plus size={17} aria-hidden="true" />{copy.addTitle}
+							</button>
+						</div>
+					)}
+				</>
 			)}
 
-			<form className="stack-sm method-form" onSubmit={submit}>
+			{showForm && <form className="stack-sm method-form" onSubmit={submit}>
 				<div className="field-label">{editing ? copy.editTitle : copy.addTitle}</div>
 
 				<div className="method-types" role="group" aria-label={copy.typeField}>
@@ -262,13 +288,11 @@ export default function PaymentMethods() {
 					<button type="submit" className="btn btn-primary" disabled={busy || !draft.label.trim()}>
 						{editing ? t.common.save : copy.add}
 					</button>
-					{editing && (
-						<button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setEditing(null); setDraft(EMPTY); }}>
-							{t.common.cancel}
-						</button>
-					)}
+					<button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setEditing(null); setDraft(EMPTY); setShowForm(false); }}>
+						{t.common.cancel}
+					</button>
 				</div>
-			</form>
+			</form>}
 		</div>
 	);
 }

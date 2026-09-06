@@ -1,8 +1,30 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import {
+	ArrowLeft,
+	Bot,
+	CircleAlert,
+	Crown,
+	Hash,
+	History,
+	MessageSquareQuote,
+	Mic2,
+	MousePointer2,
+	RefreshCw,
+	Search,
+	ShieldAlert,
+	ShieldCheck,
+	Sparkles,
+	Tags,
+	UserCog,
+	UserPlus,
+	UserRound,
+	UsersRound,
+	Volume2,
+} from 'lucide-react';
 import AuthGate from '../../components/AuthGate';
 import WelcomeTab from '../../components/Tabs/WelcomeTab';
 import AutoroleTab from '../../components/Tabs/AutoroleTab';
@@ -17,122 +39,168 @@ import AuditLogsTab from '../../components/Tabs/AuditLogsTab';
 import EmbedCreatorTab from '../../components/Tabs/EmbedCreatorTab';
 import AudioQueueTab from '../../components/Tabs/AudioQueueTab';
 import PersonalSettingsTab from '../../components/Tabs/PersonalSettingsTab';
+import CustomSelect from '../../components/CustomSelect';
 import FloatingSaveBar from '../../components/FloatingSaveBar';
 import Toast from '../../components/Toast';
 import { useCopy } from '../../copy';
+import styles from '../servers.module.css';
+
+const TAB_DEFINITIONS = [
+	{ id: 'personal', group: 'you', icon: UserRound },
+	{ id: 'welcome', group: 'community', icon: Sparkles },
+	{ id: 'autorole', group: 'community', icon: UserPlus },
+	{ id: 'roles', group: 'community', icon: Tags },
+	{ id: 'members', group: 'community', icon: UsersRound },
+	{ id: 'nicknames', group: 'community', icon: UserCog },
+	{ id: 'honeypot', group: 'safety', icon: ShieldAlert },
+	{ id: 'automod', group: 'safety', icon: ShieldCheck },
+	{ id: 'reactionroles', group: 'safety', icon: MousePointer2 },
+	{ id: 'tts', group: 'voice', icon: Mic2 },
+	{ id: 'audioqueue', group: 'voice', icon: Volume2 },
+	{ id: 'embeds', group: 'tools', icon: MessageSquareQuote },
+	{ id: 'audit', group: 'tools', icon: History },
+];
+
+const TAB_IDS = new Set(TAB_DEFINITIONS.map(tab => tab.id));
+const GROUP_ORDER = ['you', 'community', 'safety', 'voice', 'tools'];
+
+function guildIconUrl(guildId, icon) {
+	if (!icon) return null;
+	if (icon.startsWith('http://') || icon.startsWith('https://')) return icon;
+	return `https://cdn.discordapp.com/icons/${guildId}/${icon}.${icon.startsWith('a_') ? 'gif' : 'png'}?size=128`;
+}
 
 export default function ServerConfigPage({ params }) {
 	const { guildId } = use(params);
 	const router = useRouter();
-	const { t } = useCopy();
-
+	const { t, fmt } = useCopy();
+	const copy = t.servers;
 	const [activeTab, setActiveTab] = useState('welcome');
+	const [navQuery, setNavQuery] = useState('');
 	const [guildData, setGuildData] = useState(null);
 	const [activeGuilds, setActiveGuilds] = useState([]);
 	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [toastMsg, setToastMsg] = useState(null);
 	const [toastError, setToastError] = useState(false);
 	const [iconFailed, setIconFailed] = useState(false);
-
-	// Config form state
 	const [config, setConfig] = useState({});
 	const [automod, setAutomod] = useState({});
 	const [initialState, setInitialState] = useState(null);
 	const [isDirty, setIsDirty] = useState(false);
 	const [isForbidden, setIsForbidden] = useState(false);
-
-	const showToast = (msg, isErr = false) => {
-		setToastMsg(msg);
-		setToastError(isErr);
-		setTimeout(() => setToastMsg(null), 3500);
-	};
-
 	const [needLogin, setNeedLogin] = useState(false);
 
-	const fetchServerData = () => {
-		setLoading(true);
-		fetch(`/api/guilds/${guildId}`)
-			.then(res => {
-				if (res.status === 401) {
-					setNeedLogin(true);
-					return null;
-				}
-				if (res.status === 403) {
-					setIsForbidden(true);
-					router.replace('/servers');
-					return null;
-				}
-				return res.json();
-			})
-			.then(data => {
-				if (!data) return;
-				if (data.success) {
-					setGuildData(data);
-					if (data.isAdmin === false) {
-						setActiveTab('personal');
-					}
-					const cfg = data.config || {};
-					const am = cfg.automod || {};
-					setConfig(cfg);
-					setAutomod(am);
+	const showToast = useCallback((message, isError = false) => {
+		setToastMsg(message);
+		setToastError(isError);
+		window.setTimeout(() => setToastMsg(null), 3500);
+	}, []);
 
-					const stateSnap = JSON.stringify({ cfg, am });
-					setInitialState(stateSnap);
-					setIsDirty(false);
+	const fetchServerData = useCallback(async ({ quiet = false } = {}) => {
+		if (!quiet) setLoading(true);
+		setLoadError('');
+		try {
+			const response = await fetch(`/api/guilds/${guildId}`, { credentials: 'same-origin' });
+			const data = await response.json().catch(() => ({}));
+			if (response.status === 401) {
+				setNeedLogin(true);
+				return;
+			}
+			if (response.status === 403) {
+				setIsForbidden(true);
+				return;
+			}
+			if (!response.ok || !data.success) throw new Error(data.error || copy.loadServerFailed);
 
-					if (data.name) {
-						document.title = `${data.name} | Megu`;
-					}
-				}
-				else if (data.error && data.error.toLowerCase().includes('unauthorized')) {
-					setNeedLogin(true);
-				}
-				else if (data.error && (data.error.toLowerCase().includes('forbidden') || data.error.toLowerCase().includes('permission'))) {
-					setIsForbidden(true);
-					router.replace('/servers');
-				}
-				else {
-					showToast(data.error || 'Failed to load server config.', true);
-				}
-			})
-			.catch(() => showToast('Error loading server config.', true))
-			.finally(() => setLoading(false));
-	};
+			setGuildData(data);
+			setNeedLogin(false);
+			setIsForbidden(false);
+			setIconFailed(false);
+			if (data.isAdmin === false) setActiveTab('personal');
+			const nextConfig = data.config || {};
+			const nextAutomod = nextConfig.automod || {};
+			setConfig(nextConfig);
+			setAutomod(nextAutomod);
+			setInitialState(JSON.stringify({ cfg: nextConfig, am: nextAutomod }));
+			setIsDirty(false);
+			document.title = `${data.name || copy.fallbackServerName} | Megu`;
+		}
+		catch (error) {
+			setLoadError(error.message || copy.loadServerFailed);
+		}
+		finally {
+			setLoading(false);
+		}
+	}, [copy.fallbackServerName, copy.loadServerFailed, guildId]);
 
 	useEffect(() => {
+		const requestedTab = new URLSearchParams(window.location.search).get('tab');
+		if (requestedTab && TAB_IDS.has(requestedTab)) setActiveTab(requestedTab);
 		fetchServerData();
 
-		fetch('/api/guilds')
-			.then(res => res.json())
+		fetch('/api/guilds', { credentials: 'same-origin' })
+			.then(response => response.ok ? response.json() : null)
 			.then(data => {
-				if (data.success && data.guilds) {
-					setActiveGuilds(data.guilds.filter(g => g.isBotInGuild));
-				}
+				if (data?.success && data.guilds) setActiveGuilds(data.guilds.filter(guild => guild.isBotInGuild));
 			})
-			.catch(() => {});
-	}, [guildId]);
+			.catch(() => undefined);
+	}, [fetchServerData]);
 
-	// Track dirty state
 	useEffect(() => {
-		if (initialState) {
-			const currentState = JSON.stringify({ cfg: config, am: automod });
-			setIsDirty(currentState !== initialState);
-		}
-	}, [config, automod, initialState]);
+		if (!initialState) return;
+		setIsDirty(JSON.stringify({ cfg: config, am: automod }) !== initialState);
+	}, [automod, config, initialState]);
 
-	const handleConfigChange = (key, val) => {
-		setConfig(prev => ({ ...prev, [key]: val }));
-	};
+	useEffect(() => {
+		if (!isDirty) return;
+		const warnBeforeLeaving = event => {
+			event.preventDefault();
+			event.returnValue = '';
+		};
+		window.addEventListener('beforeunload', warnBeforeLeaving);
+		return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
+	}, [isDirty]);
 
-	const handleAutomodChange = (key, val) => {
-		setAutomod(prev => ({ ...prev, [key]: val }));
-	};
+	const navigation = useMemo(() => TAB_DEFINITIONS.map(tab => ({
+		...tab,
+		label: copy.tabs[tab.id],
+		description: copy.tabDescriptions[tab.id],
+	})), [copy]);
 
-	const handleSaveAll = async () => {
+	const filteredNavigation = useMemo(() => {
+		const needle = navQuery.trim().toLocaleLowerCase();
+		if (!needle) return navigation;
+		return navigation.filter(tab => `${tab.label} ${tab.description}`.toLocaleLowerCase().includes(needle));
+	}, [navQuery, navigation]);
+
+	const activeDefinition = navigation.find(tab => tab.id === activeTab) || navigation[1];
+
+	const handleConfigChange = (key, value) => setConfig(previous => ({ ...previous, [key]: value }));
+	const handleAutomodChange = (key, value) => setAutomod(previous => ({ ...previous, [key]: value }));
+
+	function selectTab(tabId) {
+		if (!TAB_IDS.has(tabId)) return;
+		setActiveTab(tabId);
+		const url = new URL(window.location.href);
+		url.searchParams.set('tab', tabId);
+		window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+	}
+
+	function canLeave() {
+		return !isDirty || window.confirm(copy.leaveUnsaved);
+	}
+
+	function switchServer(nextGuildId) {
+		if (!nextGuildId || String(nextGuildId) === String(guildId) || !canLeave()) return;
+		router.push(`/servers/${nextGuildId}?tab=${activeTab}`);
+	}
+
+	async function handleSaveAll() {
 		setSaving(true);
 		try {
-			const [configRes, automodRes] = await Promise.all([
+			const [configResponse, automodResponse] = await Promise.all([
 				fetch(`/api/guilds/${guildId}/config`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -144,242 +212,214 @@ export default function ServerConfigPage({ params }) {
 					body: JSON.stringify(automod),
 				}),
 			]);
-
-			const cfgData = await configRes.json();
-			const amData = await automodRes.json();
-
-			if (cfgData.success && amData.success) {
-				showToast('All server settings saved successfully!');
-				const stateSnap = JSON.stringify({ cfg: config, am: automod });
-				setInitialState(stateSnap);
-				setIsDirty(false);
-			} else {
-				showToast(cfgData.error || amData.error || 'Failed to save configuration.', true);
+			const configResult = await configResponse.json().catch(() => ({}));
+			const automodResult = await automodResponse.json().catch(() => ({}));
+			if (!configResponse.ok || !automodResponse.ok || !configResult.success || !automodResult.success) {
+				throw new Error(configResult.error || automodResult.error || copy.saveFailed);
 			}
-		} catch (e) {
-			showToast('Error saving server configuration.', true);
-		} finally {
+			setInitialState(JSON.stringify({ cfg: config, am: automod }));
+			setIsDirty(false);
+			showToast(copy.settingsSaved);
+		}
+		catch (error) {
+			showToast(error.message || copy.saveFailed, true);
+		}
+		finally {
 			setSaving(false);
 		}
-	};
+	}
+
+	function discardChanges() {
+		if (!initialState) return;
+		const snapshot = JSON.parse(initialState);
+		setConfig(snapshot.cfg);
+		setAutomod(snapshot.am);
+		setIsDirty(false);
+		showToast(copy.changesDiscarded);
+	}
 
 	if (loading) {
 		return (
-			<div style={{ color: 'var(--text-secondary)', padding: '3rem 0', textAlign: 'center' }}>
-				{t.common.loading}
+			<div className={styles.loadingState} aria-live="polite">
+				<span className={styles.loadingGlyph}><RefreshCw size={26} /></span>
+				<strong>{copy.loadingServer}</strong>
+				<span>{copy.loadingServerLede}</span>
 			</div>
 		);
 	}
 
 	if (isForbidden) {
 		return (
-			<div style={{ maxWidth: '540px', margin: '3rem auto 0', textAlign: 'center' }}>
-				<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2.5rem 2rem', backdropFilter: 'blur(12px)' }}>
-					<h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--due)' }}>
-						{t.servers.accessForbiddenTitle}
-					</h2>
-					<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: '1.6' }}>
-						{t.servers.accessForbiddenLede}
-					</p>
-					<Link href="/servers" className="btn btn-primary btn-sm">
-						{t.servers.backToServerSelector}
-					</Link>
-				</div>
-			</div>
+			<section className={styles.errorState}>
+				<span className={styles.errorMark}><ShieldAlert size={28} /></span>
+				<p className={styles.eyebrow}>{copy.workspaceEyebrow}</p>
+				<h1>{copy.accessForbiddenTitle}</h1>
+				<p>{copy.accessForbiddenLede}</p>
+				<Link href="/servers" className="btn btn-primary"><ArrowLeft size={16} />{copy.backToServerSelector}</Link>
+			</section>
 		);
 	}
 
-	if (needLogin) {
-		return <AuthGate title={t.servers.signedOutTitle} lede={t.servers.signedOutLede} mood="asking" />;
+	if (needLogin) return <AuthGate title={copy.signedOutTitle} lede={copy.signedOutLede} mood="asking" />;
+
+	if (loadError || !guildData) {
+		return (
+			<section className={styles.errorState}>
+				<span className={styles.errorMark}><CircleAlert size={28} /></span>
+				<p className={styles.eyebrow}>{copy.workspaceEyebrow}</p>
+				<h1>{copy.loadServerFailedTitle}</h1>
+				<p>{loadError || copy.loadServerFailed}</p>
+				<div className={styles.errorActions}>
+					<button type="button" className="btn btn-primary" onClick={() => fetchServerData()}><RefreshCw size={16} />{copy.retry}</button>
+					<Link href="/servers" className="btn btn-secondary">{copy.backToServerSelector}</Link>
+				</div>
+			</section>
+		);
 	}
 
-	const channels = guildData?.channels || [];
-	const roles = guildData?.roles || [];
-	const rawIcon = guildData?.icon;
+	const channels = guildData.channels || [];
+	const roles = guildData.roles || [];
+	const members = guildData.members || [];
+	const matchedGuild = activeGuilds.find(guild => String(guild.id) === String(guildId));
+	const serverName = guildData.name || matchedGuild?.name || copy.fallbackServerName;
+	const iconUrl = guildIconUrl(guildId, guildData.icon);
+	const ActiveIcon = activeDefinition.icon;
 
-	let iconUrl = null;
-	if (rawIcon) {
-		iconUrl = rawIcon.startsWith('http://') || rawIcon.startsWith('https://')
-			? rawIcon
-			: `https://cdn.discordapp.com/icons/${guildId}/${rawIcon}.${rawIcon.startsWith('a_') ? 'gif' : 'png'}?size=128`;
-	}
-
-	const matchedGuild = activeGuilds.find(g => String(g.id) === String(guildId));
-	const serverName = guildData?.name || matchedGuild?.name || 'Discord Server';
+	const tabPanel = (
+		<>
+			{activeTab === 'personal' && <PersonalSettingsTab guildId={guildId} serverName={serverName} initialChannels={channels} showToast={showToast} />}
+			{activeTab === 'welcome' && <WelcomeTab config={config} channels={channels} onChange={handleConfigChange} serverName={serverName} />}
+			{activeTab === 'autorole' && <AutoroleTab config={config} roles={roles} onChange={handleConfigChange} />}
+			{activeTab === 'roles' && <RoleManagerTab roles={roles} guildId={guildId} showToast={showToast} onRefresh={() => fetchServerData({ quiet: true })} />}
+			{activeTab === 'members' && <MemberManagerTab guildId={guildId} roles={roles} initialMembers={members} showToast={showToast} onRefresh={() => fetchServerData({ quiet: true })} />}
+			{activeTab === 'nicknames' && <NicknameManagerTab guildId={guildId} initialMembers={members} showToast={showToast} onRefresh={() => fetchServerData({ quiet: true })} />}
+			{activeTab === 'tts' && <VoiceTtsTab config={config} channels={channels} onChange={handleConfigChange} />}
+			{activeTab === 'audioqueue' && <AudioQueueTab guildId={guildId} showToast={showToast} />}
+			{activeTab === 'honeypot' && <HoneypotTab config={config} channels={channels} onChange={handleConfigChange} />}
+			{activeTab === 'automod' && <AutomodTab automod={automod} onChange={handleAutomodChange} />}
+			{activeTab === 'reactionroles' && <ReactionRolesTab guildId={guildId} reactionRoles={config.reaction_roles} roles={roles} channels={channels} onRefresh={() => fetchServerData({ quiet: true })} showToast={showToast} />}
+			{activeTab === 'audit' && <AuditLogsTab guildId={guildId} />}
+			{activeTab === 'embeds' && <EmbedCreatorTab currentGuildId={guildId} activeGuilds={activeGuilds} channels={channels} showToast={showToast} />}
+		</>
+	);
 
 	return (
-		<div style={{ paddingTop: '2rem', paddingBottom: '3rem' }}>
-			<Toast message={toastMsg} isError={toastError} />
+		<div className={styles.detailPage}>
+			{toastMsg && <Toast message={toastMsg} isError={toastError} onClose={() => setToastMsg(null)} />}
 
-			{/* Server Banner Header */}
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2.25rem', flexWrap: 'wrap', gap: '1.25rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-					{!iconFailed && iconUrl ? (
-						<img
-							src={iconUrl}
-							alt={serverName}
-							className="server-card-avatar"
-							style={{ width: '64px', height: '64px' }}
-							onError={() => setIconFailed(true)}
-						/>
-					) : (
-						<div className="server-card-avatar" style={{ width: '64px', height: '64px', fontSize: '1.5rem', fontWeight: 800 }}>
-							{serverName ? serverName.substring(0, 2).toUpperCase() : '#'}
+			<header className={styles.detailHeader}>
+				<Link href="/servers" className={styles.backLink} onClick={event => { if (!canLeave()) event.preventDefault(); }}>
+					<ArrowLeft size={15} />{copy.backToServerList}
+				</Link>
+				{activeGuilds.length > 1 && (
+					<div className={styles.serverSwitcher}>
+						<span>{copy.quickSwitch}</span>
+						<div className={styles.serverSwitchControl}>
+							<CustomSelect
+								value={guildId}
+								onChange={switchServer}
+								options={activeGuilds.map(guild => ({
+									value: guild.id,
+									label: guild.name,
+									badge: guild.owner ? copy.owner : guild.isAdmin ? copy.manager : copy.member,
+								}))}
+								placeholder={copy.quickSwitch}
+								searchable={activeGuilds.length > 5}
+							/>
 						</div>
-					)}
+					</div>
+				)}
+			</header>
+
+			<section className={styles.serverHero}>
+				<div className={styles.heroIdentity}>
+					{!iconFailed && iconUrl
+						? <img src={iconUrl} alt="" onError={() => setIconFailed(true)} />
+						: <span className={styles.heroAvatarFallback}>{serverName.substring(0, 2).toUpperCase()}</span>}
 					<div>
-						<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-							<h2 style={{ fontSize: '1.8rem', fontWeight: 800, margin: 0 }}>
-								{serverName}
-							</h2>
-							<span className={`server-role-badge ${guildData?.isOwner ? 'role-owner' : (guildData?.isAdmin ? 'role-manager' : 'role-member')}`}>
-								{guildData?.isOwner ? t.servers.owner : (guildData?.isAdmin ? t.servers.manager : t.servers.member)}
+						<p className={styles.eyebrow}>{guildData.isAdmin ? copy.adminWorkspace : copy.memberWorkspace}</p>
+						<div className={styles.serverTitleRow}>
+							<h1>{serverName}</h1>
+							<span className={`${styles.badge} ${guildData.isOwner ? styles.ownerBadge : guildData.isAdmin ? styles.managerBadge : ''}`}>
+								{guildData.isOwner ? <Crown size={12} /> : guildData.isAdmin ? <ShieldCheck size={12} /> : <UserRound size={12} />}
+								{guildData.isOwner ? copy.owner : guildData.isAdmin ? copy.manager : copy.member}
 							</span>
 						</div>
-						<span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-							ID: {guildId}
-						</span>
+						<p className={styles.serverId}><Hash size={13} />{guildId}</p>
 					</div>
 				</div>
-
-				<Link href="/servers" className="btn btn-secondary btn-sm">
-					{t.servers.backToServerList}
-				</Link>
-			</div>
-
-			{guildData?.isAdmin === false ? (
-				/* Member-Only Dedicated View */
-				<div className="card-panel">
-					<PersonalSettingsTab
-						guildId={guildId}
-						serverName={serverName}
-						initialChannels={channels}
-						showToast={showToast}
-					/>
+				<div className={styles.heroStatus}>
+					<span className={guildData.isBotInGuild ? styles.readyBadge : styles.unknownBadge}><Bot size={14} />{guildData.isBotInGuild ? copy.meguConnected : copy.meguUnavailable}</span>
 				</div>
+			</section>
+
+			{guildData.isAdmin && (
+				<dl className={styles.serverFacts}>
+					<div><dt>{copy.channelsLabel}</dt><dd>{fmt.number(channels.length)}</dd></div>
+					<div><dt>{copy.rolesLabel}</dt><dd>{fmt.number(roles.length)}</dd></div>
+					<div><dt>{copy.membersLabel}</dt><dd>{fmt.number(members.length)}</dd></div>
+					<div><dt>{copy.workspaceStatusLabel}</dt><dd className={isDirty ? styles.unsavedText : styles.savedText}>{isDirty ? copy.unsavedShort : copy.savedShort}</dd></div>
+				</dl>
+			)}
+
+			{guildData.isAdmin === false ? (
+				<section className={styles.memberPanel}>
+					<div className={styles.memberIntro}>
+						<span><UserRound size={20} /></span>
+						<div><p className={styles.sectionKicker}>{copy.personalEyebrow}</p><h2>{copy.personalWorkspaceTitle}</h2><p>{copy.personalWorkspaceLede}</p></div>
+					</div>
+					<div className={styles.tabContent}>{tabPanel}</div>
+				</section>
 			) : (
-				/* Admin Full Dashboard Layout */
-				<div className="config-layout">
-					{/* Sidebar Menu */}
-					<div className="sidebar-menu">
-						<button className={`tab-btn ${activeTab === 'personal' ? 'active' : ''}`} onClick={() => setActiveTab('personal')}>
-							{t.servers.tabs.personal}
-						</button>
-						<div style={{ height: '1px', background: 'var(--border-color)', margin: '0.25rem 0.5rem' }} />
-						<button className={`tab-btn ${activeTab === 'welcome' ? 'active' : ''}`} onClick={() => setActiveTab('welcome')}>
-							{t.servers.tabs.welcome}
-						</button>
-						<button className={`tab-btn ${activeTab === 'autorole' ? 'active' : ''}`} onClick={() => setActiveTab('autorole')}>
-							{t.servers.tabs.autorole}
-						</button>
-						<button className={`tab-btn ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>
-							{t.servers.tabs.roles}
-						</button>
-						<button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>
-							{t.servers.tabs.members}
-						</button>
-						<button className={`tab-btn ${activeTab === 'nicknames' ? 'active' : ''}`} onClick={() => setActiveTab('nicknames')}>
-							{t.servers.tabs.nicknames}
-						</button>
-						<button className={`tab-btn ${activeTab === 'tts' ? 'active' : ''}`} onClick={() => setActiveTab('tts')}>
-							{t.servers.tabs.tts}
-						</button>
-						<button className={`tab-btn ${activeTab === 'honeypot' ? 'active' : ''}`} onClick={() => setActiveTab('honeypot')}>
-							{t.servers.tabs.honeypot}
-						</button>
-						<button className={`tab-btn ${activeTab === 'automod' ? 'active' : ''}`} onClick={() => setActiveTab('automod')}>
-							{t.servers.tabs.automod}
-						</button>
-						<button className={`tab-btn ${activeTab === 'reactionroles' ? 'active' : ''}`} onClick={() => setActiveTab('reactionroles')}>
-							{t.servers.tabs.reactionroles}
-						</button>
-						<button className={`tab-btn ${activeTab === 'audioqueue' ? 'active' : ''}`} onClick={() => setActiveTab('audioqueue')}>
-							{t.servers.tabs.audioqueue}
-						</button>
-						<button className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
-							{t.servers.tabs.audit}
-						</button>
-						<button className={`tab-btn ${activeTab === 'embeds' ? 'active' : ''}`} onClick={() => setActiveTab('embeds')}>
-							{t.servers.tabs.embeds}
-						</button>
-					</div>
+				<div className={styles.configWorkspace}>
+					<aside className={styles.toolNav} aria-label={copy.navigationLabel}>
+						<div className={styles.toolNavHeader}>
+							<p className={styles.sectionKicker}>{copy.toolsEyebrow}</p>
+							<strong>{copy.toolsTitle}</strong>
+							<label className={styles.toolSearch}>
+								<Search size={15} />
+								<span className={styles.srOnly}>{copy.searchToolsLabel}</span>
+								<input value={navQuery} onChange={event => setNavQuery(event.target.value)} placeholder={copy.searchToolsPlaceholder} />
+							</label>
+						</div>
+						<nav>
+							{GROUP_ORDER.map(group => {
+								const tabs = filteredNavigation.filter(tab => tab.group === group);
+								if (!tabs.length) return null;
+								return (
+									<div className={styles.navGroup} key={group}>
+										<span>{copy.tabGroups[group]}</span>
+										{tabs.map(tab => {
+											const Icon = tab.icon;
+											return <button type="button" key={tab.id} className={activeTab === tab.id ? styles.activeTool : ''} aria-current={activeTab === tab.id ? 'page' : undefined} onClick={() => selectTab(tab.id)}><Icon size={16} /><span>{tab.label}</span></button>;
+										})}
+									</div>
+								);
+							})}
+							{filteredNavigation.length === 0 && <p className={styles.noTools}>{copy.noToolsFound}</p>}
+						</nav>
+					</aside>
 
-					{/* Main Tab Panel */}
-					<div className="card-panel" style={{ marginBottom: 0 }}>
-						{activeTab === 'personal' && (
-							<PersonalSettingsTab
-								guildId={guildId}
-								serverName={serverName}
-								initialChannels={channels}
-								showToast={showToast}
-							/>
-						)}
-						{activeTab === 'welcome' && (
-							<WelcomeTab config={config} channels={channels} onChange={handleConfigChange} serverName={serverName} />
-						)}
-						{activeTab === 'autorole' && (
-							<AutoroleTab config={config} roles={roles} onChange={handleConfigChange} />
-						)}
-						{activeTab === 'roles' && (
-							<RoleManagerTab roles={roles} guildId={guildId} showToast={showToast} onRefresh={fetchServerData} />
-						)}
-						{activeTab === 'members' && (
-							<MemberManagerTab
-								guildId={guildId}
-								roles={roles}
-								initialMembers={guildData?.members || []}
-								showToast={showToast}
-								onRefresh={fetchServerData}
-							/>
-						)}
-						{activeTab === 'nicknames' && (
-							<NicknameManagerTab
-								guildId={guildId}
-								initialMembers={guildData?.members || []}
-								showToast={showToast}
-								onRefresh={fetchServerData}
-							/>
-						)}
-						{activeTab === 'tts' && (
-							<VoiceTtsTab config={config} channels={channels} onChange={handleConfigChange} />
-						)}
-						{activeTab === 'audioqueue' && (
-							<AudioQueueTab guildId={guildId} showToast={showToast} />
-						)}
-						{activeTab === 'honeypot' && (
-							<HoneypotTab config={config} channels={channels} onChange={handleConfigChange} />
-						)}
-						{activeTab === 'automod' && (
-							<AutomodTab automod={automod} onChange={handleAutomodChange} />
-						)}
-						{activeTab === 'reactionroles' && (
-							<ReactionRolesTab
-								guildId={guildId}
-								reactionRoles={config.reaction_roles}
-								roles={roles}
-								channels={channels}
-								onRefresh={fetchServerData}
-								showToast={showToast}
-							/>
-						)}
-						{activeTab === 'audit' && (
-							<AuditLogsTab guildId={guildId} />
-						)}
-						{activeTab === 'embeds' && (
-							<EmbedCreatorTab
-								currentGuildId={guildId}
-								activeGuilds={activeGuilds}
-								channels={channels}
-								showToast={showToast}
-							/>
-						)}
-					</div>
+					<label className={styles.mobileToolSelect}>
+						<span>{copy.currentToolLabel}</span>
+						<select value={activeTab} onChange={event => selectTab(event.target.value)}>
+							{GROUP_ORDER.map(group => <optgroup label={copy.tabGroups[group]} key={group}>{navigation.filter(tab => tab.group === group).map(tab => <option key={tab.id} value={tab.id}>{tab.label}</option>)}</optgroup>)}
+						</select>
+					</label>
+
+					<section className={styles.toolPanel} aria-labelledby="active-server-tool">
+						<header className={styles.toolPanelHeader}>
+							<span className={styles.toolIcon}><ActiveIcon size={20} /></span>
+							<div><p className={styles.sectionKicker}>{copy.tabGroups[activeDefinition.group]}</p><h2 id="active-server-tool">{activeDefinition.label}</h2><p>{activeDefinition.description}</p></div>
+							{isDirty && activeTab !== 'personal' && <span className={styles.unsavedBadge}>{copy.unsavedShort}</span>}
+						</header>
+						<div className={styles.tabContent} key={activeTab}>{tabPanel}</div>
+					</section>
 				</div>
 			)}
 
-			{/* Floating Unsaved Changes Bar */}
-			{isDirty && activeTab !== 'personal' && guildData?.isAdmin !== false && (
-				<FloatingSaveBar onSave={handleSaveAll} saving={saving} />
+			{isDirty && activeTab !== 'personal' && guildData.isAdmin !== false && (
+				<FloatingSaveBar onSave={handleSaveAll} onDiscard={discardChanges} saving={saving} />
 			)}
 		</div>
 	);

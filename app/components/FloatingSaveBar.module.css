@@ -1,0 +1,93 @@
+.saveBar {
+	position: fixed;
+	left: 50%;
+	bottom: 1.15rem;
+	z-index: 90;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: .8rem;
+	width: min(46rem, calc(100vw - 2rem));
+	padding: .78rem .85rem;
+	border: 1px solid var(--line-2);
+	border-radius: .9rem;
+	background: color-mix(in srgb, var(--surface) 94%, transparent);
+	-webkit-backdrop-filter: blur(16px);
+	backdrop-filter: blur(16px);
+	box-shadow: 0 1rem 3rem color-mix(in srgb, var(--shadow) 22%, transparent);
+	transform: translateX(-50%);
+	animation: arrive .28s var(--ease) both;
+}
+
+.changeDot {
+	width: .65rem;
+	height: .65rem;
+	border-radius: 50%;
+	background: var(--gold);
+	box-shadow: 0 0 0 .3rem color-mix(in srgb, var(--gold) 14%, transparent);
+}
+
+.message {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+}
+
+.message strong { font-size: .84rem; color: var(--ink); }
+.message span { margin-top: .08rem; font-size: .7rem; color: var(--muted); }
+
+.actions {
+	display: flex;
+	align-items: center;
+	gap: .45rem;
+}
+
+.actions button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: .4rem;
+	min-height: 2.35rem;
+	padding: .48rem .72rem;
+	border-radius: .55rem;
+	font: inherit;
+	font-size: .75rem;
+	font-weight: 700;
+	cursor: pointer;
+	transition: background .15s var(--ease), border-color .15s var(--ease), transform .15s var(--ease);
+}
+
+.actions button:disabled { cursor: wait; opacity: .62; }
+.actions button:not(:disabled):hover { transform: translateY(-1px); }
+
+.discardButton {
+	border: 1px solid var(--line);
+	background: transparent;
+	color: var(--muted);
+}
+
+.discardButton:hover { border-color: var(--line-2); background: var(--sunk); color: var(--ink); }
+
+.saveButton {
+	border: 1px solid var(--brand);
+	background: var(--brand);
+	color: var(--on-brand);
+}
+
+.saveButton:hover { border-color: var(--brand-hover); background: var(--brand-hover); }
+
+@keyframes arrive {
+	from { opacity: 0; transform: translate(-50%, .75rem); }
+	to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (max-width: 560px) {
+	.saveBar { grid-template-columns: auto minmax(0, 1fr); }
+	.actions { grid-column: 1 / -1; }
+	.actions button { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.saveBar,
+	.actions button { animation: none; transition: none; }
+}

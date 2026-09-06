@@ -222,6 +222,40 @@ async function clearDiscordBlock() {
 	}
 }
 
+/**
+ * Read the newest process-health events for the developer console.
+ *
+ * This never talks to Discord. It is intentionally read on page load or a
+ * deliberate refresh rather than on the console's live timer: boots, exits and
+ * block trips are rare, durable events and do not need to become database
+ * background traffic just because somebody left a tab open.
+ */
+async function list({ limit = 40 } = {}) {
+	const url = process.env.DATABASE_URL;
+	if (!url) return [];
+	const parsedLimit = Math.min(Math.max(parseInt(limit || 40, 10) || 40, 1), 100);
+
+	const timeout = new Promise(resolve => {
+		const timer = setTimeout(() => resolve('timeout'), STATE_READ_TIMEOUT_MS);
+		if (typeof timer.unref === 'function') timer.unref();
+	});
+
+	try {
+		const read = ensureTable(url).then(() => poolFor(url).query(
+			`SELECT id, kind, instance, service, detail, created_at
+			 FROM bot_health_events
+			 ORDER BY created_at DESC
+			 LIMIT $1`,
+			[parsedLimit],
+		));
+		const result = await Promise.race([read, timeout]);
+		return result === 'timeout' ? [] : result.rows;
+	}
+	catch {
+		return [];
+	}
+}
+
 /** Let a short-lived process (a script, a dying child) release the connection. */
 async function close() {
 	if (!pool) return;
@@ -236,6 +270,7 @@ module.exports = {
 	saveDiscordBlockUntil,
 	loadDiscordBlockUntil,
 	clearDiscordBlock,
+	list,
 	close,
 	KINDS,
 	WRITE_TIMEOUT_MS,
