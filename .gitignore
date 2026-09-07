@@ -32,8 +32,10 @@ yarn-error.log*
 backend/database/data/
 database/
 bot-stats.json
+config.json
 temp/
 .agents/
+.impeccable/
 sounds/temp*
 
 # OS & Editor files
