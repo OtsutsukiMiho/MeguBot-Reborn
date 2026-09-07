@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect.js';
+import { TabActionBar, TabConfirmDialog, TabModalLayer, TabStatus, TabWorkspace } from './TabWorkspace';
 
 const SOUND_PRESETS = [
 	{ value: 'ball_megu', label: 'เรียกไอบอล (Megu)', subtitle: 'sounds/ball_megu.mp3' },
@@ -81,6 +83,7 @@ export default function AudioQueueTab({ guildId, showToast }) {
 	// Modal States
 	const [showTtsModal, setShowTtsModal] = useState(false);
 	const [showSoundModal, setShowSoundModal] = useState(false);
+	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const [injectText, setInjectText] = useState('');
 	const [injectEngine, setInjectEngine] = useState('EDGE_TTS');
 	const [injectVoice, setInjectVoice] = useState('th-TH-NiwatNeural');
@@ -176,7 +179,7 @@ export default function AudioQueueTab({ guildId, showToast }) {
 	};
 
 	const handleClearQueue = async () => {
-		if (!confirm('Are you sure you want to clear the entire audio queue for this server?')) return;
+		setActionLoading(true);
 		try {
 			const res = await fetch(`/api/guilds/${guildId}/audio-queue/clear`, {
 				method: 'POST',
@@ -194,6 +197,10 @@ export default function AudioQueueTab({ guildId, showToast }) {
 		}
 		catch {
 			showToast('Network error while clearing queue.', true);
+		}
+		finally {
+			setActionLoading(false);
+			setShowClearConfirm(false);
 		}
 	};
 
@@ -277,54 +284,29 @@ export default function AudioQueueTab({ guildId, showToast }) {
 	const items = queueData?.items || [];
 
 	return (
-		<div>
+		<TabWorkspace>
 			{/* Tab Header */}
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-						<h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
-							Audio Queue Studio
-						</h3>
-						<span
-							style={{
-								padding: '0.15rem 0.6rem',
-								borderRadius: '6px',
-								fontSize: '0.75rem',
-								fontWeight: 800,
-								background: isPlaying ? 'color-mix(in srgb, var(--gold) 15%, transparent)' : 'color-mix(in srgb, var(--muted) 15%, transparent)',
-								color: isPlaying ? 'var(--gold)' : 'var(--muted)',
-								border: `1px solid ${isPlaying ? 'var(--gold)' : 'var(--border-color)'}`,
-							}}
-						>
-							{isPlaying ? 'PLAYING' : 'IDLE'}
-						</span>
-					</div>
-					<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-						Manage live voice playback, play MP3 sound presets, inject custom TTS, and inspect audio history.
-					</p>
-				</div>
-
-				<div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+			<TabActionBar
+				actions={(
+				<>
 					<button
 						onClick={() => setShowSoundModal(true)}
 						className="btn btn-secondary btn-sm"
-						style={{ color: 'var(--accent)', borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)' }}
 					>
-						Play Sound MP3
+						Play sound
 					</button>
 					<button
 						onClick={() => setShowTtsModal(true)}
 						className="btn btn-secondary btn-sm"
-						style={{ color: 'var(--gold)', borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)' }}
 					>
-						Inject TTS
+						Add TTS
 					</button>
 					<button
-						onClick={handleClearQueue}
+						onClick={() => setShowClearConfirm(true)}
 						className="btn btn-secondary btn-sm"
-						style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 40%, transparent)' }}
+						disabled={items.length === 0 || actionLoading}
 					>
-						Clear Queue
+						Clear queue
 					</button>
 					<button
 						onClick={() => {
@@ -335,8 +317,12 @@ export default function AudioQueueTab({ guildId, showToast }) {
 					>
 						Refresh
 					</button>
-				</div>
-			</div>
+				</>
+				)}
+			>
+				<TabStatus tone={isPlaying ? 'warning' : 'neutral'}>{isPlaying ? 'Playing' : 'Idle'}</TabStatus>
+				<span>{items.length} {items.length === 1 ? 'item' : 'items'} waiting</span>
+			</TabActionBar>
 
 			{/* Active Queue Display */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.25rem', marginBottom: '2rem' }}>
@@ -572,14 +558,24 @@ export default function AudioQueueTab({ guildId, showToast }) {
 			</div>
 
 			{/* Modal: Inject TTS */}
+			<TabConfirmDialog
+				open={showClearConfirm}
+				onClose={() => setShowClearConfirm(false)}
+				onConfirm={handleClearQueue}
+				title="Clear the audio queue?"
+				description="Every waiting item will be removed. The item currently playing may also be interrupted by the server action."
+				confirmLabel="Clear queue"
+				busy={actionLoading}
+			/>
+
 			{showTtsModal && (
-				<div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
-					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.75rem', width: '100%', maxWidth: '480px' }}>
+				<TabModalLayer onClose={() => setShowTtsModal(false)}>
+					<div role="dialog" aria-modal="true" aria-label="Inject text to speech" style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.75rem', width: '100%', maxWidth: '480px' }}>
 						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
 							<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
 								Inject TTS into Voice Channel
 							</h3>
-							<button onClick={() => setShowTtsModal(false)} className="btn btn-ghost btn-sm" style={{ color: 'var(--muted)' }}>✕</button>
+							<button type="button" onClick={() => setShowTtsModal(false)} className="btn btn-ghost btn-sm" aria-label="Close TTS dialog" style={{ color: 'var(--muted)' }}><X size={18} aria-hidden="true" /></button>
 						</div>
 
 						<form onSubmit={handleInjectTts} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -642,18 +638,18 @@ export default function AudioQueueTab({ guildId, showToast }) {
 							</div>
 						</form>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
 
 			{/* Modal: Play Preset Sound */}
 			{showSoundModal && (
-				<div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
-					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.75rem', width: '100%', maxWidth: '480px' }}>
+				<TabModalLayer onClose={() => setShowSoundModal(false)}>
+					<div role="dialog" aria-modal="true" aria-label="Play a sound preset" style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.75rem', width: '100%', maxWidth: '480px' }}>
 						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
 							<h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--ink)', margin: 0 }}>
 								Play MP3 Sound Preset
 							</h3>
-							<button onClick={() => setShowSoundModal(false)} className="btn btn-ghost btn-sm" style={{ color: 'var(--muted)' }}>✕</button>
+							<button type="button" onClick={() => setShowSoundModal(false)} className="btn btn-ghost btn-sm" aria-label="Close sound dialog" style={{ color: 'var(--muted)' }}><X size={18} aria-hidden="true" /></button>
 						</div>
 
 						<form onSubmit={handleInjectSound} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -688,8 +684,8 @@ export default function AudioQueueTab({ guildId, showToast }) {
 							</div>
 						</form>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
-		</div>
+		</TabWorkspace>
 	);
 }

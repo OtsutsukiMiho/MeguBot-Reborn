@@ -1,6 +1,8 @@
 'use client';
 
+import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
+import { TabActionBar, TabStatus, TabWorkspace } from './TabWorkspace';
 
 export default function AutoroleTab({ config, roles, onChange }) {
 	const humanRoles = Array.isArray(config.autorole_ids)
@@ -46,22 +48,12 @@ export default function AutoroleTab({ config, roles, onChange }) {
 	};
 
 	return (
-		<div>
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Automatic Autorole Assignment
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Configure onboarding roles automatically granted to new members and bot accounts upon joining your Discord server.
-					</p>
-				</div>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
-						{roles?.length || 0} Total Server Roles
-					</span>
-				</div>
-			</div>
+		<TabWorkspace>
+			<TabActionBar
+				actions={<TabStatus tone="accent">{roles?.length || 0} roles available</TabStatus>}
+			>
+				<span>{humanRoles.length + botRoles.length} automatic assignments configured</span>
+			</TabActionBar>
 
 			{/* Section 1: Human Member Auto-Roles */}
 			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
@@ -107,6 +99,7 @@ export default function AutoroleTab({ config, roles, onChange }) {
 									<button
 										onClick={() => handleRemoveHumanRole(rId)}
 										title="Remove Role"
+										aria-label={`Remove ${r?.name || 'role'} from human autoroles`}
 										style={{
 											background: 'none',
 											border: 'none',
@@ -120,7 +113,7 @@ export default function AutoroleTab({ config, roles, onChange }) {
 										onMouseEnter={e => e.target.style.color = 'var(--due)'}
 										onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
 									>
-										✕
+										<X size={14} aria-hidden="true" />
 									</button>
 								</span>
 							);
@@ -191,6 +184,7 @@ export default function AutoroleTab({ config, roles, onChange }) {
 									<button
 										onClick={() => handleRemoveBotRole(rId)}
 										title="Remove Role"
+										aria-label={`Remove ${r?.name || 'role'} from bot autoroles`}
 										style={{
 											background: 'none',
 											border: 'none',
@@ -204,7 +198,7 @@ export default function AutoroleTab({ config, roles, onChange }) {
 										onMouseEnter={e => e.target.style.color = 'var(--due)'}
 										onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
 									>
-										✕
+										<X size={14} aria-hidden="true" />
 									</button>
 								</span>
 							);
@@ -230,6 +224,6 @@ export default function AutoroleTab({ config, roles, onChange }) {
 					/>
 				</div>
 			</div>
-		</div>
+		</TabWorkspace>
 	);
 }

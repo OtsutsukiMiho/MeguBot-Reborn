@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
+import { TabActionBar, TabConfirmDialog, TabModalLayer, TabSkeleton, TabStatus, TabWorkspace } from './TabWorkspace';
 
 export default function PersonalSettingsTab({ guildId, serverName = 'Discord Server', initialChannels = [], showToast }) {
 	const { t } = useCopy();
@@ -19,6 +21,7 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 	const [reminders, setReminders] = useState([]);
 	const [channels, setChannels] = useState(initialChannels || []);
 	const [deletingId, setDeletingId] = useState(null);
+	const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
 	// New Reminder Modal
 	const [modalOpen, setModalOpen] = useState(false);
@@ -153,16 +156,16 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 	};
 
 	// Delete Reminder
-	const handleDeleteReminder = async (id) => {
-		if (!window.confirm(copy.reminderDeleteConfirm)) return;
-		setDeletingId(id);
+	const handleDeleteReminder = async () => {
+		if (!pendingDeleteId) return;
+		setDeletingId(pendingDeleteId);
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/my-settings/reminders/${id}`, {
+			const res = await fetch(`/api/guilds/${guildId}/my-settings/reminders/${pendingDeleteId}`, {
 				method: 'DELETE',
 			});
 			const data = await res.json();
 			if (data.success) {
-				setReminders(prev => prev.filter(r => String(r.id) !== String(id)));
+				setReminders(prev => prev.filter(r => String(r.id) !== String(pendingDeleteId)));
 				if (showToast) showToast(copy.reminderDeleted);
 			} else if (showToast) {
 				showToast(data.error || copy.deleteReminderError, true);
@@ -171,6 +174,7 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 			if (showToast) showToast(copy.deleteReminderError, true);
 		} finally {
 			setDeletingId(null);
+			setPendingDeleteId(null);
 		}
 	};
 
@@ -212,23 +216,27 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 
 	if (loading) {
 		return (
-			<div style={{ padding: '3rem 0', textAlign: 'center', color: 'var(--text-secondary)' }}>
-				{t.common.loading}
-			</div>
+			<TabWorkspace>
+				<TabSkeleton rows={4} label={t.common.loading} />
+			</TabWorkspace>
 		);
 	}
 
 	return (
-		<div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+		<TabWorkspace>
 			{/* Subheader */}
-			<div>
-				<h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-					{copy.tabTitle}
-				</h3>
-				<p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-					{copy.headerSubtitle}
-				</p>
-			</div>
+			<TabActionBar actions={<TabStatus tone="accent">{serverName}</TabStatus>}>
+				<span>{copy.headerSubtitle}</span>
+			</TabActionBar>
+			<TabConfirmDialog
+				open={!!pendingDeleteId}
+				onClose={() => setPendingDeleteId(null)}
+				onConfirm={handleDeleteReminder}
+				title={copy.reminderDeleteConfirm}
+				confirmLabel={copy.deleteBtn}
+				cancelLabel={copy.reminderCancelBtn}
+				busy={!!deletingId}
+			/>
 
 			{/* 1. TTS Spoken Nickname Card */}
 			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
@@ -397,7 +405,7 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 
 									<button
 										type="button"
-										onClick={() => handleDeleteReminder(rem.id)}
+										onClick={() => setPendingDeleteId(rem.id)}
 										disabled={deletingId === rem.id}
 										className="btn btn-secondary btn-sm"
 										style={{ color: 'var(--due, #ef4444)', borderColor: 'var(--border-color)' }}
@@ -413,24 +421,14 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 
 			{/* New Reminder Modal */}
 			{modalOpen && (
-				<div
-					style={{
-						position: 'fixed',
-						top: 0,
-						left: 0,
-						right: 0,
-						bottom: 0,
-						background: 'rgba(0, 0, 0, 0.65)',
-						backdropFilter: 'blur(4px)',
-						display: 'flex',
-						alignItems: 'center',
-						justifyContent: 'center',
-						zIndex: 1000,
-						padding: '1rem',
-					}}
-					onClick={() => setModalOpen(false)}
+				<TabModalLayer
+					onClose={() => { if (!modalSaving) setModalOpen(false); }}
+					closeOnBackdrop={!modalSaving}
 				>
 					<div
+						role="dialog"
+						aria-modal="true"
+						aria-label={copy.reminderModalTitle}
 						style={{
 							background: 'var(--surface)',
 							border: '1px solid var(--border-color)',
@@ -452,9 +450,10 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 							<button
 								type="button"
 								onClick={() => setModalOpen(false)}
+								aria-label={copy.reminderCancelBtn}
 								style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem', padding: '0.25rem' }}
 							>
-								✕
+								<X size={18} aria-hidden="true" />
 							</button>
 						</div>
 
@@ -543,8 +542,8 @@ export default function PersonalSettingsTab({ guildId, serverName = 'Discord Ser
 							</div>
 						</form>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
-		</div>
+		</TabWorkspace>
 	);
 }

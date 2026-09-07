@@ -217,7 +217,9 @@ export default function ServerConfigPage({ params }) {
 			if (!configResponse.ok || !automodResponse.ok || !configResult.success || !automodResult.success) {
 				throw new Error(configResult.error || automodResult.error || copy.saveFailed);
 			}
-			setInitialState(JSON.stringify({ cfg: config, am: automod }));
+			const confirmedConfig = { ...config, ...(configResult.config || {}) };
+			setConfig(confirmedConfig);
+			setInitialState(JSON.stringify({ cfg: confirmedConfig, am: automod }));
 			setIsDirty(false);
 			showToast(copy.settingsSaved);
 		}

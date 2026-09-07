@@ -330,6 +330,7 @@ async function setGuildVar(guildId, key, value) {
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}Database error in setGuildVar: ${error.message}`);
+			throw error;
 		}
 	}
 	else {

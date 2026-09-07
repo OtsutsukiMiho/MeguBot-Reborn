@@ -1,6 +1,7 @@
 'use client';
 
 import CustomSelect from '../CustomSelect';
+import { TabActionBar, TabStatus, TabWorkspace } from './TabWorkspace';
 
 const DEFAULT_WELCOME_EMBED = {
 	title: 'Welcome to {server}!',
@@ -42,11 +43,10 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 	};
 
 	const channelOptions = [
-		{ value: '', label: 'Disabled / None', icon: '✕' },
+		{ value: '', label: 'Disabled / None' },
 		...channels.map(c => ({
 			value: c.id,
 			label: `# ${c.name}`,
-			icon: c.type === 2 ? '🔊' : '#',
 			subtitle: c.parentName,
 		})),
 	];
@@ -80,15 +80,21 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 	};
 
 	return (
-		<div>
-			<div style={{ marginBottom: '1.5rem' }}>
-				<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-					Welcome & Leave System
-				</h3>
-				<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-					Automatically greet new members and log departing users using standard text or rich Discord embeds.
-				</p>
-			</div>
+		<TabWorkspace>
+			<TabActionBar
+				actions={(
+				<>
+					<TabStatus tone={config.welcome_channel_id ? 'success' : 'neutral'}>
+						Welcome {config.welcome_channel_id ? 'active' : 'off'}
+					</TabStatus>
+					<TabStatus tone={config.leave_channel_id ? 'success' : 'neutral'}>
+						Leave {config.leave_channel_id ? 'active' : 'off'}
+					</TabStatus>
+				</>
+				)}
+			>
+				<span>Preview both messages here before saving the server configuration.</span>
+			</TabActionBar>
 
 			{/* ========================================================================= */}
 			{/* --- SECTION 1: WELCOME SYSTEM --- */}
@@ -176,7 +182,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 								Live Discord Text Message Preview
 							</span>
 							<div
-								style={{ marginTop: '0.5rem', background: '#2b2d31', padding: '0.85rem 1.1rem', borderRadius: '8px', borderLeft: '4px solid #5865f2', color: '#dbdee1', fontSize: '0.9rem' }}
+								style={{ marginTop: '0.5rem', background: '#2b2d31', padding: '0.85rem 1.1rem', borderRadius: '8px', color: '#dbdee1', fontSize: '0.9rem' }}
 								dangerouslySetInnerHTML={{ __html: renderPreviewText(config.welcome_message_template || 'Welcome {member} to {server}!') }}
 							/>
 						</div>
@@ -465,7 +471,7 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 								Live Discord Leave Message Preview
 							</span>
 							<div
-								style={{ marginTop: '0.5rem', background: '#2b2d31', padding: '0.85rem 1.1rem', borderRadius: '8px', borderLeft: '4px solid var(--due)', color: '#dbdee1', fontSize: '0.9rem' }}
+								style={{ marginTop: '0.5rem', background: '#2b2d31', padding: '0.85rem 1.1rem', borderRadius: '8px', color: '#dbdee1', fontSize: '0.9rem' }}
 								dangerouslySetInnerHTML={{ __html: renderPreviewText(config.leave_message_template || '{username} has left {server}.', true) }}
 							/>
 						</div>
@@ -667,6 +673,6 @@ export default function WelcomeTab({ config = {}, channels = [], onChange, serve
 					</div>
 				)}
 			</div>
-		</div>
+		</TabWorkspace>
 	);
 }

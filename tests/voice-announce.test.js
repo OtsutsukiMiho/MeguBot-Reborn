@@ -9,6 +9,7 @@
 const assert = require('node:assert');
 const {
 	createAnnounceGuard,
+	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,
 	DEFAULT_REGROUP_MS,
@@ -34,6 +35,33 @@ const OHM = 'user_ohm';
 /** Most checks only care whether she spoke. */
 function spoke(result) {
 	return result.speak;
+}
+
+console.log('\none room greeting per occupied voice session');
+
+{
+	const guard = createVoiceGreetingGuard();
+
+	assert.strictEqual(guard.claim({ guildId: G, channelId: 'voice_a' }), true);
+	assert.strictEqual(guard.claim({ guildId: G, channelId: 'voice_a' }), false);
+	ok('joining the same occupied room twice only greets once');
+
+	assert.strictEqual(guard.claim({ guildId: G, channelId: 'voice_b' }), true);
+	assert.strictEqual(guard.size(G), 2);
+	ok('a different active room has its own greeting session');
+
+	guard.reset(G, 'voice_a');
+	assert.strictEqual(guard.claim({ guildId: G, channelId: 'voice_a' }), true);
+	ok('an empty room immediately re-arms its greeting');
+
+	guard.reset(G);
+	assert.strictEqual(guard.size(G), 0);
+	assert.strictEqual(guard.claim({ guildId: G, channelId: 'voice_b' }), true);
+	ok('an empty guild clears every room session');
+
+	assert.strictEqual(guard.claim({ guildId: '', channelId: 'voice_a' }), false);
+	assert.strictEqual(guard.claim({ guildId: G, channelId: '' }), false);
+	ok('malformed voice sessions never claim a greeting');
 }
 
 console.log('\none person: the reconnect loop');

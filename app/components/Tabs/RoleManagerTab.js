@@ -2,10 +2,15 @@
 
 import { useState } from 'react';
 import ColorPicker from '../ColorPicker';
+import { TabActionBar, TabConfirmDialog, TabModalLayer, TabStatus, TabTable, TabWorkspace } from './TabWorkspace';
+
+const PAGE_SIZES = [10, 30, 50, 100];
 
 export default function RoleManagerTab({ roles, guildId, showToast, onRefresh }) {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [copiedId, setCopiedId] = useState(null);
+	const [pageSize, setPageSize] = useState(10);
+	const [currentPage, setCurrentPage] = useState(1);
 
 	// Create Role Modal state
 	const [showCreateModal, setShowCreateModal] = useState(false);
@@ -22,6 +27,8 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 	const [editHoist, setEditHoist] = useState(false);
 	const [editMentionable, setEditMentionable] = useState(false);
 	const [editLoading, setEditLoading] = useState(false);
+	const [rolePendingDelete, setRolePendingDelete] = useState(null);
+	const [deleteLoading, setDeleteLoading] = useState(false);
 
 	const allRoles = Array.isArray(roles) ? roles : [];
 
@@ -36,6 +43,10 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 		const q = searchQuery.toLowerCase();
 		return r.name.toLowerCase().includes(q) || String(r.id).includes(q);
 	});
+	const totalPages = Math.max(1, Math.ceil(filteredRoles.length / pageSize));
+	const visiblePage = Math.min(currentPage, totalPages);
+	const pageStart = (visiblePage - 1) * pageSize;
+	const paginatedRoles = filteredRoles.slice(pageStart, pageStart + pageSize);
 
 	const copyToClipboard = (text, id, roleName) => {
 		navigator.clipboard.writeText(text);
@@ -134,44 +145,44 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 	};
 
 	// --- DELETE ROLE ---
-	const handleDeleteRole = async (role) => {
-		if (!confirm(`Are you sure you want to permanently delete role @${role.name}? This action cannot be undone.`)) return;
-
+	const handleDeleteRole = async () => {
+		if (!rolePendingDelete) return;
+		setDeleteLoading(true);
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/roles/${role.id}/delete`, {
+			const res = await fetch(`/api/guilds/${guildId}/roles/${rolePendingDelete.id}/delete`, {
 				method: 'POST',
 			});
 
 			const data = await res.json();
 			if (data.success) {
-				showToast(`Role @${role.name} deleted successfully!`);
+				showToast(`Role @${rolePendingDelete.name} deleted successfully!`);
+				setRolePendingDelete(null);
 				if (onRefresh) onRefresh();
 			} else {
 				showToast(data.error || 'Failed to delete role.', true);
 			}
 		} catch (err) {
 			showToast(`Error: ${err.message}`, true);
+		} finally {
+			setDeleteLoading(false);
 		}
 	};
 
 	return (
-		<div>
+		<TabWorkspace>
 			{/* Top Header */}
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Role Manager
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Create, edit, and organize server roles with custom hex colors, hoists, and permissions.
-					</p>
-				</div>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
-						{allRoles.length} Server Roles
-					</span>
-				</div>
-			</div>
+			<TabActionBar actions={<TabStatus tone="accent">{allRoles.length} server roles</TabStatus>}>
+				<span>{filteredRoles.length} roles match the current search</span>
+			</TabActionBar>
+			<TabConfirmDialog
+				open={!!rolePendingDelete}
+				onClose={() => setRolePendingDelete(null)}
+				onConfirm={handleDeleteRole}
+				title={rolePendingDelete ? `Delete @${rolePendingDelete.name}?` : 'Delete role?'}
+				description="This permanently removes the role from Discord and cannot be undone. Members assigned to it will lose it immediately."
+				confirmLabel="Delete role"
+				busy={deleteLoading}
+			/>
 
 			{/* Role Search & Create Action Bar */}
 			<div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -181,7 +192,10 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 						className="form-control"
 						placeholder="Search roles by name or role ID..."
 						value={searchQuery}
-						onChange={e => setSearchQuery(e.target.value)}
+						onChange={e => {
+							setSearchQuery(e.target.value);
+							setCurrentPage(1);
+						}}
 					/>
 				</div>
 				<button
@@ -194,7 +208,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 			</div>
 
 			{/* Roles Table */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+			<TabTable label="Server roles">
 				<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
 					<thead>
 						<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
@@ -212,7 +226,7 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 								</td>
 							</tr>
 						) : (
-							filteredRoles.map(role => {
+							paginatedRoles.map(role => {
 								const hex = getRoleColorHex(role.hexColor || role.color);
 								const isEveryone = role.name === '@everyone';
 								const isManaged = !!role.managed;
@@ -273,20 +287,20 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 												</button>
 												{!isEveryone && !isManaged && (
 													<>
-														<button
-															onClick={() => openEditModal(role)}
-															className="btn btn-secondary btn-sm"
-															style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', whiteSpace: 'nowrap' }}
-														>
-															Edit
-														</button>
-														<button
-															onClick={() => handleDeleteRole(role)}
-															className="btn btn-secondary btn-sm"
-															style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', color: 'var(--due)', whiteSpace: 'nowrap' }}
-														>
-															Delete
-														</button>
+												<button
+													onClick={() => openEditModal(role)}
+													className="btn btn-secondary btn-sm"
+													style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', whiteSpace: 'nowrap' }}
+												>
+													Edit
+												</button>
+												<button
+													onClick={() => setRolePendingDelete(role)}
+													className="btn btn-secondary btn-sm"
+													style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', color: 'var(--due)', whiteSpace: 'nowrap' }}
+												>
+													Delete
+												</button>
 													</>
 												)}
 											</div>
@@ -297,12 +311,55 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 						)}
 					</tbody>
 				</table>
-			</div>
+			</TabTable>
+			{filteredRoles.length > 0 && (
+				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', paddingTop: '1rem' }}>
+					<span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+						Showing {pageStart + 1}–{Math.min(pageStart + pageSize, filteredRoles.length)} of {filteredRoles.length} roles
+					</span>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+						<label htmlFor="roles-page-size" style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+							Roles per page
+						</label>
+						<select
+							id="roles-page-size"
+							className="form-control"
+							value={pageSize}
+							onChange={event => {
+								setPageSize(Number(event.target.value));
+								setCurrentPage(1);
+							}}
+							style={{ width: 'auto', minWidth: '4.5rem', padding: '0.45rem 2rem 0.45rem 0.7rem' }}
+						>
+							{PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+						</select>
+						<button
+							type="button"
+							className="btn btn-secondary btn-sm"
+							onClick={() => setCurrentPage(Math.max(1, visiblePage - 1))}
+							disabled={visiblePage === 1}
+						>
+							Previous
+						</button>
+						<span style={{ minWidth: '5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+							Page {visiblePage} of {totalPages}
+						</span>
+						<button
+							type="button"
+							className="btn btn-secondary btn-sm"
+							onClick={() => setCurrentPage(Math.min(totalPages, visiblePage + 1))}
+							disabled={visiblePage === totalPages}
+						>
+							Next
+						</button>
+					</div>
+				</div>
+			)}
 
 			{/* ================= MODAL: CREATE ROLE ================= */}
 			{showCreateModal && (
-				<div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
+				<TabModalLayer onClose={() => { if (!createLoading) setShowCreateModal(false); }} closeOnBackdrop={!createLoading}>
+					<div role="dialog" aria-modal="true" aria-label="Create a server role" style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
 						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '1rem' }}>
 							Create New Server Role
 						</h4>
@@ -371,13 +428,13 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 							</div>
 						</form>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
 
 			{/* ================= MODAL: EDIT ROLE ================= */}
 			{editingRole && (
-				<div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-					<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
+				<TabModalLayer onClose={() => { if (!editLoading) setEditingRole(null); }} closeOnBackdrop={!editLoading}>
+					<div role="dialog" aria-modal="true" aria-label={`Edit role ${editingRole.name}`} style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
 						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '1rem' }}>
 							Edit Role: @{editingRole.name}
 						</h4>
@@ -444,8 +501,8 @@ export default function RoleManagerTab({ roles, guildId, showToast, onRefresh })
 							</div>
 						</form>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
-		</div>
+		</TabWorkspace>
 	);
 }

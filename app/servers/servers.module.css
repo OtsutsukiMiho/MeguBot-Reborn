@@ -437,15 +437,37 @@
 	justify-content: space-between;
 	width: 100%;
 	padding: .65rem .75rem;
-	border-top: 1px solid var(--line);
+	border: 1px solid var(--line);
+	border-radius: .65rem;
+	background: var(--sunk);
 	font-size: .82rem;
 	font-weight: 700;
 	color: var(--ink);
 	text-decoration: none;
-	transition: color .15s var(--ease), padding .15s var(--ease);
+	transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
 }
 
-.cardAction:hover { color: var(--accent); padding-inline: .9rem .6rem; }
+.cardActionInvite {
+	border-color: color-mix(in srgb, var(--gold) 32%, var(--line));
+	background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+	color: var(--gold);
+}
+
+.cardActionWorkspace {
+	border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+.cardActionPersonal {
+	border-color: color-mix(in srgb, var(--settled) 30%, var(--line));
+	background: var(--settled-soft);
+	color: var(--settled);
+}
+
+.serverCardLink:hover .cardActionInvite { border-color: color-mix(in srgb, var(--gold) 52%, var(--line)); background: color-mix(in srgb, var(--gold) 18%, var(--surface)); }
+.serverCardLink:hover .cardActionWorkspace { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+.serverCardLink:hover .cardActionPersonal { border-color: color-mix(in srgb, var(--settled) 50%, var(--line)); background: color-mix(in srgb, var(--settled) 18%, var(--surface)); }
 .navGroup button:focus-visible,
 .filters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -604,7 +626,11 @@
 
 .heroStatus { position: relative; z-index: 1; flex: none; }
 .heroStatus > span { padding: .5rem .7rem; background: color-mix(in srgb, var(--band) 82%, transparent); border-color: color-mix(in srgb, var(--band-ink) 20%, transparent); }
-.heroStatus .readyBadge { color: var(--band-accent) !important; }
+.heroStatus .readyBadge {
+	border-color: color-mix(in srgb, var(--settled) 48%, transparent);
+	background: var(--settled-soft);
+	color: var(--settled) !important;
+}
 .heroStatus .unknownBadge { color: var(--band-dim); }
 
 .serverFacts {
@@ -616,10 +642,10 @@
 	background: var(--surface);
 }
 
-.serverFacts > div { padding: .8rem 1rem; border-right: 1px solid var(--line); }
+.serverFacts > div { padding: .9rem 1.05rem; border-right: 1px solid var(--line); }
 .serverFacts > div:last-child { border-right: 0; }
-.serverFacts dt { font-size: .65rem; color: var(--faint); }
-.serverFacts dd { margin: .16rem 0 0; font-family: var(--font-display); font-size: .95rem; font-weight: 700; color: var(--ink); }
+.serverFacts dt { font-size: clamp(.72rem, 1vw, .78rem); font-weight: 600; line-height: 1.35; color: var(--muted); }
+.serverFacts dd { margin: .2rem 0 0; font-family: var(--font-display); font-size: clamp(1.05rem, 1.8vw, 1.2rem); font-weight: 700; line-height: 1.25; color: var(--ink); font-variant-numeric: tabular-nums; }
 .serverFacts .savedText { color: var(--settled); }
 .serverFacts .unsavedText { color: var(--gold); }
 
@@ -725,8 +751,8 @@
 }
 
 @keyframes contentIn {
-	from { opacity: 0; transform: translateY(5px); }
-	to { opacity: 1; transform: translateY(0); }
+	from { opacity: 0; }
+	to { opacity: 1; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

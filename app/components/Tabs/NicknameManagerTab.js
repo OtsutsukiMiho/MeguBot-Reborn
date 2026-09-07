@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect.js';
+import { TabActionBar, TabMemberCard, TabModalLayer, TabStatus, TabWorkspace } from './TabWorkspace';
 
 export default function NicknameManagerTab({ guildId, initialMembers = [], showToast, onRefresh }) {
 	const [memberSearch, setMemberSearch] = useState('');
@@ -211,30 +213,24 @@ export default function NicknameManagerTab({ guildId, initialMembers = [], showT
 	}, [filteredAndSortedMembers, currentPageClamped, pageSize]);
 
 	return (
-		<div>
+		<TabWorkspace>
 			{/* Top Header */}
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Nickname Manager
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Manage custom user nicknames used by Megu Bot for TTS voice greetings, member join announcements, and chat reading.
-					</p>
-				</div>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
-						{totalCustomCount} Custom Nicknames Active
-					</span>
+			<TabActionBar
+				actions={(
+				<>
+					<TabStatus tone={totalCustomCount ? 'accent' : 'neutral'}>{totalCustomCount} custom nicknames</TabStatus>
 					<button
 						onClick={handleRefresh}
 						className="btn btn-secondary btn-sm"
 						disabled={loading}
 					>
-						{loading ? 'Refreshing...' : 'Refresh'}
+						{loading ? 'Refreshing…' : 'Refresh'}
 					</button>
-				</div>
-			</div>
+				</>
+				)}
+			>
+				<span>{totalItems} members match the active search and filters</span>
+			</TabActionBar>
 
 			{/* Search, Filter & Sort Controls Bar (Matching MemberManagerTab) */}
 			<div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem' }}>
@@ -348,56 +344,28 @@ export default function NicknameManagerTab({ guildId, initialMembers = [], showT
 								const hasCustomNick = Boolean(customNick && customNick !== 'ใครไม่รู้');
 
 								return (
-									<div
+									<TabMemberCard
 										key={member.id}
-										style={{
-											background: 'var(--surface-2)',
-											border: '1px solid var(--border-color)',
-											borderRadius: '12px',
-											padding: '1.25rem',
-											display: 'flex',
-											flexDirection: 'column',
-											gap: '0.85rem',
-											position: 'relative',
-										}}
-									>
-										{/* Member Header */}
-										<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
-											<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
-												<img
-													src={member.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}
-													alt={member.username}
-													style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border-color)', flexShrink: 0 }}
-													onError={(e) => { e.target.src = 'https://cdn.discordapp.com/embed/avatars/0.png'; }}
-												/>
-												<div style={{ overflow: 'hidden' }}>
-													<div style={{ fontWeight: 700, color: 'var(--ink)', fontSize: '0.95rem', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-														{member.displayName}
-													</div>
-													<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-														@{member.username} {member.isBot ? '(Bot)' : ''}
-													</div>
-												</div>
-											</div>
-
+										member={member}
+										action={(
 											<button
+												type="button"
 												onClick={() => copyToClipboard(member.id, member.id, member.username)}
 												className="btn btn-secondary btn-sm"
 												style={{
 													fontSize: '0.72rem',
 													padding: '0.2rem 0.55rem',
 													whiteSpace: 'nowrap',
-													flexShrink: 0,
 													color: copiedId === member.id ? 'var(--settled)' : undefined,
-													borderColor: copiedId === member.id ? 'rgba(52, 211, 153, 0.4)' : undefined,
+													borderColor: copiedId === member.id ? 'color-mix(in srgb, var(--settled) 40%, var(--line))' : undefined,
 												}}
 											>
 												{copiedId === member.id ? 'Copied!' : 'Copy ID'}
 											</button>
-										</div>
-
+										)}
+									>
 										{/* Nickname Details Box */}
-										<div style={{ background: 'var(--sunk)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+										<div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
 											<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
 												<span>Bot TTS Spoken Nickname:</span>
 												<span style={{ fontSize: '0.7rem', fontWeight: 700, color: hasCustomNick ? 'var(--accent)' : 'var(--muted)' }}>
@@ -468,7 +436,7 @@ export default function NicknameManagerTab({ guildId, initialMembers = [], showT
 												</button>
 											)}
 										</div>
-									</div>
+									</TabMemberCard>
 								);
 							})
 						)}
@@ -522,24 +490,11 @@ export default function NicknameManagerTab({ guildId, initialMembers = [], showT
 
 			{/* Edit Custom Nickname Modal */}
 			{editingMember && (
-				<div
-					style={{
-						position: 'fixed',
-						top: 0,
-						left: 0,
-						right: 0,
-						bottom: 0,
-						background: 'rgba(0, 0, 0, 0.65)',
-						backdropFilter: 'blur(4px)',
-						display: 'flex',
-						alignItems: 'center',
-						justifyContent: 'center',
-						zIndex: 1000,
-						padding: '1rem',
-					}}
-					onClick={handleCloseEditModal}
-				>
+				<TabModalLayer onClose={handleCloseEditModal} closeOnBackdrop={!modalSaving}>
 					<div
+						role="dialog"
+						aria-modal="true"
+						aria-label={`Edit nickname for ${editingMember.displayName || editingMember.username}`}
 						style={{
 							background: 'var(--surface)',
 							border: '1px solid var(--border-color)',
@@ -560,10 +515,12 @@ export default function NicknameManagerTab({ guildId, initialMembers = [], showT
 								Edit Custom TTS Nickname
 							</h4>
 							<button
+								type="button"
 								onClick={handleCloseEditModal}
+								aria-label="Close nickname editor"
 								style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.1rem' }}
 							>
-								✕
+								<X size={18} aria-hidden="true" />
 							</button>
 						</div>
 
@@ -629,8 +586,8 @@ export default function NicknameManagerTab({ guildId, initialMembers = [], showT
 							</button>
 						</div>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
-		</div>
+		</TabWorkspace>
 	);
 }

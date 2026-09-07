@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect.js';
+import { TabActionBar, TabMemberCard, TabModalLayer, TabStatus, TabWorkspace } from './TabWorkspace';
 
 export default function MemberManagerTab({ guildId, roles, initialMembers = [], showToast, onRefresh }) {
 	const [memberSearch, setMemberSearch] = useState('');
@@ -204,32 +206,26 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 	}, [allRoles, modalRoleSearch]);
 
 	return (
-		<div>
+		<TabWorkspace>
 			{/* Top Header */}
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Member Manager
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Explore server members, manage assigned roles, and search user accounts with instant client-side filtering and sorting.
-					</p>
-				</div>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-					<span className="status-badge" style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent)' }}>
-						{membersList.length} Server Members
-					</span>
+			<TabActionBar
+				actions={(
+				<>
+					<TabStatus tone="accent">{membersList.length} members</TabStatus>
 					{onRefresh && (
 						<button
 							onClick={handleRefresh}
 							className="btn btn-secondary btn-sm"
 							disabled={membersLoading}
 						>
-							{membersLoading ? 'Refreshing...' : 'Refresh'}
+							{membersLoading ? 'Refreshing…' : 'Refresh'}
 						</button>
 					)}
-				</div>
-			</div>
+				</>
+				)}
+			>
+				<span>{totalItems} currently match the active search and filters</span>
+			</TabActionBar>
 
 			{/* Search, Filter & Sort Controls Bar */}
 			<div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem' }}>
@@ -330,52 +326,26 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 								const hiddenCount = member.roles.length - visibleRoles.length;
 
 								return (
-									<div
+									<TabMemberCard
 										key={member.id}
-										style={{
-											background: 'var(--surface-2)',
-											border: '1px solid var(--border-color)',
-											borderRadius: '12px',
-											padding: '1.25rem',
-											display: 'flex',
-											flexDirection: 'column',
-											gap: '0.85rem',
-										}}
-									>
-										{/* Member Header */}
-										<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
-											<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
-												<img
-													src={member.avatar}
-													alt={member.username}
-													style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border-color)', flexShrink: 0 }}
-												/>
-												<div style={{ overflow: 'hidden' }}>
-													<div style={{ fontWeight: 700, color: 'var(--ink)', fontSize: '0.95rem', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-														{member.displayName}
-													</div>
-													<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-														@{member.username} {member.isBot ? '(Bot)' : ''}
-													</div>
-												</div>
-											</div>
-
+										member={member}
+										action={(
 											<button
+												type="button"
 												onClick={() => copyToClipboard(member.id, member.id, member.username)}
 												className="btn btn-secondary btn-sm"
 												style={{
 													fontSize: '0.72rem',
 													padding: '0.2rem 0.55rem',
 													whiteSpace: 'nowrap',
-													flexShrink: 0,
 													color: copiedId === member.id ? 'var(--settled)' : undefined,
-													borderColor: copiedId === member.id ? 'rgba(52, 211, 153, 0.4)' : undefined,
+													borderColor: copiedId === member.id ? 'color-mix(in srgb, var(--settled) 40%, var(--line))' : undefined,
 												}}
 											>
 												{copiedId === member.id ? 'Copied!' : 'Copy ID'}
 											</button>
-										</div>
-
+										)}
+									>
 										{/* Member Assigned Roles Badges */}
 										<div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', minHeight: '28px', alignItems: 'center' }}>
 											{member.roles.length === 0 ? (
@@ -487,7 +457,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 												</span>
 											</button>
 										</div>
-									</div>
+									</TabMemberCard>
 								);
 							})
 						)}
@@ -584,21 +554,11 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 
 			{/* ================= MODAL: EDIT MEMBER ROLES ================= */}
 			{editingMember && (
-				<div
-					style={{
-						position: 'fixed',
-						inset: 0,
-						background: 'rgba(0, 0, 0, 0.75)',
-						backdropFilter: 'blur(6px)',
-						zIndex: 1000,
-						display: 'flex',
-						alignItems: 'center',
-						justifyContent: 'center',
-						padding: '1rem',
-					}}
-					onClick={handleCloseRoleModal}
-				>
+				<TabModalLayer onClose={handleCloseRoleModal} closeOnBackdrop={!modalSaving}>
 					<div
+						role="dialog"
+						aria-modal="true"
+						aria-label={`Manage roles for ${editingMember.displayName || editingMember.username}`}
 						style={{
 							background: 'var(--surface)',
 							border: '1px solid var(--border-color)',
@@ -631,7 +591,9 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 								</div>
 							</div>
 							<button
+								type="button"
 								onClick={handleCloseRoleModal}
+								aria-label="Close role editor"
 								disabled={modalSaving}
 								style={{
 									background: 'none',
@@ -643,7 +605,7 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 									borderRadius: '6px',
 								}}
 							>
-								✕
+								<X size={18} aria-hidden="true" />
 							</button>
 						</div>
 
@@ -777,8 +739,8 @@ export default function MemberManagerTab({ guildId, roles, initialMembers = [], 
 							</div>
 						</div>
 					</div>
-				</div>
+				</TabModalLayer>
 			)}
-		</div>
+		</TabWorkspace>
 	);
 }

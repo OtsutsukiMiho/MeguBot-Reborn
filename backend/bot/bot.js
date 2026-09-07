@@ -246,6 +246,18 @@ function stamp(details) {
 const ROSTER_TTL_MS = 60 * 1000;
 const rosterCache = new Map();
 
+function discordUserAssetUrl(userId, hash, asset, size) {
+	if (!userId || !hash) return null;
+	const extension = String(hash).startsWith('a_') ? 'gif' : 'png';
+	return `https://cdn.discordapp.com/${asset}/${userId}/${hash}.${extension}?size=${size}`;
+}
+
+function accentColorHex(value) {
+	if (value === undefined || value === null || value === '') return null;
+	if (!Number.isFinite(Number(value))) return null;
+	return `#${Number(value).toString(16).padStart(6, '0')}`;
+}
+
 function mapRawMember(m) {
 	const u = m.user || {};
 	return {
@@ -253,8 +265,10 @@ function mapRawMember(m) {
 		username: u.username || 'Unknown',
 		displayName: m.nick || u.global_name || u.username || 'Unknown',
 		avatar: u.avatar
-			? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64`
+			? discordUserAssetUrl(u.id, u.avatar, 'avatars', 128)
 			: `https://cdn.discordapp.com/embed/avatars/${Number(u.discriminator || 0) % 5}.png`,
+		banner: discordUserAssetUrl(u.id, u.banner, 'banners', 512),
+		accentColor: accentColorHex(u.accent_color),
 		isBot: !!u.bot,
 		roles: Array.isArray(m.roles) ? m.roles : [],
 	};
@@ -316,7 +330,9 @@ function mapGuildMembers(guild, query = '') {
 				id: m.id,
 				username: u.username || 'Unknown',
 				displayName: m.displayName || u.globalName || u.username || 'Unknown',
-				avatar: (u.avatarURL && u.avatarURL({ size: 64 })) || u.defaultAvatarURL || null,
+				avatar: (m.displayAvatarURL && m.displayAvatarURL({ size: 128 })) || u.defaultAvatarURL || null,
+				banner: (u.bannerURL && u.bannerURL({ size: 512 })) || discordUserAssetUrl(u.id, u.banner, 'banners', 512),
+				accentColor: u.hexAccentColor || accentColorHex(u.accentColor),
 				isBot: Boolean(u.bot),
 				roles: Array.from(m.roles.cache.keys()).filter(id => id !== guild.id),
 			};
@@ -983,11 +999,13 @@ const voiceStateProcessing = new Set();
 // feature gets switched off. See core/voice-announce.js.
 const {
 	createAnnounceGuard,
+	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,
 	cooldownMsFromSeconds,
 } = require('../../core/voice-announce.js');
 const announceGuard = createAnnounceGuard();
+const voiceGreetingGuard = createVoiceGreetingGuard();
 
 // Who spoke last in each guild, so a run of messages from one person is read as
 // one person talking rather than as their name six times. This is the thing
@@ -1035,19 +1053,19 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	const guild = newState.guild || oldState.guild;
 	const botMember = guild.members.me;
 
-	let totalVoiceMembers = 0;
+	// Re-arm a room as soon as its last human leaves. Megu may still be present,
+	// so collection size alone does not describe whether the room is empty.
+	if (oldState.channelId && oldState.channel
+		&& !oldState.channel.members.some(member => member.id !== client.user.id)) {
+		voiceGreetingGuard.reset(guild.id, oldState.channelId);
+	}
+
+	let totalHumanVoiceMembers = 0;
 	guild.channels.cache.filter(c => c.type === 2).forEach(vc => {
-		totalVoiceMembers += vc.members.size;
+		totalHumanVoiceMembers += vc.members.filter(member => member.id !== client.user.id).size;
 	});
 
-	if (totalVoiceMembers === 0) {
-		try {
-			await database.deleteGuildVar(guild.id, 'old_vc_id');
-		}
-		catch {
-			// Ignore
-		}
-
+	if (totalHumanVoiceMembers === 0) {
 		const { clearQueue } = require('./audio_queue.js');
 		clearQueue(guild.id, guild.name);
 
@@ -1056,6 +1074,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		// and whoever types first is introducing themselves to a new room.
 		announceGuard.forget(guild.id);
 		speakerTracker.forget(guild.id);
+		voiceGreetingGuard.reset(guild.id);
 
 		const connection = getVoiceConnection(guild.id);
 		if (connection) {
@@ -1064,46 +1083,31 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	}
 
 	if (newState.member.id === client.user.id && newState.channelId && oldState.channelId !== newState.channelId) {
-		let oldVcId = null;
-		try {
-			oldVcId = await database.getGuildVar(guild.id, 'old_vc_id');
-		}
-		catch {
-			// Ignore
-		}
-
 		const greetOnJoin = toBool(await database.getGuildVar(guild.id, 'tts_join_greeting_enabled'), false);
+		const isFirstJoinThisSession = voiceGreetingGuard.claim({ guildId: guild.id, channelId: newState.channelId });
 
-		if (!oldVcId) {
-			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
+		if (greetOnJoin && isFirstJoinThisSession) {
+			BotLogs('Bot', `${COLOR.blue}Greeting voice channel -> ${COLOR.white}${newState.channel.name} ${COLOR.gray}(${guild.name})`);
 
-			// "สวัสดีชาวโลก" is hello-world — a placeholder that shipped. She says it
-			// every time she joins a channel that had emptied, which on a host that
-			// sleeps is once per wake, all day, to whoever happens to be sitting there.
-			// Boot-time noise and boot-time Discord work on the same line.
-			//
-			// Off unless a server asks for it, and the words are theirs to choose.
-			if (greetOnJoin) {
-				BotLogs('Bot', `${COLOR.blue}Greeting voice channel -> ${COLOR.white}${newState.channel.name} ${COLOR.gray}(${guild.name})`);
-
-				const { addToQueue, generateUUID } = require('./audio_queue.js');
-
-				const queue_constructor = {
-					uuid: generateUUID(),
-					name: (await database.getGuildVar(guild.id, 'tts_join_greeting_text')) || 'สวัสดีชาวโลก',
-					lang: 'th',
-					type: 'GOOGLE_TTS',
-					guild: guild,
-					voice: 'th-TH-PremwadeeNeural',
-					sender: client.user,
-					voice_channel: newState.channel,
-					connection: getOrCreateConnection(guild, newState.channel),
-				};
-				addToQueue(guild.id, queue_constructor);
-			}
-		}
-		else if (oldVcId !== newState.channelId) {
-			await database.setGuildVar(guild.id, 'old_vc_id', newState.channelId);
+			const { addToQueue, generateUUID } = require('./audio_queue.js');
+			const greetingTemplate = (await database.getGuildVar(guild.id, 'tts_join_greeting_text')) || 'สวัสดีชาวโลก';
+			const greetingText = greetingTemplate
+				.replace(/{server}/gi, guild.name)
+				.replace(/{channel}/gi, newState.channel.name);
+			const greetingEngine = (await database.getGuildVar(guild.id, 'tts_engine')) || 'EDGE_TTS';
+			const queue_constructor = {
+				uuid: generateUUID(),
+				name: greetingText,
+				lang: (await database.getGuildVar(guild.id, 'tts_lang')) || 'th',
+				type: greetingEngine === 'GOOGLE_TTS' ? 'GOOGLE_TTS' : 'TTS',
+				guild: guild,
+				voice: (await database.getGuildVar(guild.id, 'tts_voice')) || 'th-TH-NiwatNeural',
+				volume: ttsVolume(await database.getGuildVar(guild.id, 'tts_volume')),
+				sender: client.user,
+				voice_channel: newState.channel,
+				connection: getOrCreateConnection(guild, newState.channel),
+			};
+			addToQueue(guild.id, queue_constructor);
 		}
 	}
 

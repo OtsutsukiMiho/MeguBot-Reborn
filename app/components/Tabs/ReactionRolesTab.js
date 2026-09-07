@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import CustomSelect from '../CustomSelect.js';
+import { TabActionBar, TabConfirmDialog, TabStatus, TabTable, TabWorkspace } from './TabWorkspace';
 
 export default function ReactionRolesTab({ guildId, reactionRoles, roles, channels, onRefresh, showToast }) {
 	const [channelId, setChannelId] = useState('');
@@ -10,6 +11,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 	const [roleId, setRoleId] = useState('');
 	const [mode, setMode] = useState('toggle');
 	const [saving, setSaving] = useState(false);
+	const [showClearConfirm, setShowClearConfirm] = useState(false);
 
 	const rolesMap = new Map((roles || []).map(r => [r.id, r.name]));
 
@@ -107,7 +109,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 	};
 
 	const handleClearAll = async () => {
-		if (!confirm('Are you sure you want to remove all reaction role mappings for this server?')) return;
+		setSaving(true);
 		try {
 			const res = await fetch(`/api/guilds/${guildId}/reaction-roles`, {
 				method: 'POST',
@@ -123,6 +125,9 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 			}
 		} catch (e) {
 			showToast('Error clearing reaction roles.', true);
+		} finally {
+			setSaving(false);
+			setShowClearConfirm(false);
 		}
 	};
 
@@ -156,26 +161,31 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 	}
 
 	return (
-		<div>
-			<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Reaction Roles Setup
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Bind emojis on Discord messages to grant or revoke server roles automatically.
-					</p>
-				</div>
-				{rows.length > 0 && (
+		<TabWorkspace>
+			<TabActionBar
+				actions={rows.length > 0 ? (
 					<button
-						onClick={handleClearAll}
+						onClick={() => setShowClearConfirm(true)}
 						className="btn btn-secondary btn-sm"
-						style={{ color: 'var(--due)', borderColor: 'color-mix(in srgb, var(--due) 30%, transparent)' }}
+						disabled={saving}
 					>
-						Clear All Mappings
+						Clear all mappings
 					</button>
-				)}
-			</div>
+				) : null}
+			>
+				<TabStatus tone={rows.length ? 'success' : 'neutral'}>{rows.length} active mappings</TabStatus>
+				<span>Reactions grant or revoke roles on the selected Discord messages.</span>
+			</TabActionBar>
+
+			<TabConfirmDialog
+				open={showClearConfirm}
+				onClose={() => setShowClearConfirm(false)}
+				onConfirm={handleClearAll}
+				title="Remove every reaction-role mapping?"
+				description="Members will no longer receive roles from any configured reaction message on this server."
+				confirmLabel="Clear all mappings"
+				busy={saving}
+			/>
 
 			{/* Add Reaction Role Form Grid */}
 			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.75rem' }}>
@@ -271,7 +281,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 			</div>
 
 			{/* Mappings Table */}
-			<div style={{ overflowX: 'auto', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '0.5rem' }}>
+			<TabTable label="Reaction role mappings">
 				<table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
 					<thead>
 						<tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
@@ -337,7 +347,7 @@ export default function ReactionRolesTab({ guildId, reactionRoles, roles, channe
 						)}
 					</tbody>
 				</table>
-			</div>
-		</div>
+			</TabTable>
+		</TabWorkspace>
 	);
 }

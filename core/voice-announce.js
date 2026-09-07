@@ -231,6 +231,54 @@ function createAnnounceGuard(defaults = {}) {
 }
 
 /**
+ * One room greeting per occupied voice-channel session.
+ *
+ * A guild can move Megu between active rooms, so this is keyed by both guild
+ * and channel. The caller resets a channel when its last human leaves; the next
+ * occupied session can then greet again immediately without a clock or a
+ * database write pretending to be a debounce.
+ */
+function createVoiceGreetingGuard() {
+	const greetedChannels = new Map();
+
+	function channelsFor(guildId) {
+		let channels = greetedChannels.get(guildId);
+		if (!channels) {
+			channels = new Set();
+			greetedChannels.set(guildId, channels);
+		}
+		return channels;
+	}
+
+	return {
+		claim({ guildId, channelId } = {}) {
+			if (!guildId || !channelId) return false;
+			const channels = channelsFor(guildId);
+			if (channels.has(channelId)) return false;
+			channels.add(channelId);
+			return true;
+		},
+
+		reset(guildId, channelId) {
+			if (!guildId) return;
+			if (!channelId) {
+				greetedChannels.delete(guildId);
+				return;
+			}
+			const channels = greetedChannels.get(guildId);
+			if (!channels) return;
+			channels.delete(channelId);
+			if (channels.size === 0) greetedChannels.delete(guildId);
+		},
+
+		size(guildId) {
+			if (guildId === undefined) return greetedChannels.size;
+			return greetedChannels.get(guildId)?.size ?? 0;
+		},
+	};
+}
+
+/**
  * Titles, not names. Somebody in a company Discord is "CEO คุณสมชาย สุขใจ"
  * because that is what a room full of colleagues needs to hear when he arrives —
  * and it is the wrong thing to hear seven times while he is typing.
@@ -348,6 +396,7 @@ function createSpeakerTracker({ regroupMs = DEFAULT_REGROUP_MS } = {}) {
 
 module.exports = {
 	createAnnounceGuard,
+	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,
 	DEFAULT_REGROUP_MS,

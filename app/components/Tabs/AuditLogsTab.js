@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import CustomSelect from '../CustomSelect.js';
+import { TabActionBar, TabEmpty, TabSkeleton, TabStatus, TabTable, TabWorkspace } from './TabWorkspace';
 
 function getBadgeStyle(eventType) {
 	switch (eventType) {
@@ -115,21 +116,19 @@ export default function AuditLogsTab({ guildId }) {
 	}, [filteredLogs, currentPage, pageSize]);
 
 	return (
-		<div>
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Server Audit Log History
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Real-time Discord native server audit history (deleted messages, kicks, bans, timeouts, channel/role edits, invites, and web changes).
-					</p>
-				</div>
-
-				<button onClick={fetchLogs} className="btn btn-secondary btn-sm">
-					Refresh Logs
-				</button>
-			</div>
+		<TabWorkspace>
+			<TabActionBar
+				actions={(
+					<button onClick={fetchLogs} className="btn btn-secondary btn-sm" disabled={loading}>
+						{loading ? 'Refreshing…' : 'Refresh logs'}
+					</button>
+				)}
+			>
+				<TabStatus tone={filteredLogs.length ? 'accent' : 'neutral'}>
+					{filteredLogs.length} matching events
+				</TabStatus>
+				<span>Discord audit history and dashboard changes</span>
+			</TabActionBar>
 
 			{/* Filters Bar */}
 			<div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
@@ -173,15 +172,14 @@ export default function AuditLogsTab({ guildId }) {
 
 			{/* Audit Log Table */}
 			{loading ? (
-				<div style={{ padding: '3rem 0', textAlign: 'center', color: 'var(--text-secondary)' }}>
-					Loading audit log events...
-				</div>
+				<TabSkeleton rows={7} label="Loading audit log events" />
 			) : filteredLogs.length === 0 ? (
-				<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-					No audit log records found matching your filter criteria.
-				</div>
+				<TabEmpty
+					title="No matching audit events"
+					description="Try a broader event category or clear the search field. New Discord and dashboard actions will appear here."
+				/>
 			) : (
-				<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+				<TabTable label="Server audit log events">
 					<div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
 						<table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
 							<thead>
@@ -246,8 +244,8 @@ export default function AuditLogsTab({ guildId }) {
 							</button>
 						</div>
 					</div>
-				</div>
+				</TabTable>
 			)}
-		</div>
+		</TabWorkspace>
 	);
 }

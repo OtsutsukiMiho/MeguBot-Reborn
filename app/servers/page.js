@@ -81,6 +81,9 @@ function ServerCard({ guild, copy, formatNumber }) {
 		? copy.invite
 		: guild.isAdmin ? copy.configure : copy.mySettings;
 	const ActionIcon = guild.isBotInGuild === false ? ArrowUpRight : guild.isAdmin ? Settings2 : UserRound;
+	const actionTone = guild.isBotInGuild === false
+		? styles.cardActionInvite
+		: guild.isAdmin ? styles.cardActionWorkspace : styles.cardActionPersonal;
 
 	const card = (
 		<article className={styles.serverCard}>
@@ -110,7 +113,7 @@ function ServerCard({ guild, copy, formatNumber }) {
 				<p>{guild.isBotInGuild === false
 					? copy.inviteHint
 					: guild.isAdmin ? copy.configureHint : copy.personalHint}</p>
-				<span className={styles.cardAction}>{actionLabel}<ActionIcon size={15} /></span>
+				<span className={`${styles.cardAction} ${actionTone}`}>{actionLabel}<ActionIcon size={15} /></span>
 			</div>
 		</article>
 	);

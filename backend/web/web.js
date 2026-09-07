@@ -1321,6 +1321,13 @@ app.get('/api/guilds', async (req, res) => {
 	res.json({ success: true, botOnline, guilds: enrichedGuilds });
 });
 
+function toBooleanSetting(value, defaultValue = true) {
+	if (value === undefined || value === null) return defaultValue;
+	if (value === false || value === 'false' || value === 0 || value === '0') return false;
+	if (value === true || value === 'true' || value === 1 || value === '1') return true;
+	return Boolean(value);
+}
+
 app.get('/api/guilds/:guildId', requireGuildAccess, async (req, res) => {
 	const { guildId } = req.params;
 
@@ -1384,6 +1391,8 @@ app.get('/api/guilds/:guildId', requireGuildAccess, async (req, res) => {
 			tts_antispam_max_messages: vars.tts_antispam_max_messages ? parseInt(vars.tts_antispam_max_messages, 10) : 3,
 			tts_antispam_cooldown_seconds: vars.tts_antispam_cooldown_seconds ? parseInt(vars.tts_antispam_cooldown_seconds, 10) : 30,
 			tts_afk_bringback_enabled: vars.tts_afk_bringback_enabled !== false,
+			tts_join_greeting_enabled: toBooleanSetting(vars.tts_join_greeting_enabled, false),
+			tts_join_greeting_text: vars.tts_join_greeting_text || 'สวัสดีชาวโลก',
 			tts_vc_welcome_enabled: vars.tts_vc_welcome_enabled !== false,
 			tts_vc_welcome_template: vars.tts_vc_welcome_template !== undefined ? vars.tts_vc_welcome_template : '{username} เข้าดิสมา',
 			tts_vc_leave_enabled: vars.tts_vc_leave_enabled !== false,
@@ -1655,6 +1664,8 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		tts_antispam_max_messages,
 		tts_antispam_cooldown_seconds,
 		tts_afk_bringback_enabled,
+		tts_join_greeting_enabled,
+		tts_join_greeting_text,
 		tts_vc_welcome_enabled,
 		tts_vc_welcome_template,
 		tts_vc_leave_enabled,
@@ -1664,6 +1675,8 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 
 	try {
 		const oldVars = await database.getAllGuildVars(guildId);
+		const roomGreetingEnabled = toBooleanSetting(tts_join_greeting_enabled, false);
+		const roomGreetingText = String(tts_join_greeting_text || 'สวัสดีชาวโลก').slice(0, 300);
 
 		await database.setGuildVar(guildId, 'welcome_channel_id', welcome_channel_id || null);
 		await database.setGuildVar(guildId, 'welcome_message_template', welcome_message_template || '');
@@ -1686,11 +1699,21 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		await database.setGuildVar(guildId, 'tts_antispam_max_messages', tts_antispam_max_messages ? parseInt(tts_antispam_max_messages, 10) : 3);
 		await database.setGuildVar(guildId, 'tts_antispam_cooldown_seconds', tts_antispam_cooldown_seconds ? parseInt(tts_antispam_cooldown_seconds, 10) : 30);
 		await database.setGuildVar(guildId, 'tts_afk_bringback_enabled', tts_afk_bringback_enabled !== false);
+		await database.setGuildVar(guildId, 'tts_join_greeting_enabled', roomGreetingEnabled);
+		await database.setGuildVar(guildId, 'tts_join_greeting_text', roomGreetingText);
 		await database.setGuildVar(guildId, 'tts_vc_welcome_enabled', tts_vc_welcome_enabled !== false);
 		await database.setGuildVar(guildId, 'tts_vc_welcome_template', tts_vc_welcome_template !== undefined ? tts_vc_welcome_template : '{username} เข้าดิสมา');
 		await database.setGuildVar(guildId, 'tts_vc_leave_enabled', tts_vc_leave_enabled !== false);
 		await database.setGuildVar(guildId, 'tts_vc_leave_template', tts_vc_leave_template !== undefined ? tts_vc_leave_template : '{username} ออกจากดิสแล้ว');
 		await database.setGuildVar(guildId, 'honeypot_channel_id', honeypot_channel_id || null);
+
+		const savedVars = await database.getAllGuildVars(guildId);
+		const greetingWasStored = Object.prototype.hasOwnProperty.call(savedVars, 'tts_join_greeting_enabled')
+			&& toBooleanSetting(savedVars.tts_join_greeting_enabled, false) === roomGreetingEnabled
+			&& savedVars.tts_join_greeting_text === roomGreetingText;
+		if (!greetingWasStored) {
+			throw new Error('The room greeting setting was not confirmed by the database.');
+		}
 
 		if (process.send) {
 			process.send({ target: 'bot', type: 'reload_guild_cache', guildId });
@@ -1725,27 +1748,21 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 			await database.logAuditEvent(guildId, 'AUTOROLE', uId, uName, arDetails, gName);
 		}
 
-function toBool(val, defaultVal = true) {
-	if (val === undefined || val === null) return defaultVal;
-	if (val === false || val === 'false' || val === 0 || val === '0') return false;
-	if (val === true || val === 'true' || val === 1 || val === '1') return true;
-	return Boolean(val);
-}
-
 		// 3. Voice TTS Diff
 		const ttsChannelChanged = (tts_channel_id || null) !== (oldVars.tts_channel_id || null);
 		const ttsEngineChanged = (tts_engine || 'EDGE_TTS') !== (oldVars.tts_engine || 'EDGE_TTS') || (tts_voice || 'th-TH-NiwatNeural') !== (oldVars.tts_voice || 'th-TH-NiwatNeural');
-		const ttsSpamChanged = toBool(tts_antispam_enabled) !== toBool(oldVars.tts_antispam_enabled) || parseInt(tts_antispam_max_messages || 3, 10) !== parseInt(oldVars.tts_antispam_max_messages || 3, 10) || parseInt(tts_antispam_cooldown_seconds || 30, 10) !== parseInt(oldVars.tts_antispam_cooldown_seconds || 30, 10);
+		const ttsSpamChanged = toBooleanSetting(tts_antispam_enabled) !== toBooleanSetting(oldVars.tts_antispam_enabled) || parseInt(tts_antispam_max_messages || 3, 10) !== parseInt(oldVars.tts_antispam_max_messages || 3, 10) || parseInt(tts_antispam_cooldown_seconds || 30, 10) !== parseInt(oldVars.tts_antispam_cooldown_seconds || 30, 10);
 		const ttsLengthChanged = parseInt(tts_max_length || 200, 10) !== parseInt(oldVars.tts_max_length || 200, 10);
-		const ttsAfkChanged = toBool(tts_afk_bringback_enabled) !== toBool(oldVars.tts_afk_bringback_enabled);
-		const ttsWelcomeChanged = toBool(tts_vc_welcome_enabled) !== toBool(oldVars.tts_vc_welcome_enabled) || (tts_vc_welcome_template || '{username} เข้าดิสมา') !== (oldVars.tts_vc_welcome_template || '{username} เข้าดิสมา');
-		const ttsLeaveChanged = toBool(tts_vc_leave_enabled) !== toBool(oldVars.tts_vc_leave_enabled) || (tts_vc_leave_template || '{username} ออกจากดิสแล้ว') !== (oldVars.tts_vc_leave_template || '{username} ออกจากดิสแล้ว');
+		const ttsAfkChanged = toBooleanSetting(tts_afk_bringback_enabled) !== toBooleanSetting(oldVars.tts_afk_bringback_enabled);
+		const ttsRoomGreetingChanged = roomGreetingEnabled !== toBooleanSetting(oldVars.tts_join_greeting_enabled, false) || roomGreetingText !== (oldVars.tts_join_greeting_text || 'สวัสดีชาวโลก');
+		const ttsWelcomeChanged = toBooleanSetting(tts_vc_welcome_enabled) !== toBooleanSetting(oldVars.tts_vc_welcome_enabled) || (tts_vc_welcome_template || '{username} เข้าดิสมา') !== (oldVars.tts_vc_welcome_template || '{username} เข้าดิสมา');
+		const ttsLeaveChanged = toBooleanSetting(tts_vc_leave_enabled) !== toBooleanSetting(oldVars.tts_vc_leave_enabled) || (tts_vc_leave_template || '{username} ออกจากดิสแล้ว') !== (oldVars.tts_vc_leave_template || '{username} ออกจากดิสแล้ว');
 
-		if (ttsChannelChanged || ttsEngineChanged || ttsSpamChanged || ttsLengthChanged || ttsAfkChanged || ttsWelcomeChanged || ttsLeaveChanged) {
+		if (ttsChannelChanged || ttsEngineChanged || ttsSpamChanged || ttsLengthChanged || ttsAfkChanged || ttsRoomGreetingChanged || ttsWelcomeChanged || ttsLeaveChanged) {
 			const maxMsgs = tts_antispam_max_messages || 3;
 			const cooldown = tts_antispam_cooldown_seconds || 30;
 			const maxLen = tts_max_length || 200;
-			const ttsDetails = `Channel: ${tts_channel_id ? `<#${tts_channel_id}>` : 'Disabled'} | Engine: ${tts_engine || 'EDGE_TTS'} | Anti-Spam: ${toBool(tts_antispam_enabled) ? `ON (${maxMsgs}m/${cooldown}s)` : 'OFF'} | AFK Bringback: ${toBool(tts_afk_bringback_enabled) ? 'ON' : 'OFF'} | VC Greeting: ${toBool(tts_vc_welcome_enabled) ? 'ON' : 'OFF'} | VC Goodbye: ${toBool(tts_vc_leave_enabled) ? 'ON' : 'OFF'}`;
+			const ttsDetails = `Channel: ${tts_channel_id ? `<#${tts_channel_id}>` : 'Disabled'} | Engine: ${tts_engine || 'EDGE_TTS'} | Anti-Spam: ${toBooleanSetting(tts_antispam_enabled) ? `ON (${maxMsgs}m/${cooldown}s)` : 'OFF'} | AFK Bringback: ${toBooleanSetting(tts_afk_bringback_enabled) ? 'ON' : 'OFF'} | Room Greeting: ${roomGreetingEnabled ? 'ON' : 'OFF'} | VC Greeting: ${toBooleanSetting(tts_vc_welcome_enabled) ? 'ON' : 'OFF'} | VC Goodbye: ${toBooleanSetting(tts_vc_leave_enabled) ? 'ON' : 'OFF'}`;
 			await database.logAuditEvent(guildId, 'VOICE_TTS', uId, uName, ttsDetails, gName);
 		}
 
@@ -1755,7 +1772,14 @@ function toBool(val, defaultVal = true) {
 			await database.logAuditEvent(guildId, 'HONEYPOT', uId, uName, hpDetails, gName);
 		}
 
-		res.json({ success: true, message: 'Configuration saved successfully!' });
+		res.json({
+			success: true,
+			message: 'Configuration saved successfully!',
+			config: {
+				tts_join_greeting_enabled: roomGreetingEnabled,
+				tts_join_greeting_text: roomGreetingText,
+			},
+		});
 	}
 	catch (error) {
 		BotLogs('SYSTEM', `Error updating guild config: ${error.toString()}`);

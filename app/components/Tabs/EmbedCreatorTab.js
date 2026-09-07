@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect.js';
+import { TabActionBar, TabStatus, TabWorkspace } from './TabWorkspace';
 
 export default function EmbedCreatorTab({ currentGuildId, guildId, channels = [], showToast }) {
 	const activeGuildId = currentGuildId || guildId;
@@ -114,17 +116,14 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 	}));
 
 	return (
-		<div>
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-				<div>
-					<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-						Announcement & Rich Embed Creator
-					</h3>
-					<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-						Design and dispatch rich Discord embeds with live preview, author info, thumbnail, custom fields, footer, and timestamp.
-					</p>
-				</div>
-			</div>
+		<TabWorkspace>
+			<TabActionBar actions={(
+				<TabStatus tone={targetChannelId ? 'success' : 'neutral'}>
+					{targetChannelId ? 'Destination selected' : 'Choose a destination'}
+				</TabStatus>
+			)}>
+				<span>{sending ? 'Sending announcement…' : 'Compose on the left and verify the Discord preview before sending.'}</span>
+			</TabActionBar>
 
 			<div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '1.75rem', alignItems: 'start' }}>
 				{/* Form Section */}
@@ -314,8 +313,9 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 												fontSize: '0.85rem',
 											}}
 											title="Remove Field"
+											aria-label={`Remove field ${idx + 1}`}
 										>
-											✕
+											<X size={14} aria-hidden="true" />
 										</button>
 
 										<div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.75rem', marginBottom: '0.5rem' }}>
@@ -577,6 +577,6 @@ export default function EmbedCreatorTab({ currentGuildId, guildId, channels = []
 					</div>
 				</div>
 			</div>
-		</div>
+		</TabWorkspace>
 	);
 }

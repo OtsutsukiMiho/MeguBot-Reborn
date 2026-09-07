@@ -1,22 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, Hash, Search } from 'lucide-react';
+import styles from './customSelect.module.css';
 
 /**
- * CustomSelect - Modern glassmorphic dropdown with color dots, search, and smart auto-upward positioning
- * @param {string|number} value - Selected value
- * @param {function} onChange - Change callback (val, item)
- * @param {Array} options - [{ value, label, color, icon, subtitle, badge }]
- * @param {string} placeholder - Default placeholder text
- * @param {string} type - 'role' | 'channel' | 'member' | 'default'
- * @param {boolean} searchable - Show search input inside dropdown
- * @param {boolean} disabled - Disable input
+ * Searchable single-value select used throughout the server workspace.
+ * Options support: { value, label, color, subtitle, badge, avatar }.
  */
 export default function CustomSelect({
 	value,
 	onChange,
 	options = [],
-	placeholder = 'Select an option...',
+	placeholder = 'Select an option…',
 	type = 'default',
 	searchable = true,
 	disabled = false,
@@ -25,326 +21,162 @@ export default function CustomSelect({
 	const [isOpen, setIsOpen] = useState(false);
 	const [openUpward, setOpenUpward] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
-	const dropdownRef = useRef(null);
+	const rootRef = useRef(null);
+	const triggerRef = useRef(null);
 	const searchInputRef = useRef(null);
+	const listboxId = useId();
 
-	// Smart position calculation on open
 	useEffect(() => {
-		if (isOpen && dropdownRef.current) {
-			const rect = dropdownRef.current.getBoundingClientRect();
-			const spaceBelow = window.innerHeight - rect.bottom;
-			if (spaceBelow < 280 && rect.top > spaceBelow) {
-				setOpenUpward(true);
-			} else {
-				setOpenUpward(false);
-			}
-		}
+		if (!isOpen || !rootRef.current) return;
+		const rect = rootRef.current.getBoundingClientRect();
+		const spaceBelow = window.innerHeight - rect.bottom;
+		setOpenUpward(spaceBelow < 300 && rect.top > spaceBelow);
 	}, [isOpen]);
 
-	// Close when clicking outside
 	useEffect(() => {
-		const handleClickOutside = (e) => {
-			if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-				setIsOpen(false);
-			}
-		};
-		if (isOpen) {
-			document.addEventListener('mousedown', handleClickOutside);
-		}
-		return () => document.removeEventListener('mousedown', handleClickOutside);
-	}, [isOpen]);
-
-	// Auto-focus search input when opening
-	useEffect(() => {
-		if (isOpen && searchable && searchInputRef.current) {
-			searchInputRef.current.focus();
-		}
 		if (!isOpen) {
 			setSearchQuery('');
+			return undefined;
 		}
-	}, [isOpen, searchable]);
 
-	const selectedOption = useMemo(() => {
-		return options.find(opt => String(opt.value) === String(value));
-	}, [options, value]);
+		const handlePointerDown = event => {
+			if (rootRef.current && !rootRef.current.contains(event.target)) setIsOpen(false);
+		};
+		const handleKeyDown = event => {
+			if (event.key !== 'Escape') return;
+			setIsOpen(false);
+			triggerRef.current?.focus();
+		};
+
+		document.addEventListener('mousedown', handlePointerDown);
+		document.addEventListener('keydown', handleKeyDown);
+		return () => {
+			document.removeEventListener('mousedown', handlePointerDown);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [isOpen]);
+
+	useEffect(() => {
+		if (isOpen && searchable && options.length > 5) searchInputRef.current?.focus();
+	}, [isOpen, options.length, searchable]);
+
+	const selectedOption = useMemo(
+		() => options.find(option => String(option.value) === String(value)),
+		[options, value],
+	);
 
 	const filteredOptions = useMemo(() => {
-		if (!searchQuery.trim()) return options;
-		const q = searchQuery.toLowerCase().trim();
-		return options.filter(opt => {
-			const labelMatch = (opt.label || '').toLowerCase().includes(q);
-			const subtitleMatch = (opt.subtitle || '').toLowerCase().includes(q);
-			return labelMatch || subtitleMatch;
+		const query = searchQuery.trim().toLocaleLowerCase();
+		if (!query) return options;
+		return options.filter(option => {
+			const label = String(option.label || '').toLocaleLowerCase();
+			const subtitle = String(option.subtitle || '').toLocaleLowerCase();
+			return label.includes(query) || subtitle.includes(query);
 		});
 	}, [options, searchQuery]);
 
-	const handleSelect = (option) => {
-		if (onChange) onChange(option.value, option);
-		setIsOpen(false);
-	};
-
-	const getOptionColor = (opt) => {
-		if (!opt) return null;
-		if (opt.color && opt.color !== '#000000' && opt.color !== 0) {
-			if (typeof opt.color === 'string' && opt.color.startsWith('#')) return opt.color;
-			if (typeof opt.color === 'number') return '#' + opt.color.toString(16).padStart(6, '0');
-		}
+	function optionColor(option) {
+		if (!option?.color || option.color === '#000000') return null;
+		if (typeof option.color === 'string' && option.color.startsWith('#')) return option.color;
+		if (typeof option.color === 'number') return `#${option.color.toString(16).padStart(6, '0')}`;
 		return null;
-	};
+	}
 
-	const selectedColor = getOptionColor(selectedOption);
+	function selectOption(option) {
+		onChange?.(option.value, option);
+		setIsOpen(false);
+		triggerRef.current?.focus();
+	}
+
+	const selectedColor = optionColor(selectedOption);
 
 	return (
-		<div
-			ref={dropdownRef}
-			style={{
-				position: 'relative',
-				width: '100%',
-				userSelect: 'none',
-				...style,
-			}}
-		>
-			{/* Trigger Button */}
-			<div
-				onClick={() => !disabled && setIsOpen(!isOpen)}
-				style={{
-					display: 'flex',
-					alignItems: 'center',
-					justifyContent: 'space-between',
-					gap: '0.65rem',
-					background: 'var(--surface)',
-					border: isOpen ? '1px solid var(--color-accent)' : '1px solid var(--border-color)',
-					borderRadius: '8px',
-					padding: '0.6rem 0.9rem',
-					cursor: disabled ? 'not-allowed' : 'pointer',
-					opacity: disabled ? 0.6 : 1,
-					transition: 'all 0.15s ease',
-					boxShadow: isOpen ? '0 0 0 3px var(--accent-soft)' : 'none',
-				}}
+		<div ref={rootRef} className={styles.root} style={style}>
+			<button
+				ref={triggerRef}
+				type="button"
+				className={`${styles.trigger} ${isOpen ? styles.triggerOpen : ''}`.trim()}
+				onClick={() => setIsOpen(open => !open)}
+				disabled={disabled}
+				aria-haspopup="listbox"
+				aria-expanded={isOpen}
+				aria-controls={isOpen ? listboxId : undefined}
 			>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+				<span className={styles.triggerValue}>
 					{selectedOption ? (
 						<>
-							{/* Role Color Dot */}
-							{type === 'role' && selectedColor && (
-								<span
-									style={{
-										width: '10px',
-										height: '10px',
-										borderRadius: '50%',
-										background: selectedColor,
-										boxShadow: `0 0 8px ${selectedColor}80`,
-										flexShrink: 0,
-									}}
-								/>
-							)}
-
-							{/* Channel Icon */}
-							{type === 'channel' && (
-								<span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', flexShrink: 0 }}>
-									{selectedOption.icon || '#'}
+							<OptionMark option={selectedOption} type={type} color={selectedColor} />
+							<span className={styles.selectedText}>
+								<span className={styles.selectedLabel} style={type === 'role' && selectedColor ? { color: selectedColor } : undefined}>
+									{selectedOption.label}
 								</span>
-							)}
-
-							{/* Member Avatar */}
-							{type === 'member' && selectedOption.avatar && (
-								<img
-									src={selectedOption.avatar}
-									alt=""
-									style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-								/>
-							)}
-
-							<span
-								style={{
-									fontSize: '0.875rem',
-									fontWeight: 600,
-									color: (type === 'role' && selectedColor) ? selectedColor : 'var(--ink)',
-									whiteSpace: 'nowrap',
-									overflow: 'hidden',
-									textOverflow: 'ellipsis',
-								}}
-							>
-								{selectedOption.label}
+								{selectedOption.subtitle ? <span className={styles.selectedMeta}>{selectedOption.subtitle}</span> : null}
 							</span>
-
-							{selectedOption.subtitle && (
-								<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-									({selectedOption.subtitle})
-								</span>
-							)}
 						</>
 					) : (
-						<span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-							{placeholder}
-						</span>
+						<span className={styles.placeholder}>{placeholder}</span>
 					)}
-				</div>
-
-				{/* Arrow Dropdown Indicator */}
-				<span
-					style={{
-						color: 'var(--text-secondary)',
-						fontSize: '0.75rem',
-						transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-						transition: 'transform 0.2s ease',
-						flexShrink: 0,
-					}}
-				>
-					▼
 				</span>
-			</div>
+				<ChevronDown className={styles.chevron} size={17} aria-hidden="true" />
+			</button>
 
-			{/* Dropdown Menu (Smart Upward or Downward) */}
-			{isOpen && (
-				<div
-					style={{
-						position: 'absolute',
-						top: openUpward ? 'auto' : 'calc(100% + 6px)',
-						bottom: openUpward ? 'calc(100% + 6px)' : 'auto',
-						left: 0,
-						right: 0,
-						background: 'var(--surface)',
-						border: '1px solid var(--border-color)',
-						borderRadius: '10px',
-						boxShadow: '0 16px 36px rgba(22, 24, 31, .28)',
-						zIndex: 9999,
-						overflow: 'hidden',
-						animation: 'fadeIn 0.15s ease-out',
-						display: 'flex',
-						flexDirection: 'column',
-						maxHeight: '260px',
-					}}
-				>
-					{/* Search Bar if enabled */}
-					{searchable && options.length > 5 && (
-						<div style={{ padding: '0.5rem', borderBottom: '1px solid var(--border-color)', background: 'var(--surface-2)' }}>
+			{isOpen ? (
+				<div className={`${styles.menu} ${openUpward ? styles.menuUpward : ''}`.trim()}>
+					{searchable && options.length > 5 ? (
+						<label className={styles.searchField}>
+							<Search size={15} aria-hidden="true" />
+							<span className={styles.srOnly}>Search options</span>
 							<input
 								ref={searchInputRef}
-								type="text"
-								placeholder="Search..."
+								type="search"
 								value={searchQuery}
-								onChange={e => setSearchQuery(e.target.value)}
-								onClick={e => e.stopPropagation()}
-								style={{
-									width: '100%',
-									background: 'var(--sunk)',
-									border: '1px solid var(--border-color)',
-									borderRadius: '6px',
-									padding: '0.4rem 0.65rem',
-									color: 'var(--ink)',
-									fontSize: '0.8rem',
-									outline: 'none',
-								}}
+								onChange={event => setSearchQuery(event.target.value)}
+								placeholder="Search options…"
 							/>
-						</div>
-					)}
+						</label>
+					) : null}
 
-					{/* Options List */}
-					<div style={{ overflowY: 'auto', flex: 1, padding: '0.35rem' }}>
-						{filteredOptions.length === 0 ? (
-							<div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-								No matches found
-							</div>
-						) : (
-							filteredOptions.map((opt) => {
-								const optColor = getOptionColor(opt);
-								const isSelected = String(opt.value) === String(value);
-
-								return (
-									<div
-										key={opt.value}
-										onClick={() => handleSelect(opt)}
-										style={{
-											display: 'flex',
-											alignItems: 'center',
-											justifyContent: 'space-between',
-											gap: '0.65rem',
-											padding: '0.5rem 0.75rem',
-											borderRadius: '6px',
-											cursor: 'pointer',
-											background: isSelected ? 'var(--accent-soft)' : 'transparent',
-											transition: 'background 0.12s ease',
-										}}
-										onMouseEnter={e => {
-											if (!isSelected) e.currentTarget.style.background = 'var(--sunk)';
-										}}
-										onMouseLeave={e => {
-											if (!isSelected) e.currentTarget.style.background = 'transparent';
-										}}
-									>
-										<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0, flex: 1 }}>
-											{/* Role Color Dot */}
-											{type === 'role' && (
-												<span
-													style={{
-														width: '8px',
-														height: '8px',
-														borderRadius: '50%',
-														background: optColor || 'var(--accent)',
-														boxShadow: optColor ? `0 0 6px ${optColor}80` : 'none',
-														flexShrink: 0,
-													}}
-												/>
-											)}
-
-											{/* Channel Icon */}
-											{type === 'channel' && (
-												<span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', flexShrink: 0 }}>
-													{opt.icon || '#'}
-												</span>
-											)}
-
-											{/* Member Avatar */}
-											{type === 'member' && opt.avatar && (
-												<img
-													src={opt.avatar}
-													alt=""
-													style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-												/>
-											)}
-
-											<span
-												style={{
-													fontSize: '0.85rem',
-													fontWeight: isSelected ? 700 : 500,
-													color: (type === 'role' && optColor) ? optColor : (isSelected ? 'var(--ink)' : 'var(--text-primary)'),
-													whiteSpace: 'nowrap',
-													overflow: 'hidden',
-													textOverflow: 'ellipsis',
-												}}
-											>
-												{opt.label}
-											</span>
-
-											{opt.subtitle && (
-												<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-													{opt.subtitle}
-												</span>
-											)}
-										</div>
-
-										{opt.badge && (
-											<span
-												style={{
-													fontSize: '0.7rem',
-													padding: '0.1rem 0.4rem',
-													borderRadius: '4px',
-													background: 'var(--sunk)',
-													color: 'var(--text-secondary)',
-													flexShrink: 0,
-												}}
-											>
-												{opt.badge}
-											</span>
-										)}
-									</div>
-								);
-							})
+					<div id={listboxId} className={styles.options} role="listbox" tabIndex="-1">
+						{filteredOptions.length ? filteredOptions.map(option => {
+							const color = optionColor(option);
+							const isSelected = String(option.value) === String(value);
+							return (
+								<button
+									key={option.value}
+									type="button"
+									className={`${styles.option} ${isSelected ? styles.optionSelected : ''}`.trim()}
+									onClick={() => selectOption(option)}
+									role="option"
+									aria-selected={isSelected}
+								>
+									<OptionMark option={option} type={type} color={color} />
+									<span className={styles.optionCopy}>
+										<span className={styles.optionLabel} style={type === 'role' && color ? { color } : undefined}>{option.label}</span>
+										{option.subtitle ? <span className={styles.optionSubtitle}>{option.subtitle}</span> : null}
+									</span>
+									{option.badge ? <span className={styles.badge}>{option.badge}</span> : null}
+									{isSelected ? <Check className={styles.check} size={16} aria-hidden="true" /> : null}
+								</button>
+							);
+						}) : (
+							<p className={styles.empty}>No matching options</p>
 						)}
 					</div>
 				</div>
-			)}
+			) : null}
 		</div>
 	);
+}
+
+function OptionMark({ option, type, color }) {
+	if (type === 'member' && option.avatar) {
+		return <img className={styles.avatar} src={option.avatar} alt="" />;
+	}
+	if (type === 'role') {
+		return <span className={styles.colorDot} style={{ background: color || 'var(--accent)' }} aria-hidden="true" />;
+	}
+	if (type === 'channel') {
+		return <Hash className={styles.channelIcon} size={15} aria-hidden="true" />;
+	}
+	return null;
 }

@@ -1,6 +1,9 @@
 'use client';
 
 import CustomSelect from '../CustomSelect';
+import { TabActionBar, TabChoice, TabFieldGrid, TabStatus, TabWorkspace } from './TabWorkspace';
+
+const DEFAULT_ROOM_GREETING = 'สวัสดีชาวโลก';
 
 export default function VoiceTtsTab({ config, channels = [], onChange }) {
 	const voices = [
@@ -21,31 +24,36 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 	};
 
 	const isGoogleTts = config.tts_engine === 'GOOGLE_TTS';
+	const roomGreeting = config.tts_join_greeting_text !== undefined ? config.tts_join_greeting_text : DEFAULT_ROOM_GREETING;
+
+	const appendRoomGreetingToken = token => {
+		onChange('tts_join_greeting_text', `${roomGreeting}${roomGreeting.endsWith(' ') ? '' : ' '}${token}`);
+	};
 
 	const channelOptions = [
-		{ value: '', label: 'Disabled / None', icon: '✕' },
+		{ value: '', label: 'Disabled / None' },
 		...channels.map(c => ({
 			value: c.id,
 			label: `# ${c.name}`,
-			icon: c.type === 2 ? '🔊' : '#',
 			subtitle: c.parentName,
 		})),
 	];
 
 	const voiceOptions = voices.map(v => ({
 		value: v.id,
-		label: `${v.flag} ${v.name}`,
+		label: v.name,
 		subtitle: `Language: ${v.lang.toUpperCase()}`,
 	}));
 
 	return (
-		<div>
-			<h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.25rem' }}>
-				Voice Text-to-Speech Suite
-			</h3>
-			<p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.75rem' }}>
-				Configure dedicated Voice TTS channels, speech engines, member rate limiting, AFK auto bring-back, and VC greetings.
-			</p>
+		<TabWorkspace>
+			<TabActionBar actions={(
+				<TabStatus tone={config.tts_channel_id ? 'success' : 'neutral'}>
+					{config.tts_channel_id ? 'Channel connected' : 'Channel not set'}
+				</TabStatus>
+			)}>
+				<span>{isGoogleTts ? 'Google Translate engine' : 'Microsoft Edge neural engine'}</span>
+			</TabActionBar>
 
 			{/* Channel Selector */}
 			<div className="form-group" style={{ marginBottom: '1.5rem' }}>
@@ -64,55 +72,26 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.75rem', color: 'var(--ink)' }}>
 					TTS Speech Engine
 				</div>
-				<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-					<label
-						style={{
-							display: 'flex',
-							alignItems: 'center',
-							gap: '0.75rem',
-							padding: '0.85rem 1rem',
-							borderRadius: '8px',
-							border: !isGoogleTts ? '1px solid var(--color-accent)' : '1px solid var(--border-color)',
-							background: !isGoogleTts ? 'var(--accent-soft)' : 'transparent',
-							cursor: 'pointer',
-						}}
-					>
-						<input
-							type="radio"
-							name="tts_engine"
-							checked={!isGoogleTts}
-							onChange={() => onChange('tts_engine', 'EDGE_TTS')}
-						/>
-						<div>
-							<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Microsoft Edge Neural TTS</div>
-							<div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ultra-natural voices (Thai, English, Japanese, etc.)</div>
-						</div>
-					</label>
-
-					<label
-						style={{
-							display: 'flex',
-							alignItems: 'center',
-							gap: '0.75rem',
-							padding: '0.85rem 1rem',
-							borderRadius: '8px',
-							border: isGoogleTts ? '1px solid var(--color-accent)' : '1px solid var(--border-color)',
-							background: isGoogleTts ? 'var(--accent-soft)' : 'transparent',
-							cursor: 'pointer',
-						}}
-					>
-						<input
-							type="radio"
-							name="tts_engine"
-							checked={isGoogleTts}
-							onChange={() => onChange('tts_engine', 'GOOGLE_TTS')}
-						/>
-						<div>
-							<div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink)' }}>Google Translate TTS</div>
-							<div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Standard TTS Engine</div>
-						</div>
-					</label>
-				</div>
+				<TabFieldGrid>
+					<TabChoice
+						type="radio"
+						name="tts_engine"
+						value="EDGE_TTS"
+						checked={!isGoogleTts}
+						onChange={() => onChange('tts_engine', 'EDGE_TTS')}
+						label="Microsoft Edge Neural TTS"
+						description="Natural voice models across Thai, English, Japanese, and more."
+					/>
+					<TabChoice
+						type="radio"
+						name="tts_engine"
+						value="GOOGLE_TTS"
+						checked={isGoogleTts}
+						onChange={() => onChange('tts_engine', 'GOOGLE_TTS')}
+						label="Google Translate TTS"
+						description="Use the standard Google Translate speech engine."
+					/>
+				</TabFieldGrid>
 			</div>
 
 			{/* Voice & Language Selection */}
@@ -193,8 +172,47 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 				</div>
 
 				<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+					{/* One greeting when Megu first joins an occupied room */}
+					<div>
+						<label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', marginBottom: config.tts_join_greeting_enabled ? '0.9rem' : 0 }}>
+							<input
+								type="checkbox"
+								checked={config.tts_join_greeting_enabled === true}
+								onChange={event => onChange('tts_join_greeting_enabled', event.target.checked)}
+								style={{ width: '18px', height: '18px', marginTop: '2px' }}
+							/>
+							<span>
+								<strong style={{ display: 'block', fontSize: '0.875rem', color: 'var(--ink)' }}>Greet the room when Megu joins</strong>
+								<span style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.78rem', lineHeight: 1.55, color: 'var(--text-secondary)' }}>
+									Spoken once when Megu joins an active voice channel. The greeting becomes ready again after that channel has no human members.
+								</span>
+							</span>
+						</label>
+
+						{config.tts_join_greeting_enabled === true && (
+							<div style={{ marginLeft: '1.75rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+								<label className="form-label" htmlFor="room-greeting-text">Room greeting</label>
+								<input
+									id="room-greeting-text"
+									type="text"
+									className="form-control"
+									value={roomGreeting}
+									onChange={event => onChange('tts_join_greeting_text', event.target.value)}
+									maxLength={300}
+									placeholder={DEFAULT_ROOM_GREETING}
+								/>
+								<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+									<div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }} aria-label="Greeting placeholders">
+										<button type="button" className="btn btn-secondary btn-sm" onClick={() => appendRoomGreetingToken('{server}')}>{'{server}'}</button>
+										<button type="button" className="btn btn-secondary btn-sm" onClick={() => appendRoomGreetingToken('{channel}')}>{'{channel}'}</button>
+									</div>
+								</div>
+							</div>
+						)}
+					</div>
+
 					{/* AFK Bringback Toggle */}
-					<label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer' }}>
+					<label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
 						<input
 							type="checkbox"
 							checked={config.tts_afk_bringback_enabled !== false}
@@ -251,7 +269,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 										{'{server}'}
 									</span>
 								</div>
-								<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+								<span style={{ display: 'block', marginTop: '0.45rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
 									Spoken when a member joins the voice channel.
 								</span>
 							</div>
@@ -298,7 +316,7 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 										{'{server}'}
 									</span>
 								</div>
-								<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+								<span style={{ display: 'block', marginTop: '0.45rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
 									Spoken when a member disconnects from the voice channel.
 								</span>
 							</div>
@@ -334,6 +352,6 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 					</span>
 				</label>
 			</div>
-		</div>
+		</TabWorkspace>
 	);
 }
