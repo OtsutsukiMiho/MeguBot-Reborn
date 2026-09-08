@@ -35,40 +35,44 @@ for (const file of ['AudioQueueTab.js', 'PersonalSettingsTab.js', 'ReactionRoles
 	assert.match(source, /<TabConfirmDialog(?:\s|>)/, `${file} must protect destructive actions with an accessible dialog`);
 }
 
-for (const file of ['AudioQueueTab.js', 'MemberManagerTab.js', 'NicknameManagerTab.js', 'PersonalSettingsTab.js', 'RoleManagerTab.js']) {
+for (const file of ['AudioQueueTab.js', 'MemberManagerTab.js', 'PersonalSettingsTab.js', 'RoleManagerTab.js']) {
 	const source = fs.readFileSync(path.join(tabsDir, file), 'utf8');
-	assert.match(source, /<TabModalLayer(?:\s|>)/, `${file} modals must render against the viewport`);
+	assert.match(source, /<TabDialog(?:\s|>)/, `${file} editors must use the shared accessible dialog`);
 	assert.doesNotMatch(source, /position:\s*['"]fixed['"]/, `${file} must not trap a modal inside its tab panel`);
 }
 
 for (const file of ['MemberManagerTab.js', 'NicknameManagerTab.js']) {
 	const source = fs.readFileSync(path.join(tabsDir, file), 'utf8');
-	assert.match(source, /<TabMemberCard(?:\s|>)/, `${file} must use the shared banner-aware member card`);
+	assert.match(source, /<TabTable(?:\s|>)/, `${file} must preserve comparable member rows`);
+	assert.match(source, /setPage\(1\)/, `${file} filters must reset pagination`);
+	assert.match(source, /mobileRecords/, `${file} must become labeled records on narrow screens`);
+	assert.match(source, /data-label=/, `${file} mobile records must retain localized column labels`);
 }
 
 const roleManagerSource = fs.readFileSync(path.join(tabsDir, 'RoleManagerTab.js'), 'utf8');
 assert.match(roleManagerSource, /const PAGE_SIZES = \[10, 30, 50, 100\]/, 'Role Manager must offer the requested page sizes');
-assert.match(roleManagerSource, /paginatedRoles\.map/, 'Role Manager must only render the active page');
-assert.match(roleManagerSource, /Roles per page/, 'Role Manager must label its page-size control');
+assert.match(roleManagerSource, /visibleRoles\.map/, 'Role Manager must only render the active page');
+assert.match(roleManagerSource, /copy\.pageSize/, 'Role Manager must localize its page-size control');
 
 const selectSource = fs.readFileSync(path.join(root, 'app', 'components', 'CustomSelect.js'), 'utf8');
 assert.match(selectSource, /aria-haspopup="listbox"/, 'CustomSelect must identify its popup');
 assert.match(selectSource, /aria-expanded=\{isOpen\}/, 'CustomSelect must expose open state');
 assert.match(selectSource, /role="option"/, 'CustomSelect options must be keyboard-operable controls');
 assert.match(selectSource, /<ChevronDown/, 'CustomSelect must use the established icon library');
+assert.match(selectSource, /aria-label=\{ariaLabel \|\| resolvedPlaceholder\}/, 'CustomSelect must accept an accessible label from its field and provide a localized fallback');
+assert.match(selectSource, /aria-describedby=\{ariaDescribedBy\}/, 'CustomSelect must connect field-level guidance and errors');
 
 const workspaceCss = fs.readFileSync(path.join(tabsDir, 'tabWorkspace.module.css'), 'utf8');
 assert.match(workspaceCss, /@media \(max-width: 760px\)/, 'Tab workspace must include a structural mobile layout');
 assert.match(workspaceCss, /@media \(prefers-reduced-motion: reduce\)/, 'Tab workspace must respect reduced motion');
 assert.match(workspaceCss, /:focus-visible/, 'Tab workspace must preserve visible keyboard focus');
-assert.match(workspaceCss, /backdrop-filter:\s*blur\(/, 'Modal backdrops must blur the page behind them');
+assert.doesNotMatch(workspaceCss, /backdrop-filter:\s*blur\(/, 'Modal backdrops must avoid expensive decorative blur');
 assert.match(workspaceCss, /background:\s*rgba\(13, 15, 21, 0\.64\)/, 'Modal backdrops must use a neutral grey scrim');
 
 const workspaceSource = fs.readFileSync(path.join(tabsDir, 'TabWorkspace.js'), 'utf8');
 assert.match(workspaceSource, /setPortalRoot\(document\.body\)/, 'Shared dialogs must target the document root');
 assert.match(workspaceSource, /return createPortal\(/, 'Shared dialogs must render through a portal');
 assert.match(workspaceSource, /export function TabModalLayer/, 'Legacy tab modals must share the viewport portal layer');
-assert.match(workspaceSource, /member\?\.banner/, 'Member cards must render Discord profile banners when available');
 
 const voiceTtsSource = fs.readFileSync(path.join(tabsDir, 'VoiceTtsTab.js'), 'utf8');
 assert.match(voiceTtsSource, /tts_join_greeting_enabled/, 'Voice automation must expose the first-join room greeting');
@@ -92,9 +96,10 @@ assert.match(workspaceSource, /if \(!open \|\| !portalRoot\) return undefined/, 
 const serverCss = fs.readFileSync(path.join(root, 'app', 'servers', 'servers.module.css'), 'utf8');
 const contentAnimation = serverCss.match(/@keyframes contentIn\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.doesNotMatch(contentAnimation, /transform\s*:/, 'The tab entrance animation must not trap fixed modals inside the tab panel');
-assert.match(serverCss, /\.heroStatus \.readyBadge\s*\{[\s\S]*?background:\s*var\(--settled-soft\)/, 'Connected server state must use a visible success treatment');
-assert.match(serverCss, /\.serverFacts dt\s*\{[^}]*font-size:\s*clamp\(\.72rem/, 'Server fact labels must remain readable');
-assert.match(serverCss, /\.serverFacts dd\s*\{[^}]*font-size:\s*clamp\(1\.05rem/, 'Server fact values must have clear hierarchy');
+assert.match(serverCss, /\.serverContext\s*\{[\s\S]*?min-height:\s*4\.75rem/, 'The server workspace must use the compact context bar');
+assert.doesNotMatch(serverCss, /\.serverHero\s*\{/, 'The retired decorative server hero must not remain in the workspace stylesheet');
+assert.doesNotMatch(serverCss, /\.serverFacts\s*\{/, 'Secondary server facts must live in the compact details disclosure');
+assert.match(serverCss, /\.navGroup button\.activeTool\s*\{[\s\S]*?box-shadow:\s*inset 2px 0 0 var\(--accent\)/, 'The active tool must use a non-color-only edge marker');
 for (const actionClass of ['cardActionInvite', 'cardActionWorkspace', 'cardActionPersonal']) {
 	assert.match(serverCss, new RegExp(`\\.${actionClass}\\s*\\{`), `Server cards must style ${actionClass} distinctly`);
 }
@@ -103,5 +108,28 @@ const serversPageSource = fs.readFileSync(path.join(root, 'app', 'servers', 'pag
 assert.match(serversPageSource, /styles\.cardActionInvite/, 'Invite actions must use their semantic treatment');
 assert.match(serversPageSource, /styles\.cardActionWorkspace/, 'Workspace actions must use their semantic treatment');
 assert.match(serversPageSource, /styles\.cardActionPersonal/, 'Personal settings actions must use their semantic treatment');
+
+assert.doesNotMatch(configPageSource, /(?:window\.)?confirm\s*\(/, 'Server departure must use an accessible in-document dialog');
+assert.match(configPageSource, /<TabDialog/, 'Server departure must render through the shared dialog system');
+assert.match(configPageSource, /id: 'reactionroles', group: 'community'/, 'Reaction roles must be grouped with community role assignment');
+assert.match(configPageSource, /id: 'members', group: 'people'/, 'People management must have its own predictable navigation group');
+assert.match(configPageSource, /reaction_roles: nextConfig\.reaction_roles \?\? previous\.reaction_roles/, 'Operational refreshes must preserve staged configuration while refreshing reaction roles');
+assert.match(configPageSource, /failed\.length < settled\.length/, 'Two-scope saves must report partial failure instead of false success');
+assert.match(configPageSource, /affectedTools=\{dirtyToolLabels\}/, 'The save region must identify which server tools have pending changes');
+assert.doesNotMatch(configPageSource, /isDirty && activeTab !== 'personal'/, 'Pending server changes must remain visible from Personal Settings');
+assert.match(configPageSource, /departureDirty/, 'Server departure must guard both server settings and independent editor drafts');
+assert.match(configPageSource, /pendingToolNavigation/, 'Volatile inline editors must guard tool switches before discarding work');
+
+const welcomeSource = fs.readFileSync(path.join(tabsDir, 'WelcomeTab.js'), 'utf8');
+const welcomeCss = fs.readFileSync(path.join(tabsDir, 'WelcomeTab.module.css'), 'utf8');
+assert.match(welcomeSource, /<TabLocalTabs/, 'Welcome and Goodbye must reuse the shared keyboard-accessible local tabs');
+assert.match(welcomeSource, /setSelectionRange\(caret, caret\)/, 'Message variables must insert at the editor caret and restore focus');
+assert.doesNotMatch(welcomeSource, /dangerouslySetInnerHTML/, 'Local message previews must not inject editable content as HTML');
+assert.match(welcomeCss, /grid-template-columns:\s*minmax\(0, 1\.05fr\) minmax\(18rem, \.95fr\)/, 'Welcome editing and its local preview must share the desktop workspace');
+assert.match(welcomeCss, /@media \(max-width: 1023px\)/, 'The Welcome preview must stack before the workspace becomes cramped');
+
+const embedSource = fs.readFileSync(path.join(tabsDir, 'EmbedCreatorTab.js'), 'utf8');
+assert.match(embedSource, /totalCharacters > 6000/, 'Embed submission must enforce Discord’s verified aggregate text limit');
+assert.match(embedSource, /deliveryUnknown/, 'Ambiguous embed delivery must remain distinct from a confirmed rejection');
 
 console.log(`server tabs UI: ${expectedTabs.length} tools share one responsive, accessible workspace`);

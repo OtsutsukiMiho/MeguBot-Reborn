@@ -1,22 +1,28 @@
 .saveBar {
 	position: fixed;
-	left: 50%;
+	left: calc(50% + 8.5rem);
 	bottom: 1.15rem;
 	z-index: 90;
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
 	gap: .8rem;
-	width: min(46rem, calc(100vw - 2rem));
+	width: min(52rem, calc(100vw - 19rem));
 	padding: .78rem .85rem;
 	border: 1px solid var(--line-2);
 	border-radius: .9rem;
-	background: color-mix(in srgb, var(--surface) 94%, transparent);
-	-webkit-backdrop-filter: blur(16px);
-	backdrop-filter: blur(16px);
+	background: var(--surface);
 	box-shadow: 0 1rem 3rem color-mix(in srgb, var(--shadow) 22%, transparent);
 	transform: translateX(-50%);
 	animation: arrive .28s var(--ease) both;
+}
+
+.saveBarError {
+	border-color: color-mix(in srgb, var(--due) 45%, var(--line));
+}
+
+.errorIcon {
+	color: var(--due);
 }
 
 .changeDot {
@@ -85,6 +91,10 @@
 	.saveBar { grid-template-columns: auto minmax(0, 1fr); }
 	.actions { grid-column: 1 / -1; }
 	.actions button { flex: 1; }
+}
+
+@media (max-width: 1023px) {
+	.saveBar { left: 50%; width: min(46rem, calc(100vw - 2rem)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

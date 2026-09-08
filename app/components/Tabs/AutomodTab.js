@@ -1,91 +1,80 @@
 'use client';
 
-import CustomSelect from '../CustomSelect.js';
-import { TabChoice, TabFieldGrid, TabSection, TabStatus, TabWorkspace } from './TabWorkspace';
+import { useEffect, useRef, useState } from 'react';
+import CustomSelect from '../CustomSelect';
+import { useCopy } from '../../copy';
+import { TabActionBar, TabFieldMessage, TabNotice, TabSection, TabSettingRow, TabSettingsList, TabStatus, TabSwitch, TabWorkspace } from './TabWorkspace';
 
 export default function AutomodTab({ automod, onChange }) {
-	const badwordsText = Array.isArray(automod.badwords_list)
-		? automod.badwords_list.join(', ')
-		: (automod.badwords_list || '');
-	const activeRuleCount = [
-		automod.antispam_enabled,
-		automod.antiinvite_enabled,
-		automod.badwords_enabled,
-		automod.mention_spam_enabled,
-	].filter(Boolean).length;
+	const { t } = useCopy();
+	const copy = t.serverTabs.automod;
+	const normalizedBadwords = Array.isArray(automod.badwords_list) ? automod.badwords_list.join(', ') : (automod.badwords_list || '');
+	const [badwordsText, setBadwordsText] = useState(normalizedBadwords);
+	const editingBadwords = useRef(false);
+	const rules = [
+		['antispam_enabled', copy.spam, copy.spamHelp],
+		['antiinvite_enabled', copy.invite, copy.inviteHelp],
+		['badwords_enabled', copy.words, copy.wordsHelp],
+		['mention_spam_enabled', copy.mentions, copy.mentionsHelp],
+	];
+	const activeRuleCount = rules.filter(([key]) => automod[key]).length;
+
+	useEffect(() => {
+		if (!editingBadwords.current) setBadwordsText(normalizedBadwords);
+	}, [normalizedBadwords]);
+
+	const updateBadwords = value => {
+		setBadwordsText(value);
+		onChange('badwords_list', value.split(',').map(item => item.trim()).filter(Boolean));
+	};
 
 	return (
 		<TabWorkspace>
-			<TabSection
-				title="Violation response"
-				description="Choose what Megu should do after a message matches any enabled protection rule."
-				meta={<TabStatus tone={activeRuleCount ? 'success' : 'neutral'}>{activeRuleCount} of 4 rules active</TabStatus>}
-			>
-				<div className="form-group">
-					<label className="form-label">Action after a violation</label>
+			<TabActionBar actions={<TabStatus tone={activeRuleCount ? 'success' : 'neutral'}>{copy.enabled(activeRuleCount)}</TabStatus>}>
+				<span>{copy.scope}</span>
+			</TabActionBar>
+
+			<TabSection title={copy.rulesTitle} description={copy.rulesDescription}>
+				<TabSettingsList>
+					{rules.map(([key, label, description]) => (
+						<TabSettingRow key={key} label={label} description={description} control={<TabSwitch checked={!!automod[key]} onChange={event => onChange(key, event.target.checked)} label={label} />} />
+					))}
+					{automod.badwords_enabled ? (
+						<TabSettingRow label={copy.blockList} description={copy.blockListHelp} stacked>
+							<textarea
+								id="automod-blocked-words"
+								className="form-control"
+								aria-label={copy.blockList}
+								value={badwordsText}
+								onFocus={() => { editingBadwords.current = true; }}
+								onBlur={() => { editingBadwords.current = false; setBadwordsText(Array.isArray(automod.badwords_list) ? automod.badwords_list.join(', ') : (automod.badwords_list || '')); }}
+								onChange={event => updateBadwords(event.target.value)}
+								placeholder={copy.blockListPlaceholder}
+								aria-describedby="automod-blocked-words-help"
+							/>
+							<TabFieldMessage id="automod-blocked-words-help">{copy.blockListHelp}</TabFieldMessage>
+						</TabSettingRow>
+					) : null}
+				</TabSettingsList>
+			</TabSection>
+
+			<TabSection title={copy.responseTitle} description={copy.responseDescription}>
+				<TabSettingRow label={copy.responseLabel}>
 					<CustomSelect
+						ariaLabel={copy.responseLabel}
 						value={automod.action || 'delete'}
 						onChange={value => onChange('action', value)}
 						options={[
-							{ value: 'delete', label: 'Delete message only', subtitle: 'Remove the matching message immediately' },
-							{ value: 'warn', label: 'Delete and warn', subtitle: 'Remove the message and warn the member' },
-							{ value: 'kick', label: 'Kick member', subtitle: 'Remove the member from this server' },
-							{ value: 'ban', label: 'Ban member', subtitle: 'Permanently ban the member' },
+							{ value: 'delete', label: copy.deleteMessage },
+							{ value: 'warn', label: copy.warnMember },
+							{ value: 'kick', label: copy.kickMember },
+							{ value: 'ban', label: copy.banMember },
 						]}
 						searchable={false}
 					/>
-				</div>
+				</TabSettingRow>
+				{['kick', 'ban'].includes(automod.action) ? <TabNotice tone="warning" title={copy.responseLabel}><p>{copy.consequence}</p></TabNotice> : null}
 			</TabSection>
-
-			<TabSection
-				title="Protection rules"
-				description="Enable only the checks this community needs. Changes are saved with the server settings."
-			>
-				<TabFieldGrid>
-					<TabChoice
-						checked={!!automod.antispam_enabled}
-						onChange={event => onChange('antispam_enabled', event.target.checked)}
-						label="Rapid message spam"
-						description="Detect repeated messages sent in a short period."
-					/>
-					<TabChoice
-						checked={!!automod.antiinvite_enabled}
-						onChange={event => onChange('antiinvite_enabled', event.target.checked)}
-						label="Unauthorized invites"
-						description="Block discord.gg invitation links."
-					/>
-					<TabChoice
-						checked={!!automod.badwords_enabled}
-						onChange={event => onChange('badwords_enabled', event.target.checked)}
-						label="Blocked words and phrases"
-						description="Match messages against your custom block list."
-					/>
-					<TabChoice
-						checked={!!automod.mention_spam_enabled}
-						onChange={event => onChange('mention_spam_enabled', event.target.checked)}
-						label="Mass mentions"
-						description="Block messages that mention more than five members."
-					/>
-				</TabFieldGrid>
-			</TabSection>
-
-			{automod.badwords_enabled ? (
-				<TabSection
-					title="Block list"
-					description="Separate entries with commas. Matching is handled by the existing moderation rules."
-				>
-					<div className="form-group">
-						<label className="form-label" htmlFor="automod-blocked-words">Words or phrases</label>
-						<textarea
-							id="automod-blocked-words"
-							className="form-control"
-							value={badwordsText}
-							onChange={event => onChange('badwords_list', event.target.value.split(',').map(value => value.trim()).filter(Boolean))}
-							placeholder="blocked phrase, another phrase"
-						/>
-					</div>
-				</TabSection>
-			) : null}
 		</TabWorkspace>
 	);
 }

@@ -110,7 +110,7 @@ export default function Navbar() {
 	return (
 		<nav className={`navbar${overBand ? ' is-over-band' : ''}`}>
 			<div className="navbar-inner">
-				<Link href="/" className="nav-brand">
+				<Link href="/" className="nav-brand" aria-label="Megu">
 					<MeguMark size={34} />
 					<span className="brand-megubot">Megu</span>
 				</Link>
@@ -136,7 +136,7 @@ export default function Navbar() {
 					)}
 				</div>
 
-				<div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+				<div className="nav-actions">
 					<div className="lang-switch" role="group" aria-label="Language">
 						{LANGS.map(l => (
 							<button

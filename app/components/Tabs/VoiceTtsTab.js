@@ -1,357 +1,91 @@
 'use client';
 
 import CustomSelect from '../CustomSelect';
-import { TabActionBar, TabChoice, TabFieldGrid, TabStatus, TabWorkspace } from './TabWorkspace';
+import { useCopy } from '../../copy';
+import { TabActionBar, TabFieldMessage, TabInlineActions, TabSection, TabSegmented, TabSettingRow, TabSettingsList, TabStatus, TabSwitch, TabWorkspace } from './TabWorkspace';
 
 const DEFAULT_ROOM_GREETING = 'สวัสดีชาวโลก';
+const DEFAULT_JOIN_MESSAGE = '{username} เข้าดิสมา';
+const DEFAULT_LEAVE_MESSAGE = '{username} ออกจากดิสแล้ว';
+const MESSAGE_VARIABLES = ['{displayname}', '{username}', '{nickname}', '{tag}', '{server}'];
+const VOICES = [
+	{ id: 'th-TH-NiwatNeural', labelKey: 'thaiMale', lang: 'th' },
+	{ id: 'th-TH-PremwadeeNeural', labelKey: 'thaiFemale', lang: 'th' },
+	{ id: 'en-US-JennyNeural', labelKey: 'englishFemale', lang: 'en' },
+	{ id: 'en-US-ChristopherNeural', labelKey: 'englishMale', lang: 'en' },
+	{ id: 'ja-JP-NanamiNeural', labelKey: 'japaneseFemale', lang: 'ja' },
+	{ id: 'ko-KR-SunHiNeural', labelKey: 'koreanFemale', lang: 'ko' },
+];
 
 export default function VoiceTtsTab({ config, channels = [], onChange }) {
-	const voices = [
-		{ id: 'th-TH-NiwatNeural', name: 'Thai Male (Niwat Neural)', lang: 'th', flag: '🇹🇭' },
-		{ id: 'th-TH-PremwadeeNeural', name: 'Thai Female (Premwadee Neural)', lang: 'th', flag: '🇹🇭' },
-		{ id: 'en-US-JennyNeural', name: 'English Female (Jenny Neural)', lang: 'en', flag: '🇺🇸' },
-		{ id: 'en-US-ChristopherNeural', name: 'English Male (Christopher Neural)', lang: 'en', flag: '🇺🇸' },
-		{ id: 'ja-JP-NanamiNeural', name: 'Japanese Female (Nanami Neural)', lang: 'ja', flag: '🇯🇵' },
-		{ id: 'ko-KR-SunHiNeural', name: 'Korean Female (SunHi Neural)', lang: 'ko', flag: '🇰🇷' },
-	];
+	const { t } = useCopy();
+	const copy = t.serverTabs.tts;
+	const shared = t.serverTabs.shared;
+	const isGoogle = config.tts_engine === 'GOOGLE_TTS';
+	const roomGreeting = config.tts_join_greeting_text ?? DEFAULT_ROOM_GREETING;
+	const joinTemplate = config.tts_vc_welcome_template ?? DEFAULT_JOIN_MESSAGE;
+	const leaveTemplate = config.tts_vc_leave_template ?? DEFAULT_LEAVE_MESSAGE;
+	const channelOptions = [{ value: '', label: copy.disabled }, ...channels.map(channel => ({ value: channel.id, label: `# ${channel.name}`, subtitle: channel.parentName }))];
+	const voiceOptions = VOICES.map(voice => ({ value: voice.id, label: copy.voices[voice.labelKey], subtitle: voice.lang.toUpperCase() }));
 
-	const handleVoiceChange = (vId) => {
-		const selected = voices.find(v => v.id === vId);
-		onChange('tts_voice', vId);
-		if (selected) {
-			onChange('tts_lang', selected.lang);
-		}
+	const changeVoice = value => {
+		const voice = VOICES.find(option => option.id === value);
+		onChange('tts_voice', value);
+		if (voice) onChange('tts_lang', voice.lang);
 	};
-
-	const isGoogleTts = config.tts_engine === 'GOOGLE_TTS';
-	const roomGreeting = config.tts_join_greeting_text !== undefined ? config.tts_join_greeting_text : DEFAULT_ROOM_GREETING;
-
-	const appendRoomGreetingToken = token => {
-		onChange('tts_join_greeting_text', `${roomGreeting}${roomGreeting.endsWith(' ') ? '' : ' '}${token}`);
-	};
-
-	const channelOptions = [
-		{ value: '', label: 'Disabled / None' },
-		...channels.map(c => ({
-			value: c.id,
-			label: `# ${c.name}`,
-			subtitle: c.parentName,
-		})),
-	];
-
-	const voiceOptions = voices.map(v => ({
-		value: v.id,
-		label: v.name,
-		subtitle: `Language: ${v.lang.toUpperCase()}`,
-	}));
+	const append = (key, current, token) => onChange(key, `${current}${current.endsWith(' ') ? '' : ' '}${token}`);
+	const variableButtons = (key, current, variables = MESSAGE_VARIABLES) => (
+		<TabInlineActions align="start">
+			{variables.map(token => <button key={token} type="button" className="btn btn-secondary btn-sm" onClick={() => append(key, current, token)}>{token}</button>)}
+		</TabInlineActions>
+	);
 
 	return (
 		<TabWorkspace>
-			<TabActionBar actions={(
-				<TabStatus tone={config.tts_channel_id ? 'success' : 'neutral'}>
-					{config.tts_channel_id ? 'Channel connected' : 'Channel not set'}
-				</TabStatus>
-			)}>
-				<span>{isGoogleTts ? 'Google Translate engine' : 'Microsoft Edge neural engine'}</span>
+			<TabActionBar actions={<TabStatus tone={config.tts_channel_id ? 'success' : 'neutral'}>{config.tts_channel_id ? copy.active || copy.channelLabel : copy.disabled}</TabStatus>}>
+				<span>{copy.scope}</span>
 			</TabActionBar>
 
-			{/* Channel Selector */}
-			<div className="form-group" style={{ marginBottom: '1.5rem' }}>
-				<label className="form-label">TTS Dedicated Text Channel</label>
-				<CustomSelect
-					type="channel"
-					placeholder="Select a text channel for TTS..."
-					value={config.tts_channel_id || ''}
-					onChange={val => onChange('tts_channel_id', val || null)}
-					options={channelOptions}
-				/>
-			</div>
+			<TabSection title={copy.destinationTitle} description={copy.destinationDescription}>
+				<TabSettingRow label={copy.channelLabel}>
+					<CustomSelect type="channel" ariaLabel={copy.channelLabel} placeholder={copy.channelPlaceholder} value={config.tts_channel_id || ''} onChange={value => onChange('tts_channel_id', value || null)} options={channelOptions} unavailableLabel={shared.unavailableChannel(config.tts_channel_id)} />
+				</TabSettingRow>
+			</TabSection>
 
-			{/* Engine Selection */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.75rem', color: 'var(--ink)' }}>
-					TTS Speech Engine
-				</div>
-				<TabFieldGrid>
-					<TabChoice
-						type="radio"
-						name="tts_engine"
-						value="EDGE_TTS"
-						checked={!isGoogleTts}
-						onChange={() => onChange('tts_engine', 'EDGE_TTS')}
-						label="Microsoft Edge Neural TTS"
-						description="Natural voice models across Thai, English, Japanese, and more."
-					/>
-					<TabChoice
-						type="radio"
-						name="tts_engine"
-						value="GOOGLE_TTS"
-						checked={isGoogleTts}
-						onChange={() => onChange('tts_engine', 'GOOGLE_TTS')}
-						label="Google Translate TTS"
-						description="Use the standard Google Translate speech engine."
-					/>
-				</TabFieldGrid>
-			</div>
+			<TabSection title={copy.voiceTitle} description={copy.voiceDescription}>
+				<TabSettingsList>
+					<TabSettingRow label={copy.engine}>
+						<TabSegmented label={copy.engine} value={isGoogle ? 'GOOGLE_TTS' : 'EDGE_TTS'} onChange={value => onChange('tts_engine', value)} options={[{ value: 'EDGE_TTS', label: copy.edgeEngine }, { value: 'GOOGLE_TTS', label: copy.googleEngine }]} />
+					</TabSettingRow>
+					{!isGoogle ? <TabSettingRow label={copy.voiceLabel}><CustomSelect ariaLabel={copy.voiceLabel} placeholder={copy.voicePlaceholder} value={config.tts_voice || 'th-TH-NiwatNeural'} onChange={changeVoice} options={voiceOptions} /></TabSettingRow> : null}
+				</TabSettingsList>
+			</TabSection>
 
-			{/* Voice & Language Selection */}
-			{!isGoogleTts && (
-				<div className="form-group" style={{ marginBottom: '1.5rem' }}>
-					<label className="form-label">Default Language & Voice Model</label>
-					<CustomSelect
-						placeholder="Choose a voice model..."
-						value={config.tts_voice || 'th-TH-NiwatNeural'}
-						onChange={val => handleVoiceChange(val)}
-						options={voiceOptions}
-					/>
-				</div>
-			)}
+			<TabSection title={copy.greetingsTitle} description={copy.greetingsDescription}>
+				<TabSettingsList>
+					<TabSettingRow label={copy.roomGreeting} description={copy.roomGreetingHelp} control={<TabSwitch checked={config.tts_join_greeting_enabled === true} onChange={event => onChange('tts_join_greeting_enabled', event.target.checked)} label={copy.roomGreeting} />} />
+					{config.tts_join_greeting_enabled === true ? <TabSettingRow label={copy.messageLabel} stacked><input id="tts-room-greeting" className="form-control" aria-label={copy.messageLabel} value={roomGreeting} maxLength={300} onChange={event => onChange('tts_join_greeting_text', event.target.value)} placeholder={DEFAULT_ROOM_GREETING} />{variableButtons('tts_join_greeting_text', roomGreeting, ['{server}', '{channel}'])}</TabSettingRow> : null}
+					<TabSettingRow label={copy.afkBringback} description={copy.afkBringbackHelp} control={<TabSwitch checked={config.tts_afk_bringback_enabled !== false} onChange={event => onChange('tts_afk_bringback_enabled', event.target.checked)} label={copy.afkBringback} />} />
+					<TabSettingRow label={copy.joinAnnouncement} description={copy.joinAnnouncementHelp} control={<TabSwitch checked={config.tts_vc_welcome_enabled !== false} onChange={event => onChange('tts_vc_welcome_enabled', event.target.checked)} label={copy.joinAnnouncement} />} />
+					{config.tts_vc_welcome_enabled !== false ? <TabSettingRow label={copy.messageLabel} stacked><input className="form-control" aria-label={copy.joinAnnouncement} value={joinTemplate} onChange={event => onChange('tts_vc_welcome_template', event.target.value)} placeholder={DEFAULT_JOIN_MESSAGE} />{variableButtons('tts_vc_welcome_template', joinTemplate)}</TabSettingRow> : null}
+					<TabSettingRow label={copy.leaveAnnouncement} description={copy.leaveAnnouncementHelp} control={<TabSwitch checked={config.tts_vc_leave_enabled !== false} onChange={event => onChange('tts_vc_leave_enabled', event.target.checked)} label={copy.leaveAnnouncement} />} />
+					{config.tts_vc_leave_enabled !== false ? <TabSettingRow label={copy.messageLabel} stacked><input className="form-control" aria-label={copy.leaveAnnouncement} value={leaveTemplate} onChange={event => onChange('tts_vc_leave_template', event.target.value)} placeholder={DEFAULT_LEAVE_MESSAGE} />{variableButtons('tts_vc_leave_template', leaveTemplate)}</TabSettingRow> : null}
+				</TabSettingsList>
+			</TabSection>
 
-			{/* Anti-Spam Rate Limiter Controls */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-					<div>
-						<div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--ink)' }}>
-							Anti-Spam TTS Rate Limiter
-						</div>
-						<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-							Prevent sound queue abuse by throttling repeated message requests per member.
-						</div>
-					</div>
-					<input
-						type="checkbox"
-						checked={config.tts_antispam_enabled !== false}
-						onChange={e => onChange('tts_antispam_enabled', e.target.checked)}
-						style={{ width: '18px', height: '18px' }}
-					/>
-				</div>
-
-				{config.tts_antispam_enabled !== false && (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
-						<div>
-							<label className="form-label" style={{ fontSize: '0.8rem' }}>
-								Max Burst Messages (Trigger Limit)
-							</label>
-							<input
-								type="number"
-								className="form-control"
-								min={1}
-								max={20}
-								value={config.tts_antispam_max_messages || 3}
-								onChange={e => onChange('tts_antispam_max_messages', parseInt(e.target.value, 10))}
-							/>
-							<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-								Max messages allowed within cooldown before user is temporarily muted from TTS.
-							</span>
-						</div>
-
-						<div>
-							<label className="form-label" style={{ fontSize: '0.8rem' }}>
-								Cooldown Period (Seconds)
-							</label>
-							<input
-								type="number"
-								className="form-control"
-								min={5}
-								max={300}
-								value={config.tts_antispam_cooldown_seconds || 30}
-								onChange={e => onChange('tts_antispam_cooldown_seconds', parseInt(e.target.value, 10))}
-							/>
-							<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-								Time window before a user's rate-limit queue resets.
-							</span>
-						</div>
-					</div>
-				)}
-			</div>
-
-			{/* Smart VC Automation (AFK Bringback & Join/Leave Announcements) */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: 'var(--ink)' }}>
-					Voice Channel Smart Automation
-				</div>
-
-				<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-					{/* One greeting when Megu first joins an occupied room */}
-					<div>
-						<label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', marginBottom: config.tts_join_greeting_enabled ? '0.9rem' : 0 }}>
-							<input
-								type="checkbox"
-								checked={config.tts_join_greeting_enabled === true}
-								onChange={event => onChange('tts_join_greeting_enabled', event.target.checked)}
-								style={{ width: '18px', height: '18px', marginTop: '2px' }}
-							/>
-							<span>
-								<strong style={{ display: 'block', fontSize: '0.875rem', color: 'var(--ink)' }}>Greet the room when Megu joins</strong>
-								<span style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.78rem', lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-									Spoken once when Megu joins an active voice channel. The greeting becomes ready again after that channel has no human members.
-								</span>
-							</span>
-						</label>
-
-						{config.tts_join_greeting_enabled === true && (
-							<div style={{ marginLeft: '1.75rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-								<label className="form-label" htmlFor="room-greeting-text">Room greeting</label>
-								<input
-									id="room-greeting-text"
-									type="text"
-									className="form-control"
-									value={roomGreeting}
-									onChange={event => onChange('tts_join_greeting_text', event.target.value)}
-									maxLength={300}
-									placeholder={DEFAULT_ROOM_GREETING}
-								/>
-								<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
-									<div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }} aria-label="Greeting placeholders">
-										<button type="button" className="btn btn-secondary btn-sm" onClick={() => appendRoomGreetingToken('{server}')}>{'{server}'}</button>
-										<button type="button" className="btn btn-secondary btn-sm" onClick={() => appendRoomGreetingToken('{channel}')}>{'{channel}'}</button>
-									</div>
-								</div>
-							</div>
-						)}
-					</div>
-
-					{/* AFK Bringback Toggle */}
-					<label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
-						<input
-							type="checkbox"
-							checked={config.tts_afk_bringback_enabled !== false}
-							onChange={e => onChange('tts_afk_bringback_enabled', e.target.checked)}
-							style={{ width: '18px', height: '18px', marginTop: '2px' }}
-						/>
-						<div>
-							<div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--ink)' }}>
-								AFK Channel Auto-Reconnect (Bring-Back)
-							</div>
-							<div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-								When a user who was speaking moves back from the server AFK channel, Megu automatically follows them back into their voice channel.
-							</div>
-						</div>
-					</label>
-
-					{/* VC Welcome Announcement */}
-					<div style={{ paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
-						<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', marginBottom: '0.75rem' }}>
-							<input
-								type="checkbox"
-								checked={config.tts_vc_welcome_enabled !== false}
-								onChange={e => onChange('tts_vc_welcome_enabled', e.target.checked)}
-								style={{ width: '18px', height: '18px' }}
-							/>
-							<span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--ink)' }}>
-								Announce User Voice Join in TTS
-							</span>
-						</label>
-
-						{config.tts_vc_welcome_enabled !== false && (
-							<div style={{ marginLeft: '1.75rem' }}>
-								<input
-									type="text"
-									className="form-control"
-									value={config.tts_vc_welcome_template !== undefined ? config.tts_vc_welcome_template : '{username} เข้าดิสมา'}
-									onChange={e => onChange('tts_vc_welcome_template', e.target.value)}
-									placeholder="{username} เข้าดิสมา"
-								/>
-								<div className="placeholder-tags" style={{ marginTop: '0.4rem' }}>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_welcome_template', (config.tts_vc_welcome_template !== undefined ? config.tts_vc_welcome_template : '{username} เข้าดิสมา') + ' {displayname}')}>
-										{'{displayname}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_welcome_template', (config.tts_vc_welcome_template !== undefined ? config.tts_vc_welcome_template : '{username} เข้าดิสมา') + ' {username}')}>
-										{'{username}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_welcome_template', (config.tts_vc_welcome_template !== undefined ? config.tts_vc_welcome_template : '{username} เข้าดิสมา') + ' {nickname}')}>
-										{'{nickname}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_welcome_template', (config.tts_vc_welcome_template !== undefined ? config.tts_vc_welcome_template : '{username} เข้าดิสมา') + ' {tag}')}>
-										{'{tag}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_welcome_template', (config.tts_vc_welcome_template !== undefined ? config.tts_vc_welcome_template : '{username} เข้าดิสมา') + ' {server}')}>
-										{'{server}'}
-									</span>
-								</div>
-								<span style={{ display: 'block', marginTop: '0.45rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-									Spoken when a member joins the voice channel.
-								</span>
-							</div>
-						)}
-					</div>
-
-					{/* VC Leave Announcement */}
-					<div style={{ paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
-						<label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', marginBottom: '0.75rem' }}>
-							<input
-								type="checkbox"
-								checked={config.tts_vc_leave_enabled !== false}
-								onChange={e => onChange('tts_vc_leave_enabled', e.target.checked)}
-								style={{ width: '18px', height: '18px' }}
-							/>
-							<span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--ink)' }}>
-								Announce User Voice Leave in TTS
-							</span>
-						</label>
-
-						{config.tts_vc_leave_enabled !== false && (
-							<div style={{ marginLeft: '1.75rem' }}>
-								<input
-									type="text"
-									className="form-control"
-									value={config.tts_vc_leave_template !== undefined ? config.tts_vc_leave_template : '{username} ออกจากดิสแล้ว'}
-									onChange={e => onChange('tts_vc_leave_template', e.target.value)}
-									placeholder="{username} ออกจากดิสแล้ว"
-								/>
-								<div className="placeholder-tags" style={{ marginTop: '0.4rem' }}>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_leave_template', (config.tts_vc_leave_template !== undefined ? config.tts_vc_leave_template : '{username} ออกจากดิสแล้ว') + ' {displayname}')}>
-										{'{displayname}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_leave_template', (config.tts_vc_leave_template !== undefined ? config.tts_vc_leave_template : '{username} ออกจากดิสแล้ว') + ' {username}')}>
-										{'{username}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_leave_template', (config.tts_vc_leave_template !== undefined ? config.tts_vc_leave_template : '{username} ออกจากดิสแล้ว') + ' {nickname}')}>
-										{'{nickname}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_leave_template', (config.tts_vc_leave_template !== undefined ? config.tts_vc_leave_template : '{username} ออกจากดิสแล้ว') + ' {tag}')}>
-										{'{tag}'}
-									</span>
-									<span className="tag-badge" onClick={() => onChange('tts_vc_leave_template', (config.tts_vc_leave_template !== undefined ? config.tts_vc_leave_template : '{username} ออกจากดิสแล้ว') + ' {server}')}>
-										{'{server}'}
-									</span>
-								</div>
-								<span style={{ display: 'block', marginTop: '0.45rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-									Spoken when a member disconnects from the voice channel.
-								</span>
-							</div>
-						)}
-					</div>
-				</div>
-			</div>
-
-			{/* Max Message Length */}
-			<div className="form-group">
-				<label className="form-label">Max Spoken Characters per Message</label>
-				<input
-					type="number"
-					className="form-control"
-					min={10}
-					max={500}
-					value={config.tts_max_length || 200}
-					onChange={e => onChange('tts_max_length', parseInt(e.target.value, 10))}
-				/>
-			</div>
-
-			{/* Ignore Bot Prefixes */}
-			<div className="form-group" style={{ marginBottom: 0 }}>
-				<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
-					<input
-						type="checkbox"
-						checked={config.tts_ignore_prefix !== false}
-						onChange={e => onChange('tts_ignore_prefix', e.target.checked)}
-						style={{ width: '18px', height: '18px' }}
-					/>
-					<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>
-						Ignore messages starting with command prefixes (e.g. !, ?, -, /, .)
-					</span>
-				</label>
-			</div>
+			<TabSection title={copy.limitsTitle} description={copy.limitsDescription}>
+				<TabSettingsList>
+					<TabSettingRow label={copy.antiSpam} description={copy.antiSpamHelp} control={<TabSwitch checked={config.tts_antispam_enabled !== false} onChange={event => onChange('tts_antispam_enabled', event.target.checked)} label={copy.antiSpam} />} />
+					{config.tts_antispam_enabled !== false ? (
+						<>
+							<TabSettingRow label={copy.burst} description={copy.burstHelp}><input type="number" className="form-control" aria-label={copy.burst} min={1} max={20} value={config.tts_antispam_max_messages || 3} onChange={event => onChange('tts_antispam_max_messages', Number.parseInt(event.target.value, 10))} /></TabSettingRow>
+							<TabSettingRow label={copy.cooldown} description={copy.cooldownHelp}><input type="number" className="form-control" aria-label={copy.cooldown} min={5} max={300} value={config.tts_antispam_cooldown_seconds || 30} onChange={event => onChange('tts_antispam_cooldown_seconds', Number.parseInt(event.target.value, 10))} /><TabFieldMessage>{config.tts_antispam_cooldown_seconds || 30}s</TabFieldMessage></TabSettingRow>
+						</>
+					) : null}
+					<TabSettingRow label={copy.characters} description={copy.charactersHelp(config.tts_max_length || 200)}><input type="number" className="form-control" aria-label={copy.characters} min={10} max={500} value={config.tts_max_length || 200} onChange={event => onChange('tts_max_length', Number.parseInt(event.target.value, 10))} /></TabSettingRow>
+					<TabSettingRow label={copy.ignorePrefix} description={copy.ignorePrefixHelp} control={<TabSwitch checked={config.tts_ignore_prefix !== false} onChange={event => onChange('tts_ignore_prefix', event.target.checked)} label={copy.ignorePrefix} />} />
+				</TabSettingsList>
+			</TabSection>
 		</TabWorkspace>
 	);
 }

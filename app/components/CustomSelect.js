@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Hash, Search } from 'lucide-react';
+import { useCopy } from '../copy';
 import styles from './customSelect.module.css';
 
 /**
@@ -12,12 +13,19 @@ export default function CustomSelect({
 	value,
 	onChange,
 	options = [],
-	placeholder = 'Select an option…',
+	placeholder,
 	type = 'default',
 	searchable = true,
 	disabled = false,
 	style = {},
+	ariaLabel,
+	ariaDescribedBy,
+	unavailableLabel,
 }) {
+	const { t } = useCopy();
+	const selectCopy = t.serverTabs.shared;
+	const resolvedPlaceholder = placeholder || selectCopy.selectOption;
+	const resolvedUnavailableLabel = unavailableLabel || selectCopy.unavailableSelection;
 	const [isOpen, setIsOpen] = useState(false);
 	const [openUpward, setOpenUpward] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -60,10 +68,11 @@ export default function CustomSelect({
 		if (isOpen && searchable && options.length > 5) searchInputRef.current?.focus();
 	}, [isOpen, options.length, searchable]);
 
-	const selectedOption = useMemo(
-		() => options.find(option => String(option.value) === String(value)),
-		[options, value],
-	);
+	const selectedOption = useMemo(() => {
+		const selected = options.find(option => String(option.value) === String(value));
+		if (selected || value === undefined || value === null || value === '') return selected;
+		return { value, label: resolvedUnavailableLabel, subtitle: String(value), unavailable: true };
+	}, [options, resolvedUnavailableLabel, value]);
 
 	const filteredOptions = useMemo(() => {
 		const query = searchQuery.trim().toLocaleLowerCase();
@@ -99,6 +108,8 @@ export default function CustomSelect({
 				onClick={() => setIsOpen(open => !open)}
 				disabled={disabled}
 				aria-haspopup="listbox"
+				aria-label={ariaLabel || resolvedPlaceholder}
+				aria-describedby={ariaDescribedBy}
 				aria-expanded={isOpen}
 				aria-controls={isOpen ? listboxId : undefined}
 			>
@@ -114,7 +125,7 @@ export default function CustomSelect({
 							</span>
 						</>
 					) : (
-						<span className={styles.placeholder}>{placeholder}</span>
+						<span className={styles.placeholder}>{resolvedPlaceholder}</span>
 					)}
 				</span>
 				<ChevronDown className={styles.chevron} size={17} aria-hidden="true" />
@@ -125,13 +136,13 @@ export default function CustomSelect({
 					{searchable && options.length > 5 ? (
 						<label className={styles.searchField}>
 							<Search size={15} aria-hidden="true" />
-							<span className={styles.srOnly}>Search options</span>
+							<span className={styles.srOnly}>{selectCopy.searchOptions}</span>
 							<input
 								ref={searchInputRef}
 								type="search"
 								value={searchQuery}
 								onChange={event => setSearchQuery(event.target.value)}
-								placeholder="Search options…"
+								placeholder={selectCopy.searchOptionsPlaceholder}
 							/>
 						</label>
 					) : null}
@@ -159,7 +170,7 @@ export default function CustomSelect({
 								</button>
 							);
 						}) : (
-							<p className={styles.empty}>No matching options</p>
+							<p className={styles.empty}>{selectCopy.noMatchingOptions}</p>
 						)}
 					</div>
 				</div>

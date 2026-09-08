@@ -1,19 +1,19 @@
 'use client';
 
-import { RotateCcw, Save } from 'lucide-react';
+import { CircleAlert, RotateCcw, Save } from 'lucide-react';
 import { useCopy } from '../copy';
 import styles from './FloatingSaveBar.module.css';
 
-export default function FloatingSaveBar({ onSave, onDiscard, saving }) {
+export default function FloatingSaveBar({ onSave, onDiscard, saving, affectedTools = [], error = '' }) {
 	const { t } = useCopy();
 	const copy = t.servers;
 
 	return (
-		<div className={styles.saveBar} role="region" aria-label={copy.unsavedTitle}>
-			<span className={styles.changeDot} aria-hidden="true" />
+		<div className={`${styles.saveBar} ${error ? styles.saveBarError : ''}`.trim()} role="region" aria-label={copy.unsavedTitle}>
+			{error ? <CircleAlert className={styles.errorIcon} size={18} aria-hidden="true" /> : <span className={styles.changeDot} aria-hidden="true" />}
 			<div className={styles.message} aria-live="polite">
-				<strong>{copy.unsavedTitle}</strong>
-				<span>{copy.unsavedLede}</span>
+				<strong>{error || copy.unsavedTitle}</strong>
+				<span>{error ? copy.pendingTools(affectedTools) : `${copy.unsavedLede} ${copy.pendingTools(affectedTools)}`}</span>
 			</div>
 			<div className={styles.actions}>
 				{onDiscard && (

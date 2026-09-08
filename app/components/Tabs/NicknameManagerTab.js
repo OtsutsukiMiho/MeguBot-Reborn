@@ -1,593 +1,145 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { X } from 'lucide-react';
-import CustomSelect from '../CustomSelect.js';
-import { TabActionBar, TabMemberCard, TabModalLayer, TabStatus, TabWorkspace } from './TabWorkspace';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Clipboard, RefreshCw } from 'lucide-react';
+import { useCopy } from '../../copy';
+import { TabActionBar, TabEmpty, TabFieldMessage, TabFilterBar, TabInlineActions, TabNotice, TabPagination, TabStatus, TabTable, TabWorkspace, tabWorkspaceStyles } from './TabWorkspace';
 
-export default function NicknameManagerTab({ guildId, initialMembers = [], showToast, onRefresh }) {
-	const [memberSearch, setMemberSearch] = useState('');
-	const [memberFilter, setMemberFilter] = useState('all'); // 'all' | 'custom' | 'default' | 'humans' | 'bots'
-	const [sortBy, setSortBy] = useState('custom_first'); // 'custom_first' | 'name_asc' | 'name_desc' | 'id_asc' | 'id_desc'
-	const [currentPage, setCurrentPage] = useState(1);
+const LEGACY_UNKNOWN_NICKNAME = 'ใครไม่รู้';
+const hasCustomNickname = value => Boolean(value && value !== LEGACY_UNKNOWN_NICKNAME);
+
+function MemberIdentity({ member, shared }) {
+	const [failed, setFailed] = useState(false);
+	const name = member.displayName || member.username || shared.unknownMember;
+	useEffect(() => setFailed(false), [member.avatar]);
+	return <div className={tabWorkspaceStyles.compactIdentity}>{member.avatar && !failed ? <img className={tabWorkspaceStyles.compactAvatar} src={member.avatar} alt="" onError={() => setFailed(true)} /> : <span className={tabWorkspaceStyles.compactAvatar} aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>}<div><strong>{name}</strong><small>@{member.username || shared.unknownUsername}</small></div></div>;
+}
+
+export default function NicknameManagerTab({ guildId, initialMembers = [], showToast, onRefresh, onEditorDirtyChange }) {
+	const { t } = useCopy();
+	const copy = t.serverTabs.nicknames;
+	const shared = t.serverTabs.shared;
+	const [members, setMembers] = useState(initialMembers);
+	const [nicknames, setNicknames] = useState({});
+	const [search, setSearch] = useState('');
+	const [filter, setFilter] = useState('all');
+	const [sort, setSort] = useState('custom_first');
+	const [page, setPage] = useState(1);
 	const [pageSize, setPageSize] = useState(15);
-	const [membersList, setMembersList] = useState(initialMembers || []);
-	const [nicknamesMap, setNicknamesMap] = useState({});
-	const [loading, setLoading] = useState(false);
-	const [copiedId, setCopiedId] = useState(null);
+	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState('');
+	const [editingId, setEditingId] = useState('');
+	const [draftName, setDraftName] = useState('');
+	const [rowError, setRowError] = useState('');
+	const [busyId, setBusyId] = useState('');
+	const [copiedId, setCopiedId] = useState('');
 
-	// Modal State for Editing Nickname
-	const [editingMember, setEditingMember] = useState(null);
-	const [modalNickInput, setModalNickInput] = useState('');
-	const [modalSaving, setModalSaving] = useState(false);
+	useEffect(() => setMembers(Array.isArray(initialMembers) ? initialMembers : []), [initialMembers]);
+	useEffect(() => setPage(1), [search, filter, sort, pageSize]);
 
-	// Fetch custom nicknames from API
-	const fetchNicknames = async () => {
-		if (!guildId) return;
+	const fetchNicknames = useCallback(async ({ quiet = false } = {}) => {
+		if (!quiet) setLoading(true);
+		setLoadError('');
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/nicknames`);
-			const data = await res.json();
-			if (data && data.success && data.nicknames) {
-				setNicknamesMap(data.nicknames);
-			}
-		} catch (err) {
-			console.error('Failed to fetch nicknames:', err);
-		}
-	};
+			const response = await fetch(`/api/guilds/${guildId}/nicknames`);
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.loadError);
+			setNicknames(data.nicknames || {});
+			return true;
+		} catch (error) {
+			setLoadError(error.message || copy.loadError);
+			return false;
+		} finally { setLoading(false); }
+	}, [copy.loadError, guildId]);
+	useEffect(() => { fetchNicknames(); }, [fetchNicknames]);
 
+	const filtered = useMemo(() => {
+		const query = search.trim().toLocaleLowerCase();
+		return [...members].filter(member => {
+			const customName = nicknames[member.id] || '';
+			const custom = hasCustomNickname(customName);
+			if (filter === 'custom' && !custom) return false;
+			if (filter === 'default' && custom) return false;
+			if (filter === 'humans' && member.isBot) return false;
+			if (filter === 'bots' && !member.isBot) return false;
+			if (!query) return true;
+			return [member.displayName, member.username, member.id, customName].some(value => String(value || '').toLocaleLowerCase().includes(query));
+		}).sort((a, b) => {
+			const customA = hasCustomNickname(nicknames[a.id]);
+			const customB = hasCustomNickname(nicknames[b.id]);
+			if (sort === 'custom_first' && customA !== customB) return customA ? -1 : 1;
+			if (sort === 'name_desc') return (b.displayName || b.username || '').localeCompare(a.displayName || a.username || '');
+			if (sort === 'id_asc') return String(a.id).localeCompare(String(b.id));
+			if (sort === 'id_desc') return String(b.id).localeCompare(String(a.id));
+			return (a.displayName || a.username || '').localeCompare(b.displayName || b.username || '');
+		});
+	}, [filter, members, nicknames, search, sort]);
+	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+	const currentPage = Math.min(page, totalPages);
+	const start = (currentPage - 1) * pageSize;
+	const visibleMembers = filtered.slice(start, start + pageSize);
+	const customCount = members.filter(member => hasCustomNickname(nicknames[member.id])).length;
+	const editingNickname = editingId ? (hasCustomNickname(nicknames[editingId]) ? nicknames[editingId] : '') : '';
+	const editorDirty = Boolean(editingId && draftName.trim() !== editingNickname);
 	useEffect(() => {
-		fetchNicknames();
-	}, [guildId]);
+		onEditorDirtyChange?.('nicknames', editorDirty);
+		return () => onEditorDirtyChange?.('nicknames', false);
+	}, [editorDirty, onEditorDirtyChange]);
 
-	// Sync members when initialMembers changes from parent
-	useEffect(() => {
-		if (Array.isArray(initialMembers)) {
-			setMembersList(initialMembers);
-		}
-	}, [initialMembers]);
-
-	// Reset to Page 1 when filter, search, or sort changes
-	useEffect(() => {
-		setCurrentPage(1);
-	}, [memberSearch, memberFilter, sortBy, pageSize]);
-
-	const copyToClipboard = (text, id, userName) => {
-		navigator.clipboard.writeText(text);
-		setCopiedId(id);
-		if (showToast) showToast(userName ? `Copied user ID for @${userName}` : 'User ID copied to clipboard');
-		setTimeout(() => setCopiedId(null), 2000);
-	};
-
-	// Open Edit Nickname Modal
-	const handleOpenEditModal = (member) => {
-		setEditingMember(member);
-		const currentNick = nicknamesMap[member.id] || '';
-		setModalNickInput(currentNick);
-	};
-
-	const handleCloseEditModal = () => {
-		if (modalSaving) return;
-		setEditingMember(null);
-		setModalNickInput('');
-	};
-
-	// Save Custom Nickname
-	const handleSaveNickname = async () => {
-		if (!editingMember || !guildId) return;
-		const trimmed = modalNickInput.trim();
-		if (!trimmed) {
-			if (showToast) showToast('Nickname cannot be empty.', true);
-			return;
-		}
-		if (trimmed.length > 100) {
-			if (showToast) showToast('Nickname must be 100 characters or less.', true);
-			return;
-		}
-
-		setModalSaving(true);
+	const saveNickname = async member => {
+		const trimmed = draftName.trim();
+		if (!trimmed) { setRowError(copy.required); return; }
+		if (trimmed.length > 100) { setRowError(copy.tooLong); return; }
+		setBusyId(member.id); setRowError('');
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/nicknames/${editingMember.id}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ nickname: trimmed }),
-			});
-			const data = await res.json();
-			if (data && data.success) {
-				setNicknamesMap(prev => ({ ...prev, [editingMember.id]: trimmed }));
-				if (showToast) showToast(`Custom nickname for @${editingMember.displayName || editingMember.username} set to "${trimmed}"!`);
-				handleCloseEditModal();
-			} else {
-				if (showToast) showToast(data?.error || 'Failed to update nickname.', true);
-			}
-		} catch (err) {
-			if (showToast) showToast(`Error: ${err.message}`, true);
-		} finally {
-			setModalSaving(false);
-		}
+			const response = await fetch(`/api/guilds/${guildId}/nicknames/${member.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: trimmed }) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.saveError);
+			setNicknames(current => ({ ...current, [member.id]: trimmed }));
+			showToast(copy.saveSuccess(member.displayName || member.username));
+			setEditingId('');
+		} catch (error) { setRowError(error.message || copy.saveError); showToast(error.message || copy.saveError, true); }
+		finally { setBusyId(''); }
 	};
-
-	// Reset / Clear Custom Nickname
-	const handleResetNickname = async (member) => {
-		if (!member || !guildId) return;
+	const resetNickname = async member => {
+		setBusyId(member.id);
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/nicknames/${member.id}`, {
-				method: 'DELETE',
-			});
-			const data = await res.json();
-			if (data && data.success) {
-				setNicknamesMap(prev => {
-					const next = { ...prev };
-					delete next[member.id];
-					return next;
-				});
-				if (showToast) showToast(`Custom nickname for @${member.displayName || member.username} reset to default.`);
-			} else {
-				if (showToast) showToast(data?.error || 'Failed to reset nickname.', true);
-			}
-		} catch (err) {
-			if (showToast) showToast(`Error: ${err.message}`, true);
-		}
+			const response = await fetch(`/api/guilds/${guildId}/nicknames/${member.id}`, { method: 'DELETE' });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.resetError);
+			setNicknames(current => { const next = { ...current }; delete next[member.id]; return next; });
+			showToast(copy.resetSuccess(member.displayName || member.username));
+		} catch (error) { showToast(error.message || copy.resetError, true); }
+		finally { setBusyId(''); }
 	};
-
-	// Refresh Handler
-	const handleRefresh = async () => {
+	const refresh = async () => {
 		setLoading(true);
-		try {
-			await Promise.all([
-				fetchNicknames(),
-				onRefresh ? onRefresh() : Promise.resolve(),
-			]);
-			if (showToast) showToast('Server nicknames and member roster refreshed!');
-		} catch (e) {
-			console.error(e);
-		} finally {
-			setLoading(false);
-		}
+		const [nicknamesOk] = await Promise.all([fetchNicknames({ quiet: true }), onRefresh?.()]);
+		setLoading(false);
+		if (nicknamesOk) showToast(copy.refreshSuccess); else showToast(copy.loadError, true);
 	};
-
-	// Filter & Sort Members
-	const filteredAndSortedMembers = useMemo(() => {
-		const q = memberSearch.trim().toLowerCase();
-		const filtered = (membersList || []).filter(m => {
-			const customNick = nicknamesMap[m.id] || '';
-			const hasCustom = Boolean(customNick && customNick !== 'ใครไม่รู้');
-
-			if (memberFilter === 'custom' && !hasCustom) return false;
-			if (memberFilter === 'default' && hasCustom) return false;
-			if (memberFilter === 'humans' && m.isBot) return false;
-			if (memberFilter === 'bots' && !m.isBot) return false;
-
-			if (!q) return true;
-
-			return (
-				(m.displayName || '').toLowerCase().includes(q) ||
-				(m.username || '').toLowerCase().includes(q) ||
-				customNick.toLowerCase().includes(q) ||
-				String(m.id).includes(q)
-			);
-		});
-
-		return filtered.sort((a, b) => {
-			const nickA = nicknamesMap[a.id] || '';
-			const nickB = nicknamesMap[b.id] || '';
-			const hasNickA = Boolean(nickA && nickA !== 'ใครไม่รู้');
-			const hasNickB = Boolean(nickB && nickB !== 'ใครไม่รู้');
-
-			if (sortBy === 'custom_first') {
-				if (hasNickA !== hasNickB) return hasNickA ? -1 : 1;
-				return (a.displayName || a.username).localeCompare(b.displayName || b.username);
-			}
-			if (sortBy === 'name_asc') {
-				return (a.displayName || a.username).localeCompare(b.displayName || b.username);
-			}
-			if (sortBy === 'name_desc') {
-				return (b.displayName || b.username).localeCompare(a.displayName || a.username);
-			}
-			if (sortBy === 'id_asc') {
-				return a.id.localeCompare(b.id);
-			}
-			if (sortBy === 'id_desc') {
-				return b.id.localeCompare(a.id);
-			}
-			return 0;
-		});
-	}, [membersList, nicknamesMap, memberSearch, memberFilter, sortBy]);
-
-	// Counts for category badges
-	const totalCustomCount = useMemo(() => {
-		return (membersList || []).filter(m => {
-			const n = nicknamesMap[m.id];
-			return Boolean(n && n !== 'ใครไม่รู้');
-		}).length;
-	}, [membersList, nicknamesMap]);
-
-	const totalDefaultCount = (membersList || []).length - totalCustomCount;
-
-	// Pagination Slicing
-	const totalItems = filteredAndSortedMembers.length;
-	const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-	const currentPageClamped = Math.min(currentPage, totalPages);
-	const paginatedMembers = useMemo(() => {
-		const startIndex = (currentPageClamped - 1) * pageSize;
-		return filteredAndSortedMembers.slice(startIndex, startIndex + pageSize);
-	}, [filteredAndSortedMembers, currentPageClamped, pageSize]);
+	const copyId = async member => {
+		try { await navigator.clipboard.writeText(String(member.id)); setCopiedId(member.id); showToast(copy.copied); window.setTimeout(() => setCopiedId(''), 1800); }
+		catch { showToast(copy.copyId, true); }
+	};
 
 	return (
 		<TabWorkspace>
-			{/* Top Header */}
-			<TabActionBar
-				actions={(
-				<>
-					<TabStatus tone={totalCustomCount ? 'accent' : 'neutral'}>{totalCustomCount} custom nicknames</TabStatus>
-					<button
-						onClick={handleRefresh}
-						className="btn btn-secondary btn-sm"
-						disabled={loading}
-					>
-						{loading ? 'Refreshing…' : 'Refresh'}
-					</button>
-				</>
-				)}
-			>
-				<span>{totalItems} members match the active search and filters</span>
-			</TabActionBar>
+			<TabActionBar actions={<><TabStatus tone={customCount ? 'accent' : 'neutral'}>{copy.custom}: {customCount}</TabStatus><TabStatus tone="neutral">{copy.count(members.length)}</TabStatus></>}><span>{copy.description}</span></TabActionBar>
+			<TabFilterBar actions={<button type="button" className="btn btn-secondary" onClick={refresh} disabled={loading}><RefreshCw size={16} aria-hidden="true" /> {loading ? shared.working : shared.refresh}</button>}>
+				<div className="form-group"><label className="form-label" htmlFor="nickname-search">{copy.search}</label><input id="nickname-search" className="form-control" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={copy.searchPlaceholder} /></div>
+				<div className="form-group"><label className="form-label" htmlFor="nickname-filter">{copy.filter}</label><select id="nickname-filter" className="form-control" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">{copy.all}</option><option value="custom">{copy.custom}</option><option value="default">{copy.default}</option><option value="humans">{copy.humans}</option><option value="bots">{copy.bots}</option></select></div>
+				<div className="form-group"><label className="form-label" htmlFor="nickname-sort">{copy.sort}</label><select id="nickname-sort" className="form-control" value={sort} onChange={event => setSort(event.target.value)}><option value="custom_first">{copy.customFirst}</option><option value="name_asc">{copy.nameAsc}</option><option value="name_desc">{copy.nameDesc}</option><option value="id_asc">{copy.idAsc}</option><option value="id_desc">{copy.idDesc}</option></select></div>
+				<div className="form-group"><label className="form-label" htmlFor="nickname-page-size">{copy.perPage}</label><select id="nickname-page-size" className="form-control" value={pageSize} onChange={event => setPageSize(Number(event.target.value))}><option value="15">15</option><option value="30">30</option></select></div>
+			</TabFilterBar>
+			{loadError ? <TabNotice tone="warning" title={copy.loadError} actions={<button type="button" className="btn btn-secondary btn-sm" onClick={() => fetchNicknames()}>{shared.retry}</button>}><p>{loadError}</p></TabNotice> : null}
 
-			{/* Search, Filter & Sort Controls Bar (Matching MemberManagerTab) */}
-			<div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem' }}>
-				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-					<div style={{ flex: 1, minWidth: '240px' }}>
-						<input
-							type="text"
-							className="form-control"
-							placeholder="Search by username, display name, custom nickname, or user ID..."
-							value={memberSearch}
-							onChange={e => setMemberSearch(e.target.value)}
-						/>
-					</div>
-
-					{/* Category Chips */}
-					<div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-						<button
-							className={`btn btn-sm ${memberFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-							onClick={() => setMemberFilter('all')}
-							style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem' }}
-						>
-							All ({membersList.length})
-						</button>
-						<button
-							className={`btn btn-sm ${memberFilter === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
-							onClick={() => setMemberFilter('custom')}
-							style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem' }}
-						>
-							Custom Set ({totalCustomCount})
-						</button>
-						<button
-							className={`btn btn-sm ${memberFilter === 'default' ? 'btn-primary' : 'btn-secondary'}`}
-							onClick={() => setMemberFilter('default')}
-							style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem' }}
-						>
-							Default ({totalDefaultCount})
-						</button>
-						<button
-							className={`btn btn-sm ${memberFilter === 'humans' ? 'btn-primary' : 'btn-secondary'}`}
-							onClick={() => setMemberFilter('humans')}
-							style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem' }}
-						>
-							Humans ({membersList.filter(m => !m.isBot).length})
-						</button>
-						<button
-							className={`btn btn-sm ${memberFilter === 'bots' ? 'btn-primary' : 'btn-secondary'}`}
-							onClick={() => setMemberFilter('bots')}
-							style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem' }}
-						>
-							Bots ({membersList.filter(m => m.isBot).length})
-						</button>
-					</div>
-				</div>
-
-				{/* Sort & Items Per Page Row */}
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--sunk)' }}>
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-							Sort By:
-						</span>
-						<div style={{ width: '220px' }}>
-							<CustomSelect
-								value={sortBy}
-								onChange={(val) => setSortBy(val)}
-								options={[
-									{ value: 'custom_first', label: 'Custom Nicknames First' },
-									{ value: 'name_asc', label: 'Name (A → Z)' },
-									{ value: 'name_desc', label: 'Name (Z → A)' },
-									{ value: 'id_asc', label: 'User ID (Oldest Account)' },
-									{ value: 'id_desc', label: 'User ID (Newest Account)' },
-								]}
-								searchable={false}
-							/>
-						</div>
-					</div>
-
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-							Per Page:
-						</span>
-						<div style={{ width: '140px' }}>
-							<CustomSelect
-								value={pageSize}
-								onChange={(val) => setPageSize(Number(val))}
-								options={[
-									{ value: 15, label: '15 members' },
-									{ value: 30, label: '30 members' },
-								]}
-								searchable={false}
-							/>
-						</div>
-					</div>
-				</div>
-			</div>
-
-			{/* User Cards Grid View (Matching MemberManagerTab Layout) */}
-			{loading && membersList.length === 0 ? (
-				<div style={{ padding: '4rem 0', textAlign: 'center', color: 'var(--text-secondary)' }}>
-					Fetching server member nicknames...
-				</div>
-			) : (
-				<>
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-						{paginatedMembers.length === 0 ? (
-							<div style={{ gridColumn: '1 / -1', padding: '3rem 2rem', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-								No server members found matching your search and filter criteria.
-							</div>
-						) : (
-							paginatedMembers.map(member => {
-								const customNick = nicknamesMap[member.id] || '';
-								const hasCustomNick = Boolean(customNick && customNick !== 'ใครไม่รู้');
-
-								return (
-									<TabMemberCard
-										key={member.id}
-										member={member}
-										action={(
-											<button
-												type="button"
-												onClick={() => copyToClipboard(member.id, member.id, member.username)}
-												className="btn btn-secondary btn-sm"
-												style={{
-													fontSize: '0.72rem',
-													padding: '0.2rem 0.55rem',
-													whiteSpace: 'nowrap',
-													color: copiedId === member.id ? 'var(--settled)' : undefined,
-													borderColor: copiedId === member.id ? 'color-mix(in srgb, var(--settled) 40%, var(--line))' : undefined,
-												}}
-											>
-												{copiedId === member.id ? 'Copied!' : 'Copy ID'}
-											</button>
-										)}
-									>
-										{/* Nickname Details Box */}
-										<div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-											<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-												<span>Bot TTS Spoken Nickname:</span>
-												<span style={{ fontSize: '0.7rem', fontWeight: 700, color: hasCustomNick ? 'var(--accent)' : 'var(--muted)' }}>
-													{hasCustomNick ? 'Custom' : 'Default'}
-												</span>
-											</div>
-
-											<div>
-												{hasCustomNick ? (
-													<span
-														style={{
-															display: 'inline-block',
-															background: 'var(--accent-soft)',
-															color: 'var(--accent)',
-															border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
-															padding: '0.25rem 0.6rem',
-															borderRadius: '6px',
-															fontSize: '0.85rem',
-															fontWeight: 700,
-															maxWidth: '100%',
-															overflow: 'hidden',
-															textOverflow: 'ellipsis',
-															whiteSpace: 'nowrap',
-														}}
-													>
-														&ldquo;{customNick}&rdquo;
-													</span>
-												) : (
-													<span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-														{member.displayName || member.username}
-													</span>
-												)}
-											</div>
-										</div>
-
-										{/* Card Action Buttons */}
-										<div style={{ display: 'flex', gap: '0.5rem', marginTop: 'auto', paddingTop: '0.25rem' }}>
-											<button
-												onClick={() => handleOpenEditModal(member)}
-												className="btn btn-secondary btn-sm"
-												style={{
-													flex: 1,
-													display: 'flex',
-													alignItems: 'center',
-													justifyContent: 'center',
-													gap: '0.4rem',
-													padding: '0.45rem 0.75rem',
-													fontSize: '0.8rem',
-													fontWeight: 600,
-												}}
-											>
-												Edit Nickname
-											</button>
-
-											{hasCustomNick && (
-												<button
-													onClick={() => handleResetNickname(member)}
-													className="btn btn-secondary btn-sm"
-													style={{
-														color: 'var(--due)',
-														padding: '0.45rem 0.75rem',
-														fontSize: '0.8rem',
-														fontWeight: 600,
-													}}
-													title="Reset to default Discord name"
-												>
-													Reset
-												</button>
-											)}
-										</div>
-									</TabMemberCard>
-								);
-							})
-						)}
-					</div>
-
-					{/* Pagination Footer */}
-					{totalItems > 0 && (
-						<div
-							style={{
-								display: 'flex',
-								alignItems: 'center',
-								justifyContent: 'space-between',
-								padding: '0.75rem 1rem',
-								background: 'var(--surface-2)',
-								border: '1px solid var(--border-color)',
-								borderRadius: '12px',
-								fontSize: '0.8rem',
-								color: 'var(--muted)',
-								flexWrap: 'wrap',
-								gap: '0.5rem',
-							}}
-						>
-							<div>
-								Showing {(currentPageClamped - 1) * pageSize + 1} - {Math.min(currentPageClamped * pageSize, totalItems)} of {totalItems} members
-							</div>
-							<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-								<button
-									onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-									disabled={currentPageClamped <= 1}
-									className="btn btn-secondary btn-sm"
-									style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
-								>
-									Previous
-								</button>
-								<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
-									Page {currentPageClamped} of {totalPages}
-								</span>
-								<button
-									onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-									disabled={currentPageClamped >= totalPages}
-									className="btn btn-secondary btn-sm"
-									style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
-								>
-									Next
-								</button>
-							</div>
-						</div>
-					)}
-				</>
-			)}
-
-			{/* Edit Custom Nickname Modal */}
-			{editingMember && (
-				<TabModalLayer onClose={handleCloseEditModal} closeOnBackdrop={!modalSaving}>
-					<div
-						role="dialog"
-						aria-modal="true"
-						aria-label={`Edit nickname for ${editingMember.displayName || editingMember.username}`}
-						style={{
-							background: 'var(--surface)',
-							border: '1px solid var(--border-color)',
-							borderRadius: '16px',
-							width: '100%',
-							maxWidth: '460px',
-							padding: '1.5rem',
-							boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-							display: 'flex',
-							flexDirection: 'column',
-							gap: '1.25rem',
-						}}
-						onClick={e => e.stopPropagation()}
-					>
-						{/* Modal Header */}
-						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-							<h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
-								Edit Custom TTS Nickname
-							</h4>
-							<button
-								type="button"
-								onClick={handleCloseEditModal}
-								aria-label="Close nickname editor"
-								style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.1rem' }}
-							>
-								<X size={18} aria-hidden="true" />
-							</button>
-						</div>
-
-						{/* Member Card Preview */}
-						<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--sunk)', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-							<img
-								src={editingMember.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}
-								alt={editingMember.username}
-								style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover' }}
-								onError={(e) => { e.target.src = 'https://cdn.discordapp.com/embed/avatars/0.png'; }}
-							/>
-							<div>
-								<div style={{ fontWeight: 700, color: 'var(--ink)', fontSize: '0.95rem' }}>
-									{editingMember.displayName}
-								</div>
-								<div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-									@{editingMember.username} • ID: {editingMember.id}
-								</div>
-							</div>
-						</div>
-
-						{/* Nickname Input Form */}
-						<div>
-							<div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-								<label className="form-label" style={{ fontWeight: 700, margin: 0 }}>
-									Custom Spoken Nickname
-								</label>
-								<span style={{ fontSize: '0.75rem', color: modalNickInput.length > 100 ? 'var(--due)' : 'var(--muted)' }}>
-									{modalNickInput.length} / 100
-								</span>
-							</div>
-							<input
-								type="text"
-								className="form-control"
-								placeholder="e.g. พี่เมกุ, น้องน้ำ, John"
-								value={modalNickInput}
-								onChange={e => setModalNickInput(e.target.value)}
-								maxLength={100}
-								autoFocus
-							/>
-							<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginTop: '0.35rem' }}>
-								This nickname will be spoken by Megu Bot during voice greetings and TTS reading instead of the user&apos;s username.
-							</span>
-						</div>
-
-						{/* Modal Actions */}
-						<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-							<button
-								type="button"
-								className="btn btn-secondary"
-								onClick={handleCloseEditModal}
-								disabled={modalSaving}
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								className="btn btn-primary"
-								onClick={handleSaveNickname}
-								disabled={modalSaving || !modalNickInput.trim() || modalNickInput.length > 100}
-							>
-								{modalSaving ? 'Saving...' : 'Save Nickname'}
-							</button>
-						</div>
-					</div>
-				</TabModalLayer>
-			)}
+			{visibleMembers.length ? <><TabTable label={copy.spokenName} mobileRecords><table><thead><tr><th>{copy.member}</th><th>{copy.discordName}</th><th>{copy.spokenName}</th><th>{copy.actions}</th></tr></thead><tbody>{visibleMembers.flatMap(member => {
+				const customName = hasCustomNickname(nicknames[member.id]) ? nicknames[member.id] : '';
+				const rows = [<tr key={member.id}><td data-label={copy.member}><MemberIdentity member={member} shared={shared} /></td><td data-label={copy.discordName}>{member.displayName || member.username || shared.unknownMember}</td><td data-label={copy.spokenName}>{customName || <span>{copy.none}</span>}</td><td data-label={copy.actions}><TabInlineActions align="start"><button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEditingId(member.id); setDraftName(customName); setRowError(''); }}>{copy.edit}</button>{customName ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => resetNickname(member)} disabled={busyId === member.id}>{copy.reset}</button> : null}<button type="button" className="btn btn-secondary btn-sm" onClick={() => copyId(member)}><Clipboard size={14} aria-hidden="true" /> {copiedId === member.id ? copy.copied : copy.copyId}</button></TabInlineActions></td></tr>];
+				if (editingId === member.id) rows.push(<tr key={`${member.id}-editor`}><td colSpan={4}><form onSubmit={event => { event.preventDefault(); saveNickname(member); }}><label className="form-label" htmlFor={`nickname-${member.id}`}>{copy.input}</label><input id={`nickname-${member.id}`} className="form-control" aria-describedby={rowError ? `nickname-${member.id}-error` : undefined} value={draftName} maxLength={100} onChange={event => setDraftName(event.target.value)} placeholder={copy.inputPlaceholder} autoFocus />{rowError ? <TabFieldMessage id={`nickname-${member.id}-error`} tone="error">{rowError}</TabFieldMessage> : null}<TabInlineActions><button type="button" className="btn btn-secondary" onClick={() => setEditingId('')} disabled={busyId === member.id}>{shared.cancel}</button><button type="submit" className="btn btn-primary" disabled={busyId === member.id}>{busyId === member.id ? shared.working : copy.save}</button></TabInlineActions></form></td></tr>);
+				return rows;
+			})}</tbody></table></TabTable><TabPagination page={currentPage} totalPages={totalPages} onPageChange={setPage} summary={shared.showing(start + 1, Math.min(start + pageSize, filtered.length), filtered.length)} /></> : <TabEmpty title={copy.emptyTitle} description={copy.emptyDescription} action={(search || filter !== 'all') ? <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setFilter('all'); }}>{shared.clearFilters}</button> : null} />}
 		</TabWorkspace>
 	);
 }

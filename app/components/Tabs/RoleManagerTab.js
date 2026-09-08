@@ -1,508 +1,136 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Clipboard, Pencil, Trash2 } from 'lucide-react';
 import ColorPicker from '../ColorPicker';
-import { TabActionBar, TabConfirmDialog, TabModalLayer, TabStatus, TabTable, TabWorkspace } from './TabWorkspace';
+import { useCopy } from '../../copy';
+import { TabActionBar, TabConfirmDialog, TabDialog, TabEmpty, TabFieldMessage, TabFilterBar, TabInlineActions, TabPagination, TabSettingRow, TabSettingsList, TabStatus, TabSwitch, TabTable, TabWorkspace, tabWorkspaceStyles } from './TabWorkspace';
 
 const PAGE_SIZES = [10, 30, 50, 100];
+const DEFAULT_COLOR = '#6366f1';
 
-export default function RoleManagerTab({ roles, guildId, showToast, onRefresh }) {
-	const [searchQuery, setSearchQuery] = useState('');
-	const [copiedId, setCopiedId] = useState(null);
-	const [pageSize, setPageSize] = useState(10);
-	const [currentPage, setCurrentPage] = useState(1);
+function roleColor(value) {
+	if (!value || value === '#000000') return '#8A8F9E';
+	if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)) return value;
+	const numeric = Number(value);
+	return Number.isFinite(numeric) ? `#${numeric.toString(16).padStart(6, '0').slice(-6)}` : '#8A8F9E';
+}
 
-	// Create Role Modal state
-	const [showCreateModal, setShowCreateModal] = useState(false);
-	const [newRoleName, setNewRoleName] = useState('');
-	const [newRoleColor, setNewRoleColor] = useState('#6366f1');
-	const [newRoleHoist, setNewRoleHoist] = useState(false);
-	const [newRoleMentionable, setNewRoleMentionable] = useState(false);
-	const [createLoading, setCreateLoading] = useState(false);
+function roleIsLocked(role, guildId) {
+	return Boolean(role?.managed || role?.canManage === false || String(role?.id) === String(guildId) || role?.name === '@everyone');
+}
 
-	// Edit Role Modal state
-	const [editingRole, setEditingRole] = useState(null);
-	const [editName, setEditName] = useState('');
-	const [editColor, setEditColor] = useState('#6366f1');
-	const [editHoist, setEditHoist] = useState(false);
-	const [editMentionable, setEditMentionable] = useState(false);
-	const [editLoading, setEditLoading] = useState(false);
-	const [rolePendingDelete, setRolePendingDelete] = useState(null);
-	const [deleteLoading, setDeleteLoading] = useState(false);
+function roleLabel(name = '') {
+	return name.startsWith('@') ? name : `@${name}`;
+}
 
+function RoleForm({ values, setValues, copy }) {
+	return (
+		<TabSettingsList>
+			<TabSettingRow label={copy.name}><input className="form-control" aria-label={copy.name} value={values.name} onChange={event => setValues(current => ({ ...current, name: event.target.value }))} placeholder={copy.namePlaceholder} autoFocus /></TabSettingRow>
+			<TabSettingRow label={copy.color} stacked><ColorPicker color={values.color} onChange={color => setValues(current => ({ ...current, color }))} roleName={values.name || copy.namePlaceholder} label={copy.color} /></TabSettingRow>
+			<TabSettingRow label={copy.display} control={<TabSwitch checked={values.hoist} onChange={event => setValues(current => ({ ...current, hoist: event.target.checked }))} label={copy.display} />} />
+			<TabSettingRow label={copy.allowMentions} control={<TabSwitch checked={values.mentionable} onChange={event => setValues(current => ({ ...current, mentionable: event.target.checked }))} label={copy.allowMentions} />} />
+		</TabSettingsList>
+	);
+}
+
+export default function RoleManagerTab({ roles, guildId, showToast, onRefresh, onEditorDirtyChange }) {
+	const { t } = useCopy();
+	const copy = t.serverTabs.roles;
+	const shared = t.serverTabs.shared;
 	const allRoles = Array.isArray(roles) ? roles : [];
+	const [search, setSearch] = useState('');
+	const [pageSize, setPageSize] = useState(10);
+	const [page, setPage] = useState(1);
+	const [copiedId, setCopiedId] = useState('');
+	const [createOpen, setCreateOpen] = useState(false);
+	const [createValues, setCreateValues] = useState({ name: '', color: DEFAULT_COLOR, hoist: false, mentionable: false });
+	const [editingRole, setEditingRole] = useState(null);
+	const [editValues, setEditValues] = useState({ name: '', color: DEFAULT_COLOR, hoist: false, mentionable: false });
+	const [deleteRole, setDeleteRole] = useState(null);
+	const [busy, setBusy] = useState('');
+	const [formError, setFormError] = useState('');
+	const createDirty = createOpen && (createValues.name.trim() || createValues.color !== DEFAULT_COLOR || createValues.hoist || createValues.mentionable);
+	const originalEditValues = editingRole ? { name: editingRole.name, color: roleColor(editingRole.hexColor || editingRole.color), hoist: !!editingRole.hoist, mentionable: !!editingRole.mentionable } : null;
+	const editDirty = Boolean(originalEditValues && JSON.stringify(editValues) !== JSON.stringify(originalEditValues));
+	useEffect(() => {
+		onEditorDirtyChange?.('roles', Boolean(createDirty || editDirty));
+		return () => onEditorDirtyChange?.('roles', false);
+	}, [createDirty, editDirty, onEditorDirtyChange]);
 
-	const presetColors = [
-		// Literal hex on purpose: these are values sent to Discord as the role
-		// colour, not styling for this page. A CSS variable here reaches the API.
-		'#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#06b6d4', '#9ca3af'
-	];
-
-	const filteredRoles = allRoles.filter(r => {
-		if (!searchQuery) return true;
-		const q = searchQuery.toLowerCase();
-		return r.name.toLowerCase().includes(q) || String(r.id).includes(q);
-	});
+	useEffect(() => setPage(1), [search, pageSize]);
+	const filteredRoles = useMemo(() => {
+		const query = search.trim().toLocaleLowerCase();
+		return allRoles.filter(role => !query || role.name.toLocaleLowerCase().includes(query) || String(role.id).includes(query));
+	}, [allRoles, search]);
 	const totalPages = Math.max(1, Math.ceil(filteredRoles.length / pageSize));
-	const visiblePage = Math.min(currentPage, totalPages);
-	const pageStart = (visiblePage - 1) * pageSize;
-	const paginatedRoles = filteredRoles.slice(pageStart, pageStart + pageSize);
+	const currentPage = Math.min(page, totalPages);
+	const start = (currentPage - 1) * pageSize;
+	const visibleRoles = filteredRoles.slice(start, start + pageSize);
 
-	const copyToClipboard = (text, id, roleName) => {
-		navigator.clipboard.writeText(text);
-		setCopiedId(id);
-		if (showToast) showToast(roleName ? `Copied role ID for @${roleName}` : 'Role ID copied to clipboard');
-		setTimeout(() => setCopiedId(null), 2000);
-	};
-
-	const getRoleColorHex = (colorVal) => {
-		// Literal hex: feeds ColorPicker and color-mix, and reaches Discord on save.
-		if (!colorVal || colorVal === 0 || colorVal === '#000000') return '#8A8F9E';
-		if (typeof colorVal === 'string' && colorVal.startsWith('#')) return colorVal;
-		return '#' + Number(colorVal).toString(16).padStart(6, '0');
-	};
-
-	// --- CREATE ROLE ---
-	const handleCreateRole = async (e) => {
-		e?.preventDefault();
-		if (!newRoleName.trim()) {
-			showToast('Please specify a role name.', true);
-			return;
-		}
-
-		setCreateLoading(true);
+	const request = async (url, payload, successMessage, failureMessage, key) => {
+		setBusy(key); setFormError('');
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/roles/create`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: newRoleName.trim(),
-					color: newRoleColor,
-					hoist: newRoleHoist,
-					mentionable: newRoleMentionable,
-				}),
-			});
-
-			const data = await res.json();
-			if (data.success) {
-				showToast(`Role @${newRoleName} created successfully!`);
-				setShowCreateModal(false);
-				setNewRoleName('');
-				setNewRoleColor('#6366f1');
-				setNewRoleHoist(false);
-				setNewRoleMentionable(false);
-				if (onRefresh) onRefresh();
-			} else {
-				showToast(data.error || 'Failed to create role.', true);
-			}
-		} catch (err) {
-			showToast(`Error: ${err.message}`, true);
-		} finally {
-			setCreateLoading(false);
-		}
+			const response = await fetch(url, { method: 'POST', headers: payload ? { 'Content-Type': 'application/json' } : undefined, body: payload ? JSON.stringify(payload) : undefined });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || failureMessage);
+			showToast(successMessage);
+			await onRefresh?.();
+			return true;
+		} catch (error) {
+			setFormError(error.message || failureMessage);
+			showToast(error.message || failureMessage, true);
+			return false;
+		} finally { setBusy(''); }
 	};
 
-	// --- OPEN EDIT MODAL ---
-	const openEditModal = (role) => {
-		setEditingRole(role);
-		setEditName(role.name);
-		setEditColor(getRoleColorHex(role.hexColor || role.color));
-		setEditHoist(!!role.hoist);
-		setEditMentionable(!!role.mentionable);
+	const createRole = async event => {
+		event.preventDefault();
+		if (!createValues.name.trim()) { setFormError(copy.required); return; }
+		const ok = await request(`/api/guilds/${guildId}/roles/create`, { ...createValues, name: createValues.name.trim() }, copy.createSuccess(`@${createValues.name.trim()}`), copy.createError, 'create');
+		if (ok) { setCreateOpen(false); setCreateValues({ name: '', color: DEFAULT_COLOR, hoist: false, mentionable: false }); }
+	};
+	const openEdit = role => {
+		if (roleIsLocked(role, guildId)) return;
+		setEditingRole(role); setEditValues({ name: role.name, color: roleColor(role.hexColor || role.color), hoist: !!role.hoist, mentionable: !!role.mentionable }); setFormError('');
+	};
+	const saveRole = async event => {
+		event.preventDefault();
+		if (!editValues.name.trim()) { setFormError(copy.required); return; }
+		const ok = await request(`/api/guilds/${guildId}/roles/${editingRole.id}/update`, { ...editValues, name: editValues.name.trim() }, copy.updateSuccess(`@${editValues.name.trim()}`), copy.updateError, 'edit');
+		if (ok) setEditingRole(null);
+	};
+	const removeRole = async () => {
+		const ok = await request(`/api/guilds/${guildId}/roles/${deleteRole.id}/delete`, null, copy.deleteSuccess(`@${deleteRole.name}`), copy.deleteError, 'delete');
+		if (ok) setDeleteRole(null);
+	};
+	const copyId = async role => {
+		try { await navigator.clipboard.writeText(String(role.id)); setCopiedId(role.id); showToast(copy.copied); window.setTimeout(() => setCopiedId(''), 1800); }
+		catch { showToast(copy.copyId, true); }
 	};
 
-	// --- SAVE EDIT ROLE ---
-	const handleSaveEditRole = async (e) => {
-		e?.preventDefault();
-		if (!editingRole) return;
-
-		setEditLoading(true);
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/roles/${editingRole.id}/update`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: editName.trim(),
-					color: editColor,
-					hoist: editHoist,
-					mentionable: editMentionable,
-				}),
-			});
-
-			const data = await res.json();
-			if (data.success) {
-				showToast(`Role @${editName} updated successfully!`);
-				setEditingRole(null);
-				if (onRefresh) onRefresh();
-			} else {
-				showToast(data.error || 'Failed to update role.', true);
-			}
-		} catch (err) {
-			showToast(`Error: ${err.message}`, true);
-		} finally {
-			setEditLoading(false);
-		}
-	};
-
-	// --- DELETE ROLE ---
-	const handleDeleteRole = async () => {
-		if (!rolePendingDelete) return;
-		setDeleteLoading(true);
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/roles/${rolePendingDelete.id}/delete`, {
-				method: 'POST',
-			});
-
-			const data = await res.json();
-			if (data.success) {
-				showToast(`Role @${rolePendingDelete.name} deleted successfully!`);
-				setRolePendingDelete(null);
-				if (onRefresh) onRefresh();
-			} else {
-				showToast(data.error || 'Failed to delete role.', true);
-			}
-		} catch (err) {
-			showToast(`Error: ${err.message}`, true);
-		} finally {
-			setDeleteLoading(false);
-		}
-	};
+	const dialogFooter = (submitLabel, key, close) => <><button type="button" className="btn btn-secondary" onClick={close} disabled={!!busy}>{shared.cancel}</button><button type="submit" form={`role-${key}-form`} className="btn btn-primary" disabled={!!busy}>{busy === key ? shared.working : submitLabel}</button></>;
 
 	return (
 		<TabWorkspace>
-			{/* Top Header */}
-			<TabActionBar actions={<TabStatus tone="accent">{allRoles.length} server roles</TabStatus>}>
-				<span>{filteredRoles.length} roles match the current search</span>
-			</TabActionBar>
-			<TabConfirmDialog
-				open={!!rolePendingDelete}
-				onClose={() => setRolePendingDelete(null)}
-				onConfirm={handleDeleteRole}
-				title={rolePendingDelete ? `Delete @${rolePendingDelete.name}?` : 'Delete role?'}
-				description="This permanently removes the role from Discord and cannot be undone. Members assigned to it will lose it immediately."
-				confirmLabel="Delete role"
-				busy={deleteLoading}
-			/>
+			<TabActionBar actions={<TabStatus tone="accent">{copy.count(allRoles.length)}</TabStatus>}><span>{shared.loadedMatches(filteredRoles.length)}</span></TabActionBar>
+			<TabFilterBar actions={<button type="button" className="btn btn-primary" onClick={() => { setCreateOpen(true); setFormError(''); }}>{copy.create}</button>}>
+				<div className="form-group"><label className="form-label" htmlFor="role-search">{copy.search}</label><input id="role-search" className="form-control" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={copy.searchPlaceholder} /></div>
+				<div className="form-group"><label className="form-label" htmlFor="role-page-size">{copy.pageSize}</label><select id="role-page-size" className="form-control" value={pageSize} onChange={event => setPageSize(Number(event.target.value))}>{PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}</select></div>
+			</TabFilterBar>
 
-			{/* Role Search & Create Action Bar */}
-			<div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
-				<div style={{ flex: 1, minWidth: '240px' }}>
-					<input
-						type="text"
-						className="form-control"
-						placeholder="Search roles by name or role ID..."
-						value={searchQuery}
-						onChange={e => {
-							setSearchQuery(e.target.value);
-							setCurrentPage(1);
-						}}
-					/>
-				</div>
-				<button
-					className="btn btn-sm"
-					onClick={() => setShowCreateModal(true)}
-					style={{ background: 'var(--color-accent)', whiteSpace: 'nowrap', padding: '0.65rem 1.25rem' }}
-				>
-					Create Role
-				</button>
-			</div>
+			{visibleRoles.length ? <><TabTable label={copy.role}><table><thead><tr><th>{copy.role}</th><th>{copy.properties}</th><th>{copy.actions}</th></tr></thead><tbody>{visibleRoles.map(role => {
+				const locked = roleIsLocked(role, guildId);
+				const baseRole = String(role.id) === String(guildId) || role.name === '@everyone';
+				const lockedReason = role.managed ? copy.managedReason : baseRole ? copy.everyoneReason : copy.hierarchyReason;
+				const properties = [role.managed && copy.managed, baseRole && copy.everyone, !role.managed && !baseRole && role.canManage === false && copy.restricted, role.hoist && copy.hoisted, role.mentionable && copy.mentionable].filter(Boolean);
+				return <tr key={role.id}><td><div className={tabWorkspaceStyles.compactIdentity}><span className={tabWorkspaceStyles.resourceMarker} style={{ '--resource-color': roleColor(role.hexColor || role.color) }} aria-hidden="true" /><div><strong>{roleLabel(role.name)}</strong><small>{role.id}</small></div></div></td><td>{properties.length ? <div className={tabWorkspaceStyles.tagList}>{properties.map(item => <span key={item} className={tabWorkspaceStyles.tag}>{item}</span>)}</div> : copy.noProperties}</td><td><TabInlineActions align="start"><button type="button" className="btn btn-secondary btn-sm" onClick={() => copyId(role)}><Clipboard size={14} aria-hidden="true" /> {copiedId === role.id ? copy.copied : copy.copyId}</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => openEdit(role)} disabled={locked} title={locked ? lockedReason : undefined}><Pencil size={14} aria-hidden="true" /> {shared.edit}</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => setDeleteRole(role)} disabled={locked} title={locked ? lockedReason : undefined}><Trash2 size={14} aria-hidden="true" /> {copy.deleteAction}</button></TabInlineActions></td></tr>;
+			})}</tbody></table></TabTable><TabPagination page={currentPage} totalPages={totalPages} onPageChange={setPage} summary={shared.showing(start + 1, Math.min(start + pageSize, filteredRoles.length), filteredRoles.length)} /></> : <TabEmpty title={copy.emptyTitle} description={copy.emptyDescription} action={<button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>{copy.create}</button>} />}
 
-			{/* Roles Table */}
-			<TabTable label="Server roles">
-				<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-					<thead>
-						<tr style={{ background: 'var(--sunk)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Role</th>
-							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Role ID</th>
-							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Flags</th>
-							<th style={{ padding: '0.85rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', textAlign: 'right', whiteSpace: 'nowrap' }}>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{filteredRoles.length === 0 ? (
-							<tr>
-								<td colSpan="4" style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-									No roles found matching your search.
-								</td>
-							</tr>
-						) : (
-							paginatedRoles.map(role => {
-								const hex = getRoleColorHex(role.hexColor || role.color);
-								const isEveryone = role.name === '@everyone';
-								const isManaged = !!role.managed;
-								return (
-									<tr
-										key={role.id}
-										style={{ borderBottom: '1px solid var(--sunk)', transition: 'background 0.15s ease' }}
-									>
-										<td style={{ padding: '0.85rem 1rem' }}>
-											<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-												<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: hex, flexShrink: 0 }}></span>
-												<span style={{ fontWeight: 600, color: 'var(--ink)' }}>
-													{role.name}
-												</span>
-												{isEveryone && (
-													<span style={{ fontSize: '0.7rem', background: 'var(--sunk)', padding: '0.1rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>
-														Default
-													</span>
-												)}
-												{isManaged && (
-													<span style={{ fontSize: '0.7rem', background: 'rgba(251, 191, 36, 0.1)', color: 'var(--gold)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
-														Managed
-													</span>
-												)}
-											</div>
-										</td>
-										<td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-											{role.id}
-										</td>
-										<td style={{ padding: '0.85rem 1rem' }}>
-											<div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-												{role.hoist && (
-													<span style={{ fontSize: '0.7rem', background: 'var(--accent-soft)', color: 'var(--accent)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
-														Hoisted
-													</span>
-												)}
-												{role.mentionable && (
-													<span style={{ fontSize: '0.7rem', background: 'var(--settled-soft)', color: 'var(--settled)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
-														Mentionable
-													</span>
-												)}
-											</div>
-										</td>
-										<td style={{ padding: '0.85rem 1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-											<div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'nowrap' }}>
-												<button
-													onClick={() => copyToClipboard(role.id, role.id, role.name)}
-													className="btn btn-secondary btn-sm"
-													style={{
-														fontSize: '0.75rem',
-														padding: '0.25rem 0.65rem',
-														whiteSpace: 'nowrap',
-														color: copiedId === role.id ? 'var(--settled)' : undefined,
-														borderColor: copiedId === role.id ? 'rgba(52, 211, 153, 0.4)' : undefined,
-													}}
-												>
-													{copiedId === role.id ? 'Copied!' : 'Copy ID'}
-												</button>
-												{!isEveryone && !isManaged && (
-													<>
-												<button
-													onClick={() => openEditModal(role)}
-													className="btn btn-secondary btn-sm"
-													style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', whiteSpace: 'nowrap' }}
-												>
-													Edit
-												</button>
-												<button
-													onClick={() => setRolePendingDelete(role)}
-													className="btn btn-secondary btn-sm"
-													style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', color: 'var(--due)', whiteSpace: 'nowrap' }}
-												>
-													Delete
-												</button>
-													</>
-												)}
-											</div>
-										</td>
-									</tr>
-								);
-							})
-						)}
-					</tbody>
-				</table>
-			</TabTable>
-			{filteredRoles.length > 0 && (
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', paddingTop: '1rem' }}>
-					<span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-						Showing {pageStart + 1}–{Math.min(pageStart + pageSize, filteredRoles.length)} of {filteredRoles.length} roles
-					</span>
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-						<label htmlFor="roles-page-size" style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-							Roles per page
-						</label>
-						<select
-							id="roles-page-size"
-							className="form-control"
-							value={pageSize}
-							onChange={event => {
-								setPageSize(Number(event.target.value));
-								setCurrentPage(1);
-							}}
-							style={{ width: 'auto', minWidth: '4.5rem', padding: '0.45rem 2rem 0.45rem 0.7rem' }}
-						>
-							{PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
-						</select>
-						<button
-							type="button"
-							className="btn btn-secondary btn-sm"
-							onClick={() => setCurrentPage(Math.max(1, visiblePage - 1))}
-							disabled={visiblePage === 1}
-						>
-							Previous
-						</button>
-						<span style={{ minWidth: '5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-							Page {visiblePage} of {totalPages}
-						</span>
-						<button
-							type="button"
-							className="btn btn-secondary btn-sm"
-							onClick={() => setCurrentPage(Math.min(totalPages, visiblePage + 1))}
-							disabled={visiblePage === totalPages}
-						>
-							Next
-						</button>
-					</div>
-				</div>
-			)}
-
-			{/* ================= MODAL: CREATE ROLE ================= */}
-			{showCreateModal && (
-				<TabModalLayer onClose={() => { if (!createLoading) setShowCreateModal(false); }} closeOnBackdrop={!createLoading}>
-					<div role="dialog" aria-modal="true" aria-label="Create a server role" style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
-						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '1rem' }}>
-							Create New Server Role
-						</h4>
-
-						<form onSubmit={handleCreateRole}>
-							<div className="form-group">
-								<label className="form-label">Role Name</label>
-								<input
-									type="text"
-									className="form-control"
-									placeholder="e.g. VIP Member, Moderator"
-									value={newRoleName}
-									onChange={e => setNewRoleName(e.target.value)}
-									required
-									autoFocus
-								/>
-							</div>
-
-							<div className="form-group">
-								<ColorPicker
-									color={newRoleColor}
-									onChange={setNewRoleColor}
-									roleName={newRoleName || 'New Role'}
-									label="Role Color Studio"
-								/>
-							</div>
-
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-								<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
-									<input
-										type="checkbox"
-										checked={newRoleHoist}
-										onChange={e => setNewRoleHoist(e.target.checked)}
-										style={{ width: '16px', height: '16px' }}
-									/>
-									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Display role members separately in sidebar (Hoist)</span>
-								</label>
-
-								<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
-									<input
-										type="checkbox"
-										checked={newRoleMentionable}
-										onChange={e => setNewRoleMentionable(e.target.checked)}
-										style={{ width: '16px', height: '16px' }}
-									/>
-									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Allow anyone to @mention this role</span>
-								</label>
-							</div>
-
-							<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-								<button
-									type="button"
-									className="btn btn-secondary btn-sm"
-									onClick={() => setShowCreateModal(false)}
-									disabled={createLoading}
-								>
-									Cancel
-								</button>
-								<button
-									type="submit"
-									className="btn btn-sm"
-									disabled={createLoading}
-								>
-									{createLoading ? 'Creating...' : 'Create Role'}
-								</button>
-							</div>
-						</form>
-					</div>
-				</TabModalLayer>
-			)}
-
-			{/* ================= MODAL: EDIT ROLE ================= */}
-			{editingRole && (
-				<TabModalLayer onClose={() => { if (!editLoading) setEditingRole(null); }} closeOnBackdrop={!editLoading}>
-					<div role="dialog" aria-modal="true" aria-label={`Edit role ${editingRole.name}`} style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '1.75rem', boxShadow: '0 20px 40px rgba(22, 24, 31, .24)' }}>
-						<h4 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '1rem' }}>
-							Edit Role: @{editingRole.name}
-						</h4>
-
-						<form onSubmit={handleSaveEditRole}>
-							<div className="form-group">
-								<label className="form-label">Role Name</label>
-								<input
-									type="text"
-									className="form-control"
-									value={editName}
-									onChange={e => setEditName(e.target.value)}
-									required
-								/>
-							</div>
-
-							<div className="form-group">
-								<ColorPicker
-									color={editColor}
-									onChange={setEditColor}
-									roleName={editName || editingRole.name}
-									label="Role Color Studio"
-								/>
-							</div>
-
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-								<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
-									<input
-										type="checkbox"
-										checked={editHoist}
-										onChange={e => setEditHoist(e.target.checked)}
-										style={{ width: '16px', height: '16px' }}
-									/>
-									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Display role members separately in sidebar (Hoist)</span>
-								</label>
-
-								<label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer' }}>
-									<input
-										type="checkbox"
-										checked={editMentionable}
-										onChange={e => setEditMentionable(e.target.checked)}
-										style={{ width: '16px', height: '16px' }}
-									/>
-									<span style={{ fontSize: '0.875rem', color: 'var(--ink)' }}>Allow anyone to @mention this role</span>
-								</label>
-							</div>
-
-							<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-								<button
-									type="button"
-									className="btn btn-secondary btn-sm"
-									onClick={() => setEditingRole(null)}
-									disabled={editLoading}
-								>
-									Cancel
-								</button>
-								<button
-									type="submit"
-									className="btn btn-sm"
-									disabled={editLoading}
-								>
-									{editLoading ? 'Saving...' : 'Save Changes'}
-								</button>
-							</div>
-						</form>
-					</div>
-				</TabModalLayer>
-			)}
+			<TabDialog open={createOpen} onClose={busy ? undefined : () => setCreateOpen(false)} title={copy.createTitle} footer={dialogFooter(copy.createAction, 'create', () => setCreateOpen(false))}><form id="role-create-form" onSubmit={createRole} aria-describedby={formError ? 'role-create-error' : undefined}><RoleForm values={createValues} setValues={setCreateValues} copy={copy} />{formError ? <TabFieldMessage id="role-create-error" tone="error">{formError}</TabFieldMessage> : null}</form></TabDialog>
+			<TabDialog open={!!editingRole} onClose={busy ? undefined : () => setEditingRole(null)} title={copy.editTitle(`@${editingRole?.name || ''}`)} footer={dialogFooter(copy.saveAction, 'edit', () => setEditingRole(null))}><form id="role-edit-form" onSubmit={saveRole} aria-describedby={formError ? 'role-edit-error' : undefined}><RoleForm values={editValues} setValues={setEditValues} copy={copy} />{formError ? <TabFieldMessage id="role-edit-error" tone="error">{formError}</TabFieldMessage> : null}</form></TabDialog>
+			<TabConfirmDialog open={!!deleteRole} onClose={() => setDeleteRole(null)} onConfirm={removeRole} title={copy.deleteTitle(`@${deleteRole?.name || ''}`)} description={copy.deleteDescription} confirmLabel={copy.deleteAction} cancelLabel={shared.cancel} busy={busy === 'delete'} />
 		</TabWorkspace>
 	);
 }

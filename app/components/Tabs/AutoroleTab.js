@@ -2,228 +2,77 @@
 
 import { X } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
-import { TabActionBar, TabStatus, TabWorkspace } from './TabWorkspace';
+import { useCopy } from '../../copy';
+import { TabActionBar, TabEmpty, TabResourceRow, TabSection, TabStatus, TabWorkspace } from './TabWorkspace';
 
-export default function AutoroleTab({ config, roles, onChange }) {
-	const humanRoles = Array.isArray(config.autorole_ids)
-		? config.autorole_ids
-		: (config.autorole_id ? [config.autorole_id] : []);
+function roleColor(role) {
+	if (!role) return '#8A8F9E';
+	if (typeof role.hexColor === 'string' && /^#[0-9a-f]{6}$/i.test(role.hexColor) && role.hexColor !== '#000000') return role.hexColor;
+	if (typeof role.color === 'string' && /^#[0-9a-f]{6}$/i.test(role.color) && role.color !== '#000000') return role.color;
+	const numeric = Number(role.color);
+	return Number.isFinite(numeric) && numeric > 0 ? `#${numeric.toString(16).padStart(6, '0').slice(-6)}` : '#8A8F9E';
+}
 
-	const botRoles = Array.isArray(config.bot_autorole_ids)
-		? config.bot_autorole_ids
-		: [];
+export default function AutoroleTab({ config, roles = [], onChange }) {
+	const { t } = useCopy();
+	const copy = t.serverTabs.autorole;
+	const shared = t.serverTabs.shared;
+	const humanRoles = Array.isArray(config.autorole_ids) ? config.autorole_ids : (config.autorole_id ? [config.autorole_id] : []);
+	const botRoles = Array.isArray(config.bot_autorole_ids) ? config.bot_autorole_ids : [];
+	const rolesMap = new Map(roles.map(role => [String(role.id), role]));
+	const eligibleRoles = roles.filter(role => role.name !== '@everyone');
 
-	const rolesMap = new Map((roles || []).map(r => [r.id, r]));
-
-	const handleAddHumanRole = (rId) => {
-		if (!rId || humanRoles.includes(rId)) return;
-		const updated = [...humanRoles, rId];
-		onChange('autorole_ids', updated);
-		onChange('autorole_id', updated[0] || null);
+	const setHumanRoles = next => {
+		onChange('autorole_ids', next);
+		onChange('autorole_id', next[0] || null);
 	};
+	const addHuman = value => value && !humanRoles.includes(value) && setHumanRoles([...humanRoles, value]);
+	const addBot = value => value && !botRoles.includes(value) && onChange('bot_autorole_ids', [...botRoles, value]);
 
-	const handleRemoveHumanRole = (rId) => {
-		const updated = humanRoles.filter(id => id !== rId);
-		onChange('autorole_ids', updated);
-		onChange('autorole_id', updated[0] || null);
-	};
-
-	const handleAddBotRole = (rId) => {
-		if (!rId || botRoles.includes(rId)) return;
-		onChange('bot_autorole_ids', [...botRoles, rId]);
-	};
-
-	const handleRemoveBotRole = (rId) => {
-		onChange('bot_autorole_ids', botRoles.filter(id => id !== rId));
-	};
-
-	const getRoleColorStyle = (role) => {
-		if (!role) return '#8A8F9E';
-		if (role.hexColor && role.hexColor !== '#000000') return role.hexColor;
-		if (role.color !== undefined && role.color !== null && role.color !== 0 && role.color !== '#000000') {
-			if (typeof role.color === 'string' && role.color.startsWith('#')) return role.color;
-			return '#' + Number(role.color).toString(16).padStart(6, '0');
-		}
-		return '#8A8F9E';
-	};
+	const renderRoles = (selectedIds, remove, emptyText) => selectedIds.length ? (
+		<div>
+			{selectedIds.map(id => {
+				const role = rolesMap.get(String(id));
+				const label = role ? `@${role.name}` : shared.unavailableRole(id);
+				return (
+					<TabResourceRow
+						key={id}
+						label={label}
+						description={role ? null : String(id)}
+						markerColor={roleColor(role)}
+						actions={(
+							<button type="button" className="btn btn-secondary btn-sm" onClick={() => remove(id)} aria-label={copy.removeRole(label)}>
+								<X size={15} aria-hidden="true" /> {shared.remove}
+							</button>
+						)}
+					/>
+				);
+			})}
+		</div>
+	) : <TabEmpty title={emptyText} />;
 
 	return (
 		<TabWorkspace>
-			<TabActionBar
-				actions={<TabStatus tone="accent">{roles?.length || 0} roles available</TabStatus>}
-			>
-				<span>{humanRoles.length + botRoles.length} automatic assignments configured</span>
+			<TabActionBar actions={<TabStatus tone="accent">{copy.available(eligibleRoles.length)}</TabStatus>}>
+				<span>{copy.scope}</span>
+				<TabStatus tone={humanRoles.length + botRoles.length ? 'success' : 'neutral'}>{copy.configured(humanRoles.length + botRoles.length)}</TabStatus>
 			</TabActionBar>
 
-			{/* Section 1: Human Member Auto-Roles */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-					<div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--ink)' }}>
-						Human Member Auto-Roles
-					</div>
-					<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-						{humanRoles.length} Active {humanRoles.length === 1 ? 'Role' : 'Roles'}
-					</span>
+			<TabSection title={copy.humansTitle} description={copy.humansDescription}>
+				<div className="form-group">
+					<label className="form-label">{copy.humansSelect}</label>
+					<CustomSelect type="role" ariaLabel={copy.humansSelect} placeholder={copy.humansPlaceholder} value="" onChange={addHuman} options={eligibleRoles.filter(role => !humanRoles.includes(role.id)).map(role => ({ value: role.id, label: `@${role.name}`, color: role.hexColor || role.color }))} />
 				</div>
-				<p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-					Assigned automatically to human users immediately upon joining the server.
-				</p>
+				{renderRoles(humanRoles, id => setHumanRoles(humanRoles.filter(roleId => roleId !== id)), copy.humansEmpty)}
+			</TabSection>
 
-				{/* Active Human Role Badges */}
-				<div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem', minHeight: '36px', alignItems: 'center' }}>
-					{humanRoles.length === 0 ? (
-						<span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-							No human autoroles configured. Select a role below to add.
-						</span>
-					) : (
-						humanRoles.map(rId => {
-							const r = rolesMap.get(rId);
-							const roleColor = getRoleColorStyle(r);
-							return (
-								<span
-									key={rId}
-									className="tag-badge"
-									style={{
-										display: 'inline-flex',
-										alignItems: 'center',
-										gap: '0.5rem',
-										background: `color-mix(in srgb, ${roleColor} 14%, transparent)`,
-										border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
-										padding: '0.4rem 0.8rem',
-										borderRadius: '6px',
-										fontSize: '0.85rem',
-									}}
-								>
-									<span style={{ width: '8px', height: '8px', borderRadius: '50%', background: roleColor, boxShadow: `0 0 6px color-mix(in srgb, ${roleColor} 50%, transparent)` }}></span>
-									<span style={{ color: 'var(--ink)', fontWeight: 600 }}>@{r ? r.name : `ID: ${rId}`}</span>
-									<button
-										onClick={() => handleRemoveHumanRole(rId)}
-										title="Remove Role"
-										aria-label={`Remove ${r?.name || 'role'} from human autoroles`}
-										style={{
-											background: 'none',
-											border: 'none',
-											color: 'var(--text-muted)',
-											cursor: 'pointer',
-											fontSize: '0.85rem',
-											lineHeight: 1,
-											padding: '0 0.15rem',
-											transition: 'color 0.15s ease',
-										}}
-										onMouseEnter={e => e.target.style.color = 'var(--due)'}
-										onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
-									>
-										<X size={14} aria-hidden="true" />
-									</button>
-								</span>
-							);
-						})
-					)}
+			<TabSection title={copy.botsTitle} description={copy.botsDescription}>
+				<div className="form-group">
+					<label className="form-label">{copy.botsSelect}</label>
+					<CustomSelect type="role" ariaLabel={copy.botsSelect} placeholder={copy.botsPlaceholder} value="" onChange={addBot} options={eligibleRoles.filter(role => !botRoles.includes(role.id)).map(role => ({ value: role.id, label: `@${role.name}`, color: role.hexColor || role.color }))} />
 				</div>
-
-				<div className="form-group" style={{ marginBottom: 0 }}>
-					<label className="form-label">Add Human Auto-Role</label>
-					<CustomSelect
-						type="role"
-						placeholder="Choose a role to assign to new human members..."
-						value=""
-						onChange={(val) => handleAddHumanRole(val)}
-						options={(roles || [])
-							.filter(r => !humanRoles.includes(r.id) && r.name !== '@everyone')
-							.map(r => ({
-								value: r.id,
-								label: `@${r.name}`,
-								color: r.hexColor || r.color,
-							}))
-						}
-					/>
-				</div>
-			</div>
-
-			{/* Section 2: Bot Account Auto-Roles */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-					<div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--ink)' }}>
-						Bot Account Auto-Roles
-					</div>
-					<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-						{botRoles.length} Active {botRoles.length === 1 ? 'Role' : 'Roles'}
-					</span>
-				</div>
-				<p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-					Assigned automatically when a bot integration account is added to the server.
-				</p>
-
-				{/* Active Bot Role Badges */}
-				<div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem', minHeight: '36px', alignItems: 'center' }}>
-					{botRoles.length === 0 ? (
-						<span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-							No bot autoroles configured. Select a role below to add.
-						</span>
-					) : (
-						botRoles.map(rId => {
-							const r = rolesMap.get(rId);
-							const roleColor = getRoleColorStyle(r);
-							return (
-								<span
-									key={rId}
-									className="tag-badge"
-									style={{
-										display: 'inline-flex',
-										alignItems: 'center',
-										gap: '0.5rem',
-										background: `color-mix(in srgb, ${roleColor} 14%, transparent)`,
-										border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
-										padding: '0.4rem 0.8rem',
-										borderRadius: '6px',
-										fontSize: '0.85rem',
-									}}
-								>
-									<span style={{ width: '8px', height: '8px', borderRadius: '50%', background: roleColor, boxShadow: `0 0 6px color-mix(in srgb, ${roleColor} 50%, transparent)` }}></span>
-									<span style={{ color: 'var(--ink)', fontWeight: 600 }}>@{r ? r.name : `ID: ${rId}`}</span>
-									<button
-										onClick={() => handleRemoveBotRole(rId)}
-										title="Remove Role"
-										aria-label={`Remove ${r?.name || 'role'} from bot autoroles`}
-										style={{
-											background: 'none',
-											border: 'none',
-											color: 'var(--text-muted)',
-											cursor: 'pointer',
-											fontSize: '0.85rem',
-											lineHeight: 1,
-											padding: '0 0.15rem',
-											transition: 'color 0.15s ease',
-										}}
-										onMouseEnter={e => e.target.style.color = 'var(--due)'}
-										onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
-									>
-										<X size={14} aria-hidden="true" />
-									</button>
-								</span>
-							);
-						})
-					)}
-				</div>
-
-				<div className="form-group" style={{ marginBottom: 0 }}>
-					<label className="form-label">Add Bot Auto-Role</label>
-					<CustomSelect
-						type="role"
-						placeholder="Choose a role to assign to new bot accounts..."
-						value=""
-						onChange={(val) => handleAddBotRole(val)}
-						options={(roles || [])
-							.filter(r => !botRoles.includes(r.id) && r.name !== '@everyone')
-							.map(r => ({
-								value: r.id,
-								label: `@${r.name}`,
-								color: r.hexColor || r.color,
-							}))
-						}
-					/>
-				</div>
-			</div>
+				{renderRoles(botRoles, id => onChange('bot_autorole_ids', botRoles.filter(roleId => roleId !== id)), copy.botsEmpty)}
+			</TabSection>
 		</TabWorkspace>
 	);
 }

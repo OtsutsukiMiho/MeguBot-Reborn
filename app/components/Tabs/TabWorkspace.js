@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, X } from 'lucide-react';
+import { useCopy } from '../../copy';
 import styles from './tabWorkspace.module.css';
 
 export function TabWorkspace({ children, className = '', labelledBy }) {
@@ -99,6 +100,180 @@ export function TabFieldGrid({ children, columns = 2, className = '' }) {
 	);
 }
 
+export function TabSettingsList({ children, className = '' }) {
+	return <div className={`${styles.settingsList} ${className}`.trim()}>{children}</div>;
+}
+
+export function TabSettingRow({ label, description, control, children, className = '', stacked = false }) {
+	return (
+		<div className={`${styles.settingRow} ${stacked ? styles.settingRowStacked : ''} ${className}`.trim()}>
+			<div className={styles.settingCopy}>
+				{label ? <strong>{label}</strong> : null}
+				{description ? <span>{description}</span> : null}
+			</div>
+			<div className={styles.settingControl}>{control || children}</div>
+		</div>
+	);
+}
+
+export function TabSwitch({ checked, onChange, label, disabled = false }) {
+	return (
+		<label className={`${styles.switch} ${disabled ? styles.switchDisabled : ''}`.trim()}>
+			<input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} />
+			<span className={styles.switchTrack} aria-hidden="true"><span /></span>
+			<span className={styles.srOnly}>{label}</span>
+		</label>
+	);
+}
+
+export function TabSegmented({ options, value, onChange, label, disabled = false }) {
+	return (
+		<fieldset className={styles.segmented} aria-label={label} disabled={disabled}>
+			{options.map(option => (
+				<label key={option.value}>
+					<input type="radio" name={option.name || label} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} />
+					<span>{option.label}</span>
+				</label>
+			))}
+		</fieldset>
+	);
+}
+
+export function TabFilterBar({ children, meta, actions, className = '' }) {
+	return (
+		<div className={`${styles.filterBar} ${className}`.trim()}>
+			<div className={styles.filterFields}>{children}</div>
+			{meta || actions ? (
+				<div className={styles.filterAside}>
+					{meta}
+					{actions}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+export function TabInlineActions({ children, align = 'end', className = '' }) {
+	return <div className={`${styles.inlineActions} ${styles[`inlineActions_${align}`] || ''} ${className}`.trim()}>{children}</div>;
+}
+
+export function TabLocalTabs({ tabs, value, onChange, label, className = '' }) {
+	const refs = useRef(new Map());
+	const enabledTabs = tabs.filter(tab => !tab.disabled);
+	const selectByOffset = (currentId, offset) => {
+		const index = enabledTabs.findIndex(tab => tab.id === currentId);
+		if (index < 0 || !enabledTabs.length) return;
+		const next = enabledTabs[(index + offset + enabledTabs.length) % enabledTabs.length];
+		onChange(next.id);
+		requestAnimationFrame(() => refs.current.get(next.id)?.focus());
+	};
+
+	return (
+		<div className={`${styles.localTabs} ${className}`.trim()} role="tablist" aria-label={label}>
+			{tabs.map(tab => (
+				<button
+					key={tab.id}
+					ref={node => {
+						if (node) refs.current.set(tab.id, node);
+						else refs.current.delete(tab.id);
+					}}
+					type="button"
+					role="tab"
+					aria-selected={value === tab.id}
+					aria-controls={tab.controls}
+					id={tab.tabId}
+					tabIndex={value === tab.id ? 0 : -1}
+					disabled={tab.disabled}
+					onClick={() => onChange(tab.id)}
+					onKeyDown={event => {
+						if (event.key === 'ArrowRight') { event.preventDefault(); selectByOffset(tab.id, 1); }
+						if (event.key === 'ArrowLeft') { event.preventDefault(); selectByOffset(tab.id, -1); }
+						if (event.key === 'Home' && enabledTabs.length) { event.preventDefault(); onChange(enabledTabs[0].id); requestAnimationFrame(() => refs.current.get(enabledTabs[0].id)?.focus()); }
+						if (event.key === 'End' && enabledTabs.length) { event.preventDefault(); const last = enabledTabs.at(-1); onChange(last.id); requestAnimationFrame(() => refs.current.get(last.id)?.focus()); }
+					}}
+				>
+					<span>{tab.label}</span>
+					{tab.meta ? <small>{tab.meta}</small> : null}
+				</button>
+			))}
+		</div>
+	);
+}
+
+export function TabDisclosure({ summary, description, children, open, onToggle, invalid = false, className = '' }) {
+	const detailsRef = useRef(null);
+	useEffect(() => {
+		if (invalid && detailsRef.current) detailsRef.current.open = true;
+	}, [invalid]);
+
+	return (
+		<details ref={detailsRef} className={`${styles.disclosure} ${invalid ? styles.disclosureInvalid : ''} ${className}`.trim()} open={open} onToggle={onToggle}>
+			<summary>
+				<span>
+					<strong>{summary}</strong>
+					{description ? <small>{description}</small> : null}
+				</span>
+				<ChevronDown size={17} aria-hidden="true" />
+			</summary>
+			<div className={styles.disclosureBody}>{children}</div>
+		</details>
+	);
+}
+
+export function TabFieldMessage({ children, tone = 'help', id }) {
+	return <p id={id} className={`${styles.fieldMessage} ${styles[`fieldMessage_${tone}`] || ''}`} role={tone === 'error' ? 'alert' : undefined} aria-live={tone === 'error' ? 'assertive' : undefined}>{children}</p>;
+}
+
+export function TabSplitLayout({ editor, preview, className = '' }) {
+	return (
+		<div className={`${styles.splitLayout} ${className}`.trim()}>
+			<div className={styles.splitEditor}>{editor}</div>
+			<aside className={styles.splitPreview}>{preview}</aside>
+		</div>
+	);
+}
+
+export function TabRecordList({ children, className = '' }) {
+	return <div className={`${styles.recordList} ${className}`.trim()}>{children}</div>;
+}
+
+export function TabRecord({ children, className = '' }) {
+	return <article className={`${styles.record} ${className}`.trim()}>{children}</article>;
+}
+
+export function TabResourceRow({ label, description, markerColor, leading, actions, children, className = '' }) {
+	return (
+		<div className={`${styles.resourceRow} ${className}`.trim()}>
+			<div className={styles.resourceIdentity}>
+				{leading || (markerColor ? <span className={styles.resourceMarker} style={{ '--resource-color': markerColor }} aria-hidden="true" /> : null)}
+				<div>
+					<strong>{label}</strong>
+					{description ? <span>{description}</span> : null}
+				</div>
+			</div>
+			{children ? <div className={styles.resourceContent}>{children}</div> : null}
+			{actions ? <div className={styles.resourceActions}>{actions}</div> : null}
+		</div>
+	);
+}
+
+
+export function TabPagination({ page, totalPages, onPageChange, summary, previousLabel, nextLabel }) {
+	const { t } = useCopy();
+	const previous = previousLabel || t.serverTabs.shared.previous;
+	const next = nextLabel || t.serverTabs.shared.next;
+	return (
+		<nav className={styles.pagination} aria-label={t.serverTabs.shared.paginationLabel}>
+			<span>{summary}</span>
+			<div>
+				<button type="button" className="btn btn-secondary btn-sm" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>{previous}</button>
+				<span aria-current="page">{page} / {totalPages}</span>
+				<button type="button" className="btn btn-secondary btn-sm" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{next}</button>
+			</div>
+		</nav>
+	);
+}
+
 export function TabChoice({
 	checked,
 	onChange,
@@ -127,9 +302,9 @@ export function TabChoice({
 	);
 }
 
-export function TabTable({ children, label, className = '' }) {
+export function TabTable({ children, label, className = '', mobileRecords = false }) {
 	return (
-		<div className={`${styles.tableFrame} ${className}`.trim()} role="region" aria-label={label} tabIndex="0">
+		<div className={`${styles.tableFrame} ${mobileRecords ? styles.mobileRecords : ''} ${className}`.trim()} role="region" aria-label={label} tabIndex="0">
 			{children}
 		</div>
 	);
@@ -237,8 +412,10 @@ export function TabDialog({
 	children,
 	footer,
 	danger = false,
-	closeLabel = 'Close dialog',
+	closeLabel,
 }) {
+	const { t } = useCopy();
+	const resolvedCloseLabel = closeLabel || t.serverTabs.shared.closeDialog;
 	const titleId = useId();
 	const descriptionId = useId();
 	const dialogRef = useRef(null);
@@ -311,7 +488,7 @@ export function TabDialog({
 							<h3 id={titleId}>{title}</h3>
 							{description ? <p id={descriptionId}>{description}</p> : null}
 						</div>
-						<button type="button" className={styles.dialogClose} onClick={onClose} aria-label={closeLabel}>
+						<button type="button" className={styles.dialogClose} onClick={onClose} aria-label={resolvedCloseLabel}>
 							<X size={18} aria-hidden="true" />
 						</button>
 					</header>
@@ -332,8 +509,13 @@ export function TabConfirmDialog({
 	description,
 	confirmLabel = 'Confirm',
 	cancelLabel = 'Cancel',
+	busyLabel,
+	impactMessage,
 	busy = false,
 }) {
+	const { t } = useCopy();
+	const resolvedBusyLabel = busyLabel || t.serverTabs.shared.working;
+	const resolvedImpactMessage = impactMessage || t.serverTabs.shared.immediateImpact;
 	return (
 		<TabDialog
 			open={open}
@@ -345,14 +527,14 @@ export function TabConfirmDialog({
 				<>
 					<button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>{cancelLabel}</button>
 					<button type="button" className="btn btn-primary" onClick={onConfirm} disabled={busy}>
-						{busy ? 'Working…' : confirmLabel}
+						{busy ? resolvedBusyLabel : confirmLabel}
 					</button>
 				</>
 			)}
 		>
 			<div className={styles.confirmMessage}>
 				<AlertTriangle size={20} aria-hidden="true" />
-				<span>This action affects the current Discord server immediately.</span>
+				<span>{resolvedImpactMessage}</span>
 			</div>
 		</TabDialog>
 	);

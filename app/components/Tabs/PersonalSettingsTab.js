@@ -1,549 +1,152 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BellPlus, Trash2 } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
-import { TabActionBar, TabConfirmDialog, TabModalLayer, TabSkeleton, TabStatus, TabWorkspace } from './TabWorkspace';
+import { TabActionBar, TabConfirmDialog, TabDialog, TabEmpty, TabFieldMessage, TabInlineActions, TabNotice, TabRecord, TabRecordList, TabSection, TabSettingRow, TabSettingsList, TabSkeleton, TabStatus, TabSwitch, TabWorkspace } from './TabWorkspace';
 
-export default function PersonalSettingsTab({ guildId, serverName = 'Discord Server', initialChannels = [], showToast }) {
-	const { t } = useCopy();
+const TIME_PRESETS = ['10m', '30m', '1h', '2h', '1d', '18:00 everyday'];
+
+export default function PersonalSettingsTab({ guildId, serverName, initialChannels = [], showToast, onEditorDirtyChange }) {
+	const { t, fmt } = useCopy();
 	const copy = t.personalSettings;
-
+	const shared = t.serverTabs.shared;
+	const copyRef = useRef(copy);
+	copyRef.current = copy;
 	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState('');
 	const [nickname, setNickname] = useState(null);
 	const [nickInput, setNickInput] = useState('');
 	const [nickSaving, setNickSaving] = useState(false);
-
+	const [nickError, setNickError] = useState('');
 	const [announceOptOut, setAnnounceOptOut] = useState(false);
 	const [announceSaving, setAnnounceSaving] = useState(false);
-
+	const [announceError, setAnnounceError] = useState('');
 	const [reminders, setReminders] = useState([]);
-	const [channels, setChannels] = useState(initialChannels || []);
-	const [deletingId, setDeletingId] = useState(null);
+	const [channels, setChannels] = useState(initialChannels);
 	const [pendingDeleteId, setPendingDeleteId] = useState(null);
-
-	// New Reminder Modal
-	const [modalOpen, setModalOpen] = useState(false);
-	const [modalMsg, setModalMsg] = useState('');
-	const [modalTime, setModalTime] = useState('');
-	const [modalChannel, setModalChannel] = useState('');
-	const [modalSaving, setModalSaving] = useState(false);
-
-	const fetchSettings = async () => {
-		setLoading(true);
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/my-settings`);
-			const data = await res.json();
-			if (data.success) {
-				setNickname(data.nickname);
-				setNickInput(data.nickname || '');
-				setAnnounceOptOut(Boolean(data.announceOptOut));
-				setReminders(data.reminders || []);
-				if (Array.isArray(data.channels) && data.channels.length > 0) {
-					setChannels(data.channels);
-				}
-			} else if (showToast) {
-				showToast(data.error || copy.loadError, true);
-			}
-		} catch {
-			if (showToast) showToast(copy.loadError, true);
-		} finally {
-			setLoading(false);
-		}
-	};
-
+	const [deletingId, setDeletingId] = useState(null);
+	const [reminderOpen, setReminderOpen] = useState(false);
+	const [reminderDraft, setReminderDraft] = useState({ message: '', time: '', channelId: '' });
+	const [reminderSaving, setReminderSaving] = useState(false);
+	const [reminderError, setReminderError] = useState('');
+	const editorDirty = nickInput.trim() !== (nickname || '') || Object.values(reminderDraft).some(value => String(value || '').trim());
 	useEffect(() => {
-		if (guildId) {
-			fetchSettings();
-		}
+		onEditorDirtyChange?.('personal', Boolean(editorDirty));
+		return () => onEditorDirtyChange?.('personal', false);
+	}, [editorDirty, onEditorDirtyChange]);
+
+	const fetchSettings = useCallback(async ({ quiet = false } = {}) => {
+		if (!quiet) setLoading(true);
+		setLoadError('');
+		try {
+			const response = await fetch(`/api/guilds/${guildId}/my-settings`);
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copyRef.current.loadError);
+			setNickname(data.nickname); if (!quiet) setNickInput(data.nickname || ''); setAnnounceOptOut(Boolean(data.announceOptOut)); setReminders(data.reminders || []);
+			if (Array.isArray(data.channels) && data.channels.length) setChannels(data.channels);
+		} catch (error) { setLoadError(error.message || copyRef.current.loadError); }
+		finally { setLoading(false); }
 	}, [guildId]);
+	useEffect(() => { fetchSettings(); }, [fetchSettings]);
+	useEffect(() => setChannels(initialChannels || []), [initialChannels]);
 
-	// Update TTS Nickname
-	const handleSaveNickname = async (overrideName = null) => {
-		const targetName = overrideName !== null ? overrideName : nickInput.trim();
-		setNickSaving(true);
+	const saveNickname = async override => {
+		const target = override !== undefined ? override : nickInput.trim();
+		setNickSaving(true); setNickError('');
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/my-settings/nickname`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ nickname: targetName }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				setNickname(data.nickname);
-				setNickInput(data.nickname || '');
-				if (showToast) {
-					showToast(data.nickname ? copy.ttsNickSaved : copy.ttsNickResetDone);
-				}
-			} else if (showToast) {
-				showToast(data.error || copy.saveNickError, true);
-			}
-		} catch {
-			if (showToast) showToast(copy.saveNickError, true);
-		} finally {
-			setNickSaving(false);
-		}
+			const response = await fetch(`/api/guilds/${guildId}/my-settings/nickname`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: target }) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.saveNickError);
+			setNickname(data.nickname); setNickInput(data.nickname || ''); showToast(data.nickname ? copy.ttsNickSaved : copy.ttsNickResetDone);
+		} catch (error) { setNickError(error.message || copy.saveNickError); showToast(error.message || copy.saveNickError, true); }
+		finally { setNickSaving(false); }
 	};
-
-	// Toggle Voice Announcement
-	const handleToggleAnnounce = async () => {
-		const nextVal = !announceOptOut;
-		setAnnounceSaving(true);
+	const toggleAnnouncement = async () => {
+		const nextOptOut = !announceOptOut;
+		setAnnounceSaving(true); setAnnounceError('');
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/my-settings/announce`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ optOut: nextVal }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				setAnnounceOptOut(data.announceOptOut);
-				if (showToast) showToast(copy.announceSaved);
-			} else if (showToast) {
-				showToast(data.error || copy.saveAnnounceError, true);
-			}
-		} catch {
-			if (showToast) showToast(copy.saveAnnounceError, true);
-		} finally {
-			setAnnounceSaving(false);
-		}
+			const response = await fetch(`/api/guilds/${guildId}/my-settings/announce`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ optOut: nextOptOut }) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.saveAnnounceError);
+			setAnnounceOptOut(Boolean(data.announceOptOut)); showToast(copy.announceSaved);
+		} catch (error) { setAnnounceError(error.message || copy.saveAnnounceError); showToast(error.message || copy.saveAnnounceError, true); }
+		finally { setAnnounceSaving(false); }
 	};
-
-	// Create Reminder
-	const handleCreateReminder = async (e) => {
-		if (e) e.preventDefault();
-		if (!modalMsg.trim()) {
-			if (showToast) showToast(copy.reminderMessagePlaceholder, true);
-			return;
-		}
-		if (!modalTime.trim()) {
-			if (showToast) showToast(copy.reminderTimePlaceholder, true);
-			return;
-		}
-		if (!modalChannel) {
-			if (showToast) showToast(copy.reminderChannelSelect, true);
-			return;
-		}
-
-		setModalSaving(true);
+	const createReminder = async event => {
+		event.preventDefault();
+		if (!reminderDraft.message.trim() || !reminderDraft.time.trim() || !reminderDraft.channelId) { setReminderError(copy.saveReminderError); return; }
+		setReminderSaving(true); setReminderError('');
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/my-settings/reminders`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					message: modalMsg.trim(),
-					time: modalTime.trim(),
-					channelId: modalChannel,
-				}),
-			});
-			const data = await res.json();
-			if (data.success) {
-				if (showToast) showToast(copy.reminderCreated);
-				setModalOpen(false);
-				setModalMsg('');
-				setModalTime('');
-				setModalChannel('');
-				fetchSettings();
-			} else if (showToast) {
-				showToast(data.error || copy.saveReminderError, true);
-			}
-		} catch {
-			if (showToast) showToast(copy.saveReminderError, true);
-		} finally {
-			setModalSaving(false);
-		}
+			const response = await fetch(`/api/guilds/${guildId}/my-settings/reminders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reminderDraft) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.saveReminderError);
+			showToast(copy.reminderCreated); setReminderOpen(false); setReminderDraft({ message: '', time: '', channelId: '' }); await fetchSettings({ quiet: true });
+		} catch (error) { setReminderError(error.message || copy.saveReminderError); showToast(error.message || copy.saveReminderError, true); }
+		finally { setReminderSaving(false); }
 	};
-
-	// Delete Reminder
-	const handleDeleteReminder = async () => {
+	const deleteReminder = async () => {
 		if (!pendingDeleteId) return;
 		setDeletingId(pendingDeleteId);
 		try {
-			const res = await fetch(`/api/guilds/${guildId}/my-settings/reminders/${pendingDeleteId}`, {
-				method: 'DELETE',
-			});
-			const data = await res.json();
-			if (data.success) {
-				setReminders(prev => prev.filter(r => String(r.id) !== String(pendingDeleteId)));
-				if (showToast) showToast(copy.reminderDeleted);
-			} else if (showToast) {
-				showToast(data.error || copy.deleteReminderError, true);
-			}
-		} catch {
-			if (showToast) showToast(copy.deleteReminderError, true);
-		} finally {
-			setDeletingId(null);
-			setPendingDeleteId(null);
-		}
+			const response = await fetch(`/api/guilds/${guildId}/my-settings/reminders/${pendingDeleteId}`, { method: 'DELETE' });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || copy.deleteReminderError);
+			setReminders(current => current.filter(reminder => String(reminder.id) !== String(pendingDeleteId))); showToast(copy.reminderDeleted); setPendingDeleteId(null);
+		} catch (error) { showToast(error.message || copy.deleteReminderError, true); }
+		finally { setDeletingId(null); }
 	};
 
-	const channelOptions = channels.map(c => ({
-		value: c.id,
-		label: `# ${c.name}`,
-		icon: '#',
-		subtitle: c.parentName,
-	}));
-
-	const formatReminderTime = (timeMs, recurring) => {
-		if (recurring) {
-			const d = new Date(timeMs + 7 * 3600 * 1000);
-			const hh = String(d.getUTCHours()).padStart(2, '0');
-			const mm = String(d.getUTCMinutes()).padStart(2, '0');
-			return `${copy.recurringBadge}: ${hh}:${mm} ICT`;
+	const formatReminder = reminder => {
+		if (reminder.recurring) {
+			const date = new Date(Number(reminder.reminderTime) + 7 * 3600 * 1000);
+			return `${copy.recurringBadge}: ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')} ICT`;
 		}
-		const d = new Date(timeMs);
-		const now = Date.now();
-		const diffSec = Math.round((timeMs - now) / 1000);
-
-		let relative = '';
-		if (diffSec <= 0) {
-			relative = copy.dueNow;
-		} else if (diffSec < 60) {
-			relative = copy.inSeconds(diffSec);
-		} else if (diffSec < 3600) {
-			relative = copy.inMinutes(Math.floor(diffSec / 60));
-		} else if (diffSec < 86400) {
-			relative = copy.inHoursMinutes(Math.floor(diffSec / 3600), Math.floor((diffSec % 3600) / 60));
-		} else {
-			relative = copy.inDays(Math.floor(diffSec / 86400));
-		}
-
-		return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${relative})`;
+		return fmt.when(reminder.reminderTime);
+	};
+	const channelOptions = channels.map(channel => ({ value: channel.id, label: `# ${channel.name}`, subtitle: channel.parentName }));
+	const channelName = id => {
+		const channel = channels.find(item => String(item.id) === String(id));
+		return channel ? `#${channel.name}` : shared.unavailableChannel(id);
 	};
 
-	const timePresets = ['10m', '30m', '1h', '2h', '1d', '18:00 everyday'];
-
-	if (loading) {
-		return (
-			<TabWorkspace>
-				<TabSkeleton rows={4} label={t.common.loading} />
-			</TabWorkspace>
-		);
-	}
+	if (loading && !nickname && !reminders.length) return <TabWorkspace><TabSkeleton rows={5} label={t.common.loading} /></TabWorkspace>;
 
 	return (
 		<TabWorkspace>
-			{/* Subheader */}
-			<TabActionBar actions={<TabStatus tone="accent">{serverName}</TabStatus>}>
-				<span>{copy.headerSubtitle}</span>
-			</TabActionBar>
-			<TabConfirmDialog
-				open={!!pendingDeleteId}
-				onClose={() => setPendingDeleteId(null)}
-				onConfirm={handleDeleteReminder}
-				title={copy.reminderDeleteConfirm}
-				confirmLabel={copy.deleteBtn}
-				cancelLabel={copy.reminderCancelBtn}
-				busy={!!deletingId}
-			/>
+			<TabActionBar actions={<TabStatus tone="accent">{serverName || t.servers.fallbackServerName}</TabStatus>}><span>{copy.personalScope}</span></TabActionBar>
+			{loadError ? <TabNotice tone="warning" title={copy.loadError} actions={<button type="button" className="btn btn-secondary btn-sm" onClick={() => fetchSettings()}>{shared.retry}</button>}><p>{loadError}</p></TabNotice> : null}
 
-			{/* 1. TTS Spoken Nickname Card */}
-			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
-				<div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-					<div>
-						<h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.3rem' }}>
-							{copy.ttsNickTitle}
-						</h4>
-						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-							{copy.ttsNickDesc}
-						</p>
-					</div>
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-						<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-							{copy.ttsNickCurrent}:
-						</span>
-						<span style={{
-							fontSize: '0.85rem',
-							fontWeight: 700,
-							padding: '0.2rem 0.65rem',
-							borderRadius: '999px',
-							background: nickname ? 'var(--brand-soft, rgba(99, 102, 241, 0.15))' : 'var(--surface-sunken, rgba(255, 255, 255, 0.05))',
-							color: nickname ? 'var(--brand, #818cf8)' : 'var(--text-secondary)',
-							border: '1px solid var(--border-color)',
-						}}>
-							{nickname || copy.ttsNickDefault}
-						</span>
-					</div>
-				</div>
+			<TabSection title={copy.ttsNickTitle} description={copy.ttsNickDesc} meta={<TabStatus tone={nickname ? 'success' : 'neutral'}>{nickname || copy.ttsNickDefault}</TabStatus>}>
+				<TabSettingRow label={copy.ttsNickCurrent}>
+					<input className="form-control" aria-label={copy.ttsNickCurrent} aria-describedby={nickError ? 'personal-nickname-error' : undefined} value={nickInput} onChange={event => setNickInput(event.target.value)} placeholder={copy.ttsNickPlaceholder} />
+					{nickError ? <TabFieldMessage id="personal-nickname-error" tone="error">{nickError}</TabFieldMessage> : null}
+					<TabInlineActions><button type="button" className="btn btn-secondary" onClick={() => saveNickname('')} disabled={nickSaving || !nickname}>{copy.ttsNickReset}</button><button type="button" className="btn btn-primary" onClick={() => saveNickname()} disabled={nickSaving || nickInput.trim() === (nickname || '')}>{nickSaving ? shared.working : copy.ttsNickSave}</button></TabInlineActions>
+				</TabSettingRow>
+			</TabSection>
 
-				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-					<input
-						type="text"
-						value={nickInput}
-						onChange={e => setNickInput(e.target.value)}
-						placeholder={copy.ttsNickPlaceholder}
-						maxLength={100}
-						className="form-control"
-						style={{ flex: '1 1 240px', maxWidth: '380px' }}
-					/>
-					<button
-						type="button"
-						onClick={() => handleSaveNickname()}
-						disabled={nickSaving || (nickInput.trim() === (nickname || ''))}
-						className="btn btn-primary btn-sm"
-					>
-						{nickSaving ? t.common.saving : copy.ttsNickSave}
-					</button>
-					{nickname && (
-						<button
-							type="button"
-							onClick={() => handleSaveNickname('')}
-							disabled={nickSaving}
-							className="btn btn-secondary btn-sm"
-						>
-							{copy.ttsNickReset}
-						</button>
-					)}
-				</div>
-			</div>
+			<TabSection title={copy.announceTitle} description={copy.announceDesc}>
+				<TabSettingsList><TabSettingRow label={announceOptOut ? copy.announceToggleOff : copy.announceToggleOn} description={announceOptOut ? copy.announceStatusMuted : copy.announceStatusActive} control={<TabSwitch checked={!announceOptOut} onChange={toggleAnnouncement} label={copy.announceToggleOn} disabled={announceSaving} />} /></TabSettingsList>
+				{announceError ? <TabFieldMessage tone="error">{announceError}</TabFieldMessage> : null}
+			</TabSection>
 
-			{/* 2. Voice Channel Announcement Toggle Card */}
-			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1.25rem', flexWrap: 'wrap' }}>
-					<div style={{ flex: '1 1 300px' }}>
-						<h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.3rem' }}>
-							{copy.announceTitle}
-						</h4>
-						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-							{copy.announceDesc}
-						</p>
-					</div>
+			<TabSection title={copy.remindersTitle} description={copy.remindersDesc} actions={<button type="button" className="btn btn-primary" onClick={() => { setReminderOpen(true); setReminderError(''); }}><BellPlus size={16} aria-hidden="true" /> {copy.reminderNewBtn}</button>}>
+				<TabFieldMessage>{copy.reminderTimezoneHint}</TabFieldMessage>
+				{reminders.length ? <TabRecordList>{reminders.map(reminder => <TabRecord key={reminder.id}><strong>{reminder.message}</strong><span>{formatReminder(reminder)}</span><span>{copy.inChannel(channelName(reminder.channelId))}</span><TabInlineActions><button type="button" className="btn btn-secondary btn-sm" onClick={() => setPendingDeleteId(reminder.id)} disabled={deletingId === reminder.id}><Trash2 size={14} aria-hidden="true" /> {copy.deleteBtn}</button></TabInlineActions></TabRecord>)}</TabRecordList> : <TabEmpty title={copy.remindersEmpty} action={<button type="button" className="btn btn-primary" onClick={() => setReminderOpen(true)}>{copy.reminderNewBtn}</button>} />}
+			</TabSection>
 
-					<div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-						<span style={{
-							fontSize: '0.85rem',
-							fontWeight: 700,
-							color: announceOptOut ? 'var(--text-secondary)' : '#10b981',
-						}}>
-							{announceOptOut ? copy.announceStatusMuted : copy.announceStatusActive}
-						</span>
-						<button
-							type="button"
-							onClick={handleToggleAnnounce}
-							disabled={announceSaving}
-							className={`btn ${announceOptOut ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-							style={{ minWidth: '110px' }}
-						>
-							{announceSaving ? '...' : (announceOptOut ? copy.announceToggleOn : copy.announceToggleOff)}
-						</button>
-					</div>
-				</div>
-			</div>
-
-			{/* 3. Server Reminders Card */}
-			<div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem' }}>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-					<div>
-						<h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.3rem' }}>
-							{copy.remindersTitle}
-						</h4>
-						<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-							{copy.remindersDesc}
-						</p>
-					</div>
-					<button
-						type="button"
-						onClick={() => setModalOpen(true)}
-						className="btn btn-primary btn-sm"
-					>
-						{copy.reminderNewBtn}
-					</button>
-				</div>
-
-				{/* Reminders List */}
-				{reminders.length === 0 ? (
-					<div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: 'var(--surface-sunken, rgba(0,0,0,0.15))', borderRadius: '12px' }}>
-						<p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
-							{copy.remindersEmpty}
-						</p>
-					</div>
-				) : (
-					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-						{reminders.map(rem => {
-							const matchedChannel = channels.find(c => String(c.id) === String(rem.channelId));
-							const channelLabel = matchedChannel ? `#${matchedChannel.name}` : `ID: ${rem.channelId}`;
-							return (
-								<div
-									key={rem.id}
-									style={{
-										display: 'flex',
-										alignItems: 'center',
-										justifyContent: 'space-between',
-										gap: '1rem',
-										padding: '1rem',
-										background: 'var(--surface-raised, rgba(255,255,255,0.03))',
-										border: '1px solid var(--border-color)',
-										borderRadius: '12px',
-										flexWrap: 'wrap',
-									}}
-								>
-									<div style={{ flex: '1 1 260px' }}>
-										<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
-											<span style={{
-												fontSize: '0.75rem',
-												fontWeight: 700,
-												padding: '0.15rem 0.5rem',
-												borderRadius: '6px',
-												background: rem.recurring ? '#8b5cf622' : '#3b82f622',
-												color: rem.recurring ? '#a78bfa' : '#60a5fa',
-												border: rem.recurring ? '1px solid #8b5cf644' : '1px solid #3b82f644',
-											}}>
-												{rem.recurring ? copy.recurringBadge : copy.oneOffBadge}
-											</span>
-											<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-												{formatReminderTime(rem.reminderTime, rem.recurring)}
-											</span>
-											<span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-												{copy.inChannel ? copy.inChannel(channelLabel) : `in ${channelLabel}`}
-											</span>
-										</div>
-										<p style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--ink)', margin: 0, wordBreak: 'break-word' }}>
-											{rem.message}
-										</p>
-									</div>
-
-									<button
-										type="button"
-										onClick={() => setPendingDeleteId(rem.id)}
-										disabled={deletingId === rem.id}
-										className="btn btn-secondary btn-sm"
-										style={{ color: 'var(--due, #ef4444)', borderColor: 'var(--border-color)' }}
-									>
-										{deletingId === rem.id ? '...' : copy.deleteBtn}
-									</button>
-								</div>
-							);
-						})}
-					</div>
-				)}
-			</div>
-
-			{/* New Reminder Modal */}
-			{modalOpen && (
-				<TabModalLayer
-					onClose={() => { if (!modalSaving) setModalOpen(false); }}
-					closeOnBackdrop={!modalSaving}
-				>
-					<div
-						role="dialog"
-						aria-modal="true"
-						aria-label={copy.reminderModalTitle}
-						style={{
-							background: 'var(--surface)',
-							border: '1px solid var(--border-color)',
-							borderRadius: '16px',
-							width: '100%',
-							maxWidth: '480px',
-							padding: '1.5rem',
-							boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-							display: 'flex',
-							flexDirection: 'column',
-							gap: '1.25rem',
-						}}
-						onClick={e => e.stopPropagation()}
-					>
-						<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-							<h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
-								{copy.reminderModalTitle}
-							</h4>
-							<button
-								type="button"
-								onClick={() => setModalOpen(false)}
-								aria-label={copy.reminderCancelBtn}
-								style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem', padding: '0.25rem' }}
-							>
-								<X size={18} aria-hidden="true" />
-							</button>
-						</div>
-
-						<form onSubmit={handleCreateReminder} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-							{/* Message */}
-							<div className="form-group">
-								<label className="form-label" style={{ marginBottom: '0.35rem' }}>
-									{copy.reminderMessageLabel}
-								</label>
-								<input
-									type="text"
-									value={modalMsg}
-									onChange={e => setModalMsg(e.target.value)}
-									placeholder={copy.reminderMessagePlaceholder}
-									maxLength={500}
-									required
-									className="form-control"
-								/>
-							</div>
-
-							{/* Time Input with Presets */}
-							<div className="form-group">
-								<label className="form-label" style={{ marginBottom: '0.35rem' }}>
-									{copy.reminderTimeLabel}
-								</label>
-								<input
-									type="text"
-									value={modalTime}
-									onChange={e => setModalTime(e.target.value)}
-									placeholder={copy.reminderTimePlaceholder}
-									required
-									className="form-control"
-								/>
-								<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.3rem', display: 'block' }}>
-									{copy.reminderTimeHint}
-								</span>
-								{/* Quick preset buttons */}
-								<div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-									{timePresets.map(preset => (
-										<button
-											key={preset}
-											type="button"
-											onClick={() => setModalTime(preset)}
-											className="btn btn-secondary btn-sm"
-											style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '6px' }}
-										>
-											{preset}
-										</button>
-									))}
-								</div>
-							</div>
-
-							{/* Channel Selector */}
-							<div className="form-group">
-								<label className="form-label" style={{ marginBottom: '0.35rem' }}>
-									{copy.reminderChannelLabel}
-								</label>
-								<CustomSelect
-									type="channel"
-									placeholder={copy.reminderChannelSelect}
-									value={modalChannel}
-									onChange={val => setModalChannel(val || '')}
-									options={channelOptions}
-								/>
-								<span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.3rem', display: 'block' }}>
-									{copy.reminderChannelHint}
-								</span>
-							</div>
-
-							{/* Actions */}
-							<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-								<button
-									type="button"
-									onClick={() => setModalOpen(false)}
-									className="btn btn-secondary btn-sm"
-								>
-									{copy.reminderCancelBtn}
-								</button>
-								<button
-									type="submit"
-									disabled={modalSaving || !modalMsg.trim() || !modalTime.trim() || !modalChannel}
-									className="btn btn-primary btn-sm"
-								>
-									{modalSaving ? t.common.saving : copy.reminderCreateBtn}
-								</button>
-							</div>
-						</form>
-					</div>
-				</TabModalLayer>
-			)}
+			<TabDialog open={reminderOpen} onClose={reminderSaving ? undefined : () => setReminderOpen(false)} title={copy.reminderModalTitle} description={copy.reminderTimezoneHint} footer={<><button type="button" className="btn btn-secondary" onClick={() => setReminderOpen(false)} disabled={reminderSaving}>{copy.reminderCancelBtn}</button><button type="submit" form="personal-reminder-form" className="btn btn-primary" disabled={reminderSaving}>{reminderSaving ? shared.working : copy.reminderCreateBtn}</button></>}>
+				<form id="personal-reminder-form" onSubmit={createReminder} aria-describedby={reminderError ? 'personal-reminder-error' : undefined}>
+					<TabSettingsList>
+						<TabSettingRow label={copy.reminderMessageLabel} stacked><input className="form-control" aria-label={copy.reminderMessageLabel} value={reminderDraft.message} maxLength={500} onChange={event => setReminderDraft(current => ({ ...current, message: event.target.value }))} placeholder={copy.reminderMessagePlaceholder} /></TabSettingRow>
+						<TabSettingRow label={copy.reminderTimeLabel} description={copy.reminderTimeHint} stacked><input className="form-control" aria-label={copy.reminderTimeLabel} value={reminderDraft.time} onChange={event => setReminderDraft(current => ({ ...current, time: event.target.value }))} placeholder={copy.reminderTimePlaceholder} /><TabInlineActions align="start">{TIME_PRESETS.map(value => <button key={value} type="button" className="btn btn-secondary btn-sm" onClick={() => setReminderDraft(current => ({ ...current, time: value }))}>{value}</button>)}</TabInlineActions></TabSettingRow>
+						<TabSettingRow label={copy.reminderChannelLabel} description={copy.reminderChannelHint} stacked><CustomSelect type="channel" ariaLabel={copy.reminderChannelLabel} value={reminderDraft.channelId} onChange={channelId => setReminderDraft(current => ({ ...current, channelId }))} placeholder={copy.reminderChannelSelect} options={channelOptions} /></TabSettingRow>
+					</TabSettingsList>
+					{reminderError ? <TabFieldMessage id="personal-reminder-error" tone="error">{reminderError}</TabFieldMessage> : null}
+				</form>
+			</TabDialog>
+			<TabConfirmDialog open={!!pendingDeleteId} onClose={() => setPendingDeleteId(null)} onConfirm={deleteReminder} title={copy.reminderDeleteConfirm} description={copy.reminderDeleteConfirm} confirmLabel={copy.deleteBtn} cancelLabel={copy.reminderCancelBtn} busy={!!deletingId} />
 		</TabWorkspace>
 	);
 }

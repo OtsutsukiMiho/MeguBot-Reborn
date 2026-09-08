@@ -1,353 +1,111 @@
 'use client';
 
-import { useState } from 'react';
-import CustomSelect from '../CustomSelect.js';
-import { TabActionBar, TabConfirmDialog, TabStatus, TabTable, TabWorkspace } from './TabWorkspace';
+import { useMemo, useState } from 'react';
+import CustomSelect from '../CustomSelect';
+import { useCopy } from '../../copy';
+import { TabActionBar, TabConfirmDialog, TabEmpty, TabFieldGrid, TabFieldMessage, TabInlineActions, TabSection, TabSegmented, TabStatus, TabTable, TabWorkspace } from './TabWorkspace';
 
-export default function ReactionRolesTab({ guildId, reactionRoles, roles, channels, onRefresh, showToast }) {
-	const [channelId, setChannelId] = useState('');
-	const [messageIdInput, setMessageIdInput] = useState('');
-	const [emoji, setEmoji] = useState('');
-	const [roleId, setRoleId] = useState('');
-	const [mode, setMode] = useState('toggle');
-	const [saving, setSaving] = useState(false);
+export default function ReactionRolesTab({ guildId, reactionRoles, roles = [], channels = [], onRefresh, showToast, draft = {}, onDraftChange }) {
+	const { t } = useCopy();
+	const copy = t.serverTabs.reactionRoles;
+	const shared = t.serverTabs.shared;
+	const [busyKey, setBusyKey] = useState('');
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
+	const channelId = draft.channelId || '';
+	const messageIdInput = draft.messageIdInput || '';
+	const emoji = draft.emoji || '';
+	const roleId = draft.roleId || '';
+	const mode = draft.mode || 'toggle';
+	const formOpen = !!draft.formOpen;
+	const updateDraft = patch => onDraftChange?.({ ...draft, ...patch });
+	const rolesMap = useMemo(() => new Map(roles.map(role => [String(role.id), role.name])), [roles]);
 
-	const rolesMap = new Map((roles || []).map(r => [r.id, r.name]));
-
-	const handleAddReactionRole = async () => {
-		if (!messageIdInput.trim() || !emoji.trim() || !roleId) {
-			showToast('Please fill in Message Link/ID, Emoji, and Assigned Role.', true);
-			return;
-		}
-
-		let targetMessageId = messageIdInput.trim();
-		let messageLink = null;
-		let effectiveChannelId = channelId;
-
-		if (targetMessageId.includes('discord.com/channels/')) {
-			messageLink = targetMessageId;
-			const match = targetMessageId.match(/discord\.com\/channels\/\d+\/(\d+)\/(\d+)/i);
-			if (match) {
-				effectiveChannelId = match[1];
-				targetMessageId = match[2];
-			}
-		}
-
-		if (!effectiveChannelId) {
-			showToast('Please select a Target Channel or paste a full Discord Message Link.', true);
-			return;
-		}
-
-		setSaving(true);
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/reaction-roles`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					channelId: effectiveChannelId,
-					messageId: targetMessageId,
-					messageLink,
-					emoji: emoji.trim(),
-					roleId,
-					mode,
-				}),
-			});
-
-			const data = await res.json();
-			if (data.success) {
-				showToast('Reaction role saved and auto-reacted on Discord!');
-				setMessageIdInput('');
-				setEmoji('');
-				onRefresh();
-			} else {
-				showToast(data.error || 'Failed to add reaction role.', true);
-			}
-		} catch (e) {
-			showToast('Error adding reaction role.', true);
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	const handleToggleStatus = async (msgId, em) => {
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/reaction-roles`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'toggle', messageId: msgId, emoji: em }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast('Reaction role status updated!');
-				onRefresh();
-			} else {
-				showToast(data.error || 'Failed to toggle status.', true);
-			}
-		} catch (e) {
-			showToast('Error toggling status.', true);
-		}
-	};
-
-	const handleDelete = async (msgId, em) => {
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/reaction-roles`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'delete', messageId: msgId, emoji: em }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast('Reaction role removed!');
-				onRefresh();
-			} else {
-				showToast(data.error || 'Failed to remove reaction role.', true);
-			}
-		} catch (e) {
-			showToast('Error removing reaction role.', true);
-		}
-	};
-
-	const handleClearAll = async () => {
-		setSaving(true);
-		try {
-			const res = await fetch(`/api/guilds/${guildId}/reaction-roles`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'clear_all' }),
-			});
-			const data = await res.json();
-			if (data.success) {
-				showToast('All reaction roles cleared!');
-				onRefresh();
-			} else {
-				showToast(data.error || 'Failed to clear reaction roles.', true);
-			}
-		} catch (e) {
-			showToast('Error clearing reaction roles.', true);
-		} finally {
-			setSaving(false);
-			setShowClearConfirm(false);
-		}
-	};
-
-	const rows = [];
-	if (reactionRoles && typeof reactionRoles === 'object') {
-		for (const [msgId, emojis] of Object.entries(reactionRoles)) {
+	const rows = useMemo(() => {
+		const result = [];
+		if (!reactionRoles || typeof reactionRoles !== 'object') return result;
+		for (const [messageId, emojis] of Object.entries(reactionRoles)) {
 			if (!emojis || typeof emojis !== 'object') continue;
-			for (const [em, entry] of Object.entries(emojis)) {
-				let entryRoleId = null;
-				let entryMode = 'toggle';
-				let entryEnabled = true;
-
-				if (typeof entry === 'object' && entry !== null) {
-					entryRoleId = entry.roleId;
-					entryMode = entry.mode || 'toggle';
-					entryEnabled = entry.enabled !== false;
-				} else {
-					entryRoleId = entry;
-				}
-
-				rows.push({
-					msgId,
-					emoji: em,
-					roleId: entryRoleId,
-					roleName: rolesMap.get(entryRoleId) ? `@ ${rolesMap.get(entryRoleId)}` : `Role ID: ${entryRoleId}`,
-					mode: entryMode,
-					enabled: entryEnabled,
-				});
+			for (const [reaction, entry] of Object.entries(emojis)) {
+				const structured = typeof entry === 'object' && entry !== null;
+				const mappedRoleId = structured ? entry.roleId : entry;
+				result.push({ messageId, emoji: reaction, roleId: mappedRoleId, roleName: rolesMap.get(String(mappedRoleId)), mode: structured ? (entry.mode || 'toggle') : 'toggle', enabled: structured ? entry.enabled !== false : true });
 			}
 		}
-	}
+		return result.sort((a, b) => String(a.messageId).localeCompare(String(b.messageId)));
+	}, [reactionRoles, rolesMap]);
+
+	const request = async (payload, successMessage, failureMessage, key) => {
+		setBusyKey(key);
+		try {
+			const response = await fetch(`/api/guilds/${guildId}/reaction-roles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data.success) throw new Error(data.error || failureMessage);
+			showToast(successMessage);
+			await onRefresh?.();
+			return true;
+		} catch (error) {
+			showToast(error.message || failureMessage, true);
+			return false;
+		} finally {
+			setBusyKey('');
+		}
+	};
+
+	const parseMessage = () => {
+		const input = messageIdInput.trim();
+		const link = input.match(/discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)/i);
+		if (!link) return { messageId: input, channelId, messageLink: null };
+		if (String(link[1]) !== String(guildId)) throw new Error(copy.serverError);
+		if (channelId && String(channelId) !== String(link[2])) throw new Error(copy.channelConflictError);
+		return { messageId: link[3], channelId: link[2], messageLink: input };
+	};
+
+	const addMapping = async event => {
+		event.preventDefault();
+		if (!messageIdInput.trim() || !emoji.trim() || !roleId) return showToast(copy.requiredError, true);
+		let target;
+		try { target = parseMessage(); } catch (error) { showToast(error.message, true); return; }
+		if (!target.channelId) return showToast(copy.channelError, true);
+		const saved = await request({ channelId: target.channelId, messageId: target.messageId, messageLink: target.messageLink, emoji: emoji.trim(), roleId, mode }, copy.addSuccess, copy.addError, 'add');
+		if (saved) onDraftChange?.({});
+	};
+
+	const parsedLink = messageIdInput.match(/discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)/i);
+	const resolvedChannel = parsedLink ? channels.find(channel => String(channel.id) === String(parsedLink[2])) : null;
 
 	return (
 		<TabWorkspace>
-			<TabActionBar
-				actions={rows.length > 0 ? (
-					<button
-						onClick={() => setShowClearConfirm(true)}
-						className="btn btn-secondary btn-sm"
-						disabled={saving}
-					>
-						Clear all mappings
-					</button>
-				) : null}
-			>
-				<TabStatus tone={rows.length ? 'success' : 'neutral'}>{rows.length} active mappings</TabStatus>
-				<span>Reactions grant or revoke roles on the selected Discord messages.</span>
+			<TabActionBar actions={<button type="button" className="btn btn-primary btn-sm" onClick={() => updateDraft({ formOpen: !formOpen })}>{formOpen ? copy.close : copy.add}</button>}>
+				<TabStatus tone={rows.length ? 'success' : 'neutral'}>{copy.count(rows.length)}</TabStatus>
+				<span>{copy.existingDescription}</span>
 			</TabActionBar>
 
-			<TabConfirmDialog
-				open={showClearConfirm}
-				onClose={() => setShowClearConfirm(false)}
-				onConfirm={handleClearAll}
-				title="Remove every reaction-role mapping?"
-				description="Members will no longer receive roles from any configured reaction message on this server."
-				confirmLabel="Clear all mappings"
-				busy={saving}
-			/>
+			{formOpen ? (
+				<TabSection title={copy.formTitle} description={copy.formDescription} tone="panel">
+					<form onSubmit={addMapping}>
+						<TabFieldGrid>
+							<div className="form-group"><label className="form-label" htmlFor="reaction-message">{copy.message}</label><input id="reaction-message" className="form-control" value={messageIdInput} onChange={event => updateDraft({ messageIdInput: event.target.value })} placeholder={copy.messagePlaceholder} />{resolvedChannel ? <TabFieldMessage>{copy.resolvedChannel(resolvedChannel.name)}</TabFieldMessage> : null}</div>
+							<div className="form-group"><label className="form-label">{copy.channel}</label><CustomSelect type="channel" ariaLabel={copy.channel} value={channelId} onChange={value => updateDraft({ channelId: value })} options={channels.map(channel => ({ value: channel.id, label: `# ${channel.name}`, subtitle: channel.parentName }))} placeholder={copy.channelPlaceholder} /></div>
+							<div className="form-group"><label className="form-label" htmlFor="reaction-emoji">{copy.emoji}</label><input id="reaction-emoji" className="form-control" value={emoji} onChange={event => updateDraft({ emoji: event.target.value })} placeholder={copy.emojiPlaceholder} /></div>
+							<div className="form-group"><label className="form-label">{copy.role}</label><CustomSelect type="role" ariaLabel={copy.role} value={roleId} onChange={value => updateDraft({ roleId: value })} options={roles.filter(role => role.name !== '@everyone').map(role => ({ value: role.id, label: `@${role.name}`, color: role.hexColor || role.color }))} placeholder={copy.rolePlaceholder} /></div>
+						</TabFieldGrid>
+						<div className="form-group"><label className="form-label">{copy.mode}</label><TabSegmented label={copy.mode} value={mode} onChange={value => updateDraft({ mode: value })} options={[{ value: 'toggle', label: copy.toggle }, { value: 'give_only', label: copy.addOnly }]} /><TabFieldMessage>{copy.effect}</TabFieldMessage></div>
+						<TabInlineActions><button type="submit" className="btn btn-primary" disabled={!!busyKey}>{busyKey === 'add' ? shared.working : copy.submit}</button></TabInlineActions>
+					</form>
+				</TabSection>
+			) : null}
 
-			{/* Add Reaction Role Form Grid */}
-			<div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.75rem' }}>
-				<div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: 'var(--ink)' }}>
-					Add New Reaction Role Mapping
-				</div>
+			<TabSection title={copy.existingTitle} description={copy.existingDescription} actions={rows.length ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowClearConfirm(true)}>{copy.clearAll}</button> : null}>
+				{rows.length ? (
+					<TabTable label={copy.existingTitle}>
+						<table><thead><tr><th>{copy.status}</th><th>{copy.messageId}</th><th>{copy.emoji}</th><th>{copy.role}</th><th>{copy.mode}</th><th>{copy.actions}</th></tr></thead><tbody>
+							{rows.map(row => <tr key={`${row.messageId}:${row.emoji}`}><td><TabStatus tone={row.enabled ? 'success' : 'neutral'}>{row.enabled ? copy.enabled : copy.disabled}</TabStatus></td><td><code>{row.messageId}</code></td><td>{row.emoji}</td><td>{row.roleName ? `@${row.roleName}` : shared.unavailableRole(row.roleId)}</td><td>{row.mode === 'give_only' ? copy.addOnly : copy.toggle}</td><td><TabInlineActions align="start"><button type="button" className="btn btn-secondary btn-sm" disabled={!!busyKey} onClick={() => request({ action: 'toggle', messageId: row.messageId, emoji: row.emoji }, copy.updateSuccess, copy.updateError, `toggle:${row.messageId}:${row.emoji}`)}>{row.enabled ? copy.disable : copy.enable}</button><button type="button" className="btn btn-secondary btn-sm" disabled={!!busyKey} onClick={() => request({ action: 'delete', messageId: row.messageId, emoji: row.emoji }, copy.removeSuccess, copy.removeError, `remove:${row.messageId}:${row.emoji}`)}>{shared.remove}</button></TabInlineActions></td></tr>)}
+						</tbody></table>
+					</TabTable>
+				) : <TabEmpty title={copy.emptyTitle} description={copy.emptyDescription} action={<button type="button" className="btn btn-primary" onClick={() => updateDraft({ formOpen: true })}>{copy.add}</button>} />}
+			</TabSection>
 
-				<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
-					<div className="form-group" style={{ marginBottom: 0 }}>
-						<label className="form-label">Target Channel</label>
-						<CustomSelect
-							value={channelId}
-							onChange={(val) => setChannelId(val)}
-							options={[
-								{ value: '', label: 'Select Target Channel...', icon: '💬' },
-								...(channels || []).map(c => ({
-									value: c.id,
-									label: `# ${c.name}`,
-									icon: '💬',
-								})),
-							]}
-							placeholder="Select Target Channel..."
-							searchable={true}
-						/>
-					</div>
-
-					<div className="form-group" style={{ marginBottom: 0 }}>
-						<label className="form-label">Message Link / ID</label>
-						<input
-							type="text"
-							className="form-control"
-							style={{ height: '42px' }}
-							placeholder="Paste Message Link or ID..."
-							value={messageIdInput}
-							onChange={e => setMessageIdInput(e.target.value)}
-						/>
-					</div>
-
-					<div className="form-group" style={{ marginBottom: 0 }}>
-						<label className="form-label">Reaction Emoji</label>
-						<input
-							type="text"
-							className="form-control"
-							style={{ height: '42px' }}
-							placeholder="e.g. ⭐, 🎮, ✅"
-							value={emoji}
-							onChange={e => setEmoji(e.target.value)}
-						/>
-					</div>
-
-					<div className="form-group" style={{ marginBottom: 0 }}>
-						<label className="form-label">Assigned Role</label>
-						<CustomSelect
-							value={roleId}
-							onChange={(val) => setRoleId(val)}
-							options={(roles || []).map(r => ({
-								value: r.id,
-								label: r.name,
-								color: r.color ? (typeof r.color === 'string' ? r.color : `#${r.color.toString(16).padStart(6, '0')}`) : undefined,
-								icon: '🛡️',
-							}))}
-							type="role"
-							placeholder="Select Role..."
-							searchable={true}
-						/>
-					</div>
-
-					<div className="form-group" style={{ marginBottom: 0 }}>
-						<label className="form-label">Reaction Mode</label>
-						<CustomSelect
-							value={mode}
-							onChange={(val) => setMode(val)}
-							options={[
-								{ value: 'toggle', label: 'Toggle (Give & Remove)', icon: '🔄', subtitle: 'Adds role on react, removes on unreact' },
-								{ value: 'give_only', label: 'Give-Only (Add Role Only)', icon: '➕', subtitle: 'Adds role once, never removes' },
-							]}
-							placeholder="Reaction Mode"
-							searchable={false}
-						/>
-					</div>
-
-					<div className="form-group" style={{ marginBottom: 0 }}>
-						<button
-							className="btn"
-							style={{ width: '100%', height: '42px', whiteSpace: 'nowrap' }}
-							onClick={handleAddReactionRole}
-							disabled={saving}
-						>
-							{saving ? 'Saving...' : 'Add & Auto-React'}
-						</button>
-					</div>
-				</div>
-			</div>
-
-			{/* Mappings Table */}
-			<TabTable label="Reaction role mappings">
-				<table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
-					<thead>
-						<tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
-							<th style={{ padding: '0.75rem 1rem' }}>Status</th>
-							<th style={{ padding: '0.75rem 1rem' }}>Message ID</th>
-							<th style={{ padding: '0.75rem 1rem' }}>Emoji</th>
-							<th style={{ padding: '0.75rem 1rem' }}>Role Assigned</th>
-							<th style={{ padding: '0.75rem 1rem' }}>Mode</th>
-							<th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{rows.length === 0 ? (
-							<tr>
-								<td colSpan={6} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-									No reaction role mappings configured yet.
-								</td>
-							</tr>
-						) : (
-							rows.map((row, idx) => (
-								<tr key={idx} style={{ borderBottom: '1px solid var(--sunk)', opacity: row.enabled ? 1 : 0.45, transition: 'opacity 0.2s ease' }}>
-									<td style={{ padding: '0.85rem 1rem' }}>
-										<button
-											onClick={() => handleToggleStatus(row.msgId, row.emoji)}
-											className={`server-status-badge ${row.enabled ? 'status-online' : 'status-offline'}`}
-											style={{ cursor: 'pointer', border: 'none' }}
-											title={row.enabled ? 'Click to disable' : 'Click to enable'}
-										>
-											{row.enabled ? <><span className="status-dot"></span> Active</> : 'Inactive'}
-										</button>
-									</td>
-									<td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-										{row.msgId}
-									</td>
-									<td style={{ padding: '0.85rem 1rem', fontSize: '1.1rem' }}>
-										{row.emoji}
-									</td>
-									<td style={{ padding: '0.85rem 1rem', color: 'var(--accent)', fontWeight: 600 }}>
-										{row.roleName}
-									</td>
-									<td style={{ padding: '0.85rem 1rem' }}>
-										{row.mode === 'give_only' ? (
-											<span className="server-status-badge" style={{ background: 'var(--settled-soft)', color: 'var(--settled)', border: '1px solid color-mix(in srgb, var(--settled) 25%, transparent)' }}>
-												Give-Only
-											</span>
-										) : (
-											<span className="server-status-badge" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
-												Toggle
-											</span>
-										)}
-									</td>
-									<td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
-										<button
-											onClick={() => handleDelete(row.msgId, row.emoji)}
-											className="btn btn-secondary btn-sm"
-											style={{ color: 'var(--due)', padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-										>
-											Remove
-										</button>
-									</td>
-								</tr>
-							))
-						)}
-					</tbody>
-				</table>
-			</TabTable>
+			<TabConfirmDialog open={showClearConfirm} onClose={() => setShowClearConfirm(false)} onConfirm={async () => { const ok = await request({ action: 'clear_all' }, copy.clearSuccess, copy.clearError, 'clear'); if (ok) setShowClearConfirm(false); }} title={copy.clearTitle} description={copy.clearDescription} confirmLabel={copy.clearAll} cancelLabel={shared.cancel} busy={busyKey === 'clear'} />
 		</TabWorkspace>
 	);
 }

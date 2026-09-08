@@ -27,6 +27,8 @@ const SUITES = [
 	['copy.test.js', 'both languages — matching keys, calendars and timezone'],
 	['ui-dialogs.test.js', 'embedded-browser-safe confirmation and correction dialogs'],
 	['server-tabs-ui.test.js', 'server tools — one responsive workspace with accessible controls'],
+	['server-dashboard-drafts.test.js', 'server tool drafts — preserved locally and guarded on departure'],
+	['server-dashboard-request.test.js', 'server tool requests — confirmed, rejected and ambiguous outcomes'],
 	['auth-notifications.test.js', 'linked identities, encrypted credentials and channel preferences'],
 	['test-database.test.js', 'destructive suites are isolated from the development database'],
 	// First against Postgres, because it rebuilds the schema into its pre-rename

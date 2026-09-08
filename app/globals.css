@@ -480,11 +480,18 @@ input, textarea, select, button {
 	display: flex;
 	align-items: center;
 	gap: .55rem;
+	flex: none;
 	font-family: var(--font-display);
 	font-size: 1.1rem;
 	font-weight: var(--w-strong);
 	color: var(--ink);
 	letter-spacing: -.01em;
+}
+
+.nav-actions {
+	display: flex;
+	align-items: center;
+	gap: .6rem;
 }
 
 .nav-brand:hover {
@@ -1849,12 +1856,30 @@ textarea.form-control {
 		display: none;
 	}
 
+	.nav-actions {
+		gap: .4rem;
+	}
+
 	.page-head {
 		padding-top: 1.8rem;
 	}
 
 	.row {
 		flex-wrap: wrap;
+	}
+}
+
+@media (max-width: 360px) {
+	.navbar {
+		padding-inline: .7rem;
+	}
+
+	.navbar-inner {
+		gap: .5rem;
+	}
+
+	.brand-megubot {
+		display: none;
 	}
 }
 
