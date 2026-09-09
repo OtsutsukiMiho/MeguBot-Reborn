@@ -16,6 +16,8 @@ const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
+const { createProjectDeadlineSweep } = require('../../adapters/notifications/project-deadlines.js');
+const { createProjectChannelDispatcher } = require('../../adapters/notifications/project-channel-dispatcher.js');
 const { createBlockGuard, INVALID_REQUEST_STOP_THRESHOLD } = require('../../adapters/discord/rate-limit.js');
 const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
 const healthLog = require('../../adapters/health/health-log.js');
@@ -353,6 +355,10 @@ app.use('/api/megu', meguApi.router({
 	notifyPayment: async ({ recipients, message }) => {
 		await sendIpcRequest({ type: 'payment_notice', recipients, message });
 	},
+	validateProjectChannel: async ({ guildId, channelId }) => {
+		const response = await sendIpcRequest({ type: 'validate_project_channel', guildId, channelId }, 8000);
+		return response ? { valid: response.valid === true, name: response.name || null } : null;
+	},
 }));
 
 const notificationDispatcher = createDispatcher({
@@ -367,6 +373,18 @@ const notificationDispatcher = createDispatcher({
 });
 const notificationTimer = setInterval(() => notificationDispatcher.drain().catch(error => BotLogs('Megu', `Notification dispatcher failed: ${error.message}`)), 15_000);
 notificationTimer.unref();
+
+if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
+	const projectChannelDispatcher = createProjectChannelDispatcher({
+		sendChannel: async ({ guildId, channelId, message, cta }) => {
+			const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta }, 10_000);
+			if (!response?.delivered) throw new Error(response?.error || 'Project channel did not accept the message');
+		},
+		log: message => BotLogs('Megu', message),
+	});
+	const projectChannelTimer = setInterval(() => projectChannelDispatcher.drain().catch(error => BotLogs('Megu', `Project channel dispatcher failed: ${error.message}`)), 15_000);
+	projectChannelTimer.unref();
+}
 
 async function sendDiscordNotice({ recipients, message, cta = null, defer = null }) {
 	// Longer than the default: opening a DM and sending it is two round
@@ -391,6 +409,16 @@ const paymentDueSweep = createPaymentDueSweep({
 paymentDueSweep.start({
 	intervalMs: Number(process.env.MEGU_PAYMENT_DUE_INTERVAL_MS) || undefined,
 });
+
+if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
+	const projectDeadlineSweep = createProjectDeadlineSweep({
+		baseUrl: process.env.FRONTEND_URL || '',
+		log: message => BotLogs('Megu', message),
+	});
+	projectDeadlineSweep.start({
+		intervalMs: Number(process.env.MEGU_PROJECT_DEADLINE_INTERVAL_MS) || undefined,
+	});
+}
 
 // The guild list normally enters the session at Discord sign-in. Older sessions
 // and sessions created before the Discord-only migration may not carry it, so
@@ -710,12 +738,13 @@ async function restoreDiscordConnection(userId, sessionObject) {
 
 function beginDiscordOAuth(intent) {
 	return (req, res) => {
-		if (intent === 'link' && !req.session?.meguUserId) return res.redirect('/activities');
+		if (intent === 'link' && !req.session?.meguUserId) return res.redirect('/');
 		if (discordBlock.blocked()) return sendBlockedPage(res);
 		const state = crypto.randomBytes(24).toString('hex');
 		req.session.oauth2Request = {
 			provider: 'discord', intent, state,
 			linkingUserId: intent === 'link' ? req.session.meguUserId : null,
+			returnTo: safeInternalReturn(req.query.returnTo),
 			createdAt: Date.now(),
 		};
 		req.session.save(error => {
@@ -765,7 +794,7 @@ if (process.env.MEGU_DEV_LOGIN === '1'
 			req.session.meguUserId = userId;
 			req.session.loginTimestamp = Date.now();
 			req.session.lastActivity = Date.now();
-			req.session.save(() => res.redirect('/activities'));
+			req.session.save(() => res.redirect('/'));
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}dev-login failed: ${error.message}`);
@@ -863,7 +892,9 @@ async function finishDiscordOAuth(req, res) {
 			req.session.userAgent = req.headers['user-agent'] || '';
 			req.session.loginTimestamp = req.session.loginTimestamp || Date.now();
 			req.session.lastActivity = Date.now();
-			req.session.save(() => res.redirect(request.intent === 'link' ? `/account?link=success&provider=${provider}` : '/activities'));
+			req.session.save(() => res.redirect(request.intent === 'link'
+				? `/account?link=success&provider=${provider}`
+				: (request.returnTo || '/')));
 		};
 
 		if (request.intent === 'login') {
@@ -1079,7 +1110,7 @@ app.get('/api/auth/legacy/discord/callback', async (req, res) => {
 
 			req.session.save(() => {
 				BotLogs('Web', `User ${COLOR.white}${userData.username}${COLOR.reset} authenticated with ${COLOR.white}${adminGuilds.length}${COLOR.reset} admin servers`);
-				res.redirect('/activities');
+				res.redirect('/');
 			});
 		});
 	}
@@ -1326,6 +1357,16 @@ function toBooleanSetting(value, defaultValue = true) {
 	if (value === false || value === 'false' || value === 0 || value === '0') return false;
 	if (value === true || value === 'true' || value === 1 || value === '1') return true;
 	return Boolean(value);
+}
+
+function safeInternalReturn(value) {
+	const path = String(value || '');
+	if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) return null;
+	try {
+		const parsed = new URL(path, 'http://megu.local');
+		return parsed.origin === 'http://megu.local' ? `${parsed.pathname}${parsed.search}${parsed.hash}` : null;
+	}
+	catch { return null; }
 }
 
 app.get('/api/guilds/:guildId', requireGuildAccess, async (req, res) => {

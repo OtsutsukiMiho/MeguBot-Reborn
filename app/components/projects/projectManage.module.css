@@ -1,0 +1,84 @@
+.shell { width: 100%; margin: 0 auto; padding: 32px 0 72px; color: var(--ink); }
+.back { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: .86rem; font-weight: 700; text-decoration: none; margin-bottom: 20px; }
+.header { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.header h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.45rem); letter-spacing: -.045em; }
+.header p, .lede { margin: 6px 0 0; color: var(--muted); }
+.code { font: 700 .78rem/1.2 var(--font-mono, monospace); letter-spacing: .08em; color: var(--muted); }
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 44px; padding-top: 26px; }
+.nav { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.nav button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; border: 0; border-radius: 8px; padding: 8px 10px; background: transparent; color: var(--muted); font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+.nav button:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
+.nav button[aria-current='page'] { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.content { min-width: 0; max-width: 760px; }
+.content h2 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: -.025em; }
+.content h3 { margin: 0; font-size: 1rem; }
+.facts { margin: 22px 0 0; border-top: 1px solid var(--line); }
+.facts div { display: grid; grid-template-columns: 180px 1fr; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.facts dt { color: var(--muted); font-weight: 700; }
+.facts dd { margin: 0; white-space: pre-wrap; }
+.generalForm { display: grid; gap: 16px; margin-top: 22px; }
+.generalForm > label, .dateFields label { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.generalForm input, .generalForm textarea { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
+.dateFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.readOnlyFact { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-block: 1px solid var(--line); }
+.readOnlyFact span { color: var(--muted); font-weight: 700; }
+.timezoneChoice { display: grid; gap: 9px; margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; }
+.timezoneChoice legend { padding: 0 5px; color: var(--ink); font-size: .82rem; font-weight: 800; }
+.timezoneChoice label { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: .8rem; }
+.timezoneChoice input { width: auto; min-height: auto; accent-color: var(--accent); }
+.timezoneChoice p { margin: 2px 0 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
+.members { margin-top: 22px; border-top: 1px solid var(--line); }
+.joinActions { display: flex; flex-wrap: wrap; gap: 10px; margin-block: 12px; }
+.joinLink { display: flex; flex-wrap: wrap; gap: 10px; }
+.joinLink input { flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.member { display: grid; grid-template-columns: 40px minmax(0, 1fr) minmax(110px, auto) 38px; gap: 12px; align-items: center; min-height: 68px; border-bottom: 1px solid var(--line); }
+.member small, .pendingRow small { display: block; margin-top: 3px; color: var(--muted); }
+.avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 13%, var(--surface)); color: var(--accent); font-size: .72rem; font-weight: 800; }
+.inviteForm input, .reason textarea { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; background: var(--surface); color: var(--ink); font: inherit; }
+.memberSelect { width: min(100%, 180px); min-width: 120px; }
+.role { color: var(--muted); font-weight: 700; }
+.iconButton { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.iconButton:hover { background: color-mix(in srgb, var(--danger, #b33) 10%, transparent); color: var(--danger, #b33); }
+.inviteArea { margin-top: 38px; padding-top: 24px; border-top: 1px solid var(--line); }
+.inviteArea > div > p, .pending > p { margin: 5px 0 0; color: var(--muted); }
+.inviteForm { display: grid; grid-template-columns: 1fr 1.5fr 1fr auto; gap: 10px; align-items: end; margin-top: 18px; }
+.inviteForm label, .reason { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.inviteReady, .note { display: flex; align-items: flex-start; gap: 12px; margin-top: 18px; border-left: 3px solid var(--accent); padding: 14px 16px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.inviteReady > div { flex: 1; min-width: 0; }
+.inviteReady p, .note p { margin: 3px 0 8px; color: var(--muted); }
+.notificationForm { display: grid; gap: 14px; margin-top: 22px; }
+.notificationForm > label { display: flex; align-items: center; gap: 10px; min-height: 36px; font-weight: 700; }
+.notificationForm fieldset { display: grid; gap: 10px; margin: 2px 0; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.notificationForm fieldset legend { padding: 0 5px; color: var(--ink); font-size: .82rem; font-weight: 800; }
+.notificationForm fieldset label { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.notificationForm fieldset small { color: var(--muted); line-height: 1.45; }
+.channelFields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.channelFields label { display: grid; gap: 5px; color: var(--muted); font-size: .76rem; font-weight: 700; }
+.channelPreview { display: grid; gap: 4px; margin-top: 3px; border-radius: 7px; padding: 11px 13px; background: var(--sunk); }
+.channelPreview p { margin: 0; color: var(--ink); font-size: .8rem; }
+.channelPreview span { color: var(--muted); font-size: .72rem; }
+.deliveryFailure { display: grid; gap: 4px; border-left: 3px solid var(--danger, #b33); padding: 11px 13px; background: color-mix(in srgb, var(--danger, #b33) 8%, transparent); }
+.deliveryFailure span { color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+.notificationForm input { width: 18px; height: 18px; accent-color: var(--accent); }
+.inviteReady code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }
+.pending { margin-top: 28px; }
+.pendingRow { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.alert { margin: 16px 0; border-left: 3px solid var(--danger, #b33); padding: 10px 13px; background: color-mix(in srgb, var(--danger, #b33) 8%, transparent); color: var(--ink); }
+.unsavedWarning { position: sticky; top: 10px; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; margin: 16px 0 0; border: 1px solid color-mix(in srgb, var(--due) 42%, var(--line)); border-left: 4px solid var(--due); border-radius: 8px; padding: 12px 14px; background: var(--surface); box-shadow: 0 12px 28px color-mix(in srgb, var(--ink) 10%, transparent); }
+.unsavedWarning p { margin: 3px 0 0; color: var(--muted); font-size: .78rem; }
+.currentState { display: flex; align-items: center; justify-content: space-between; margin-top: 22px; padding: 14px 0; border-block: 1px solid var(--line); }
+.currentState span { color: var(--muted); font-weight: 700; }
+.reason { margin-top: 20px; }
+.stateButtons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.stateConfirm { display: grid; gap: 7px; margin-top: 14px; border-left: 3px solid var(--danger, #b33); padding: 12px 14px; background: color-mix(in srgb, var(--danger, #b33) 8%, transparent); }
+.stateConfirm p { margin: 0; color: var(--muted); }
+.stateConfirm > div { display: flex; gap: 8px; }
+.transfer { margin-top: 38px; padding-top: 24px; border-top: 1px solid var(--line); }
+.transfer > p { color: var(--muted); line-height: 1.55; }
+.transferForm, .transferPending { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.transferForm label { display: grid; flex: 1; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.transferPending { align-items: center; padding: 12px 0; border-block: 1px solid var(--line); }
+@media (min-width: 1121px) { :global(.container):has(.shell) { max-width: 1568px; } .content { max-width: 1040px; } }
+@media (max-width: 760px) { .shell { width: min(100% - 22px, 680px); padding-top: 20px; } .layout { grid-template-columns: 1fr; gap: 24px; } .nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; } .nav button { width: auto; white-space: nowrap; } .inviteForm { grid-template-columns: 1fr 1fr; } .inviteForm button { min-height: 42px; } }
+@media (max-width: 520px) { .header { align-items: start; } .header .code { display: none; } .facts div, .dateFields, .channelFields { grid-template-columns: 1fr; gap: 5px; } .member { grid-template-columns: 38px 1fr auto; } .memberSelect, .member .role { grid-column: 2; } .memberSelect { width: 100%; } .member .iconButton { grid-column: 3; grid-row: 1 / span 2; } .inviteForm { grid-template-columns: 1fr; } .inviteReady { flex-wrap: wrap; } .unsavedWarning { grid-template-columns: 1fr 1fr; } .unsavedWarning > div { grid-column: 1 / -1; } }
+@media (max-width: 360px) { .unsavedWarning { grid-template-columns: 1fr; } .unsavedWarning > div { grid-column: 1; } .unsavedWarning > button { width: 100%; } }

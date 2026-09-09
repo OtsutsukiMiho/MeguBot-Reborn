@@ -28,6 +28,11 @@ function newActivityCode() {
 	return randomFrom(CODE_ALPHABET, 7);
 }
 
+/** Public project locator used in /p/<code>. Access still requires membership. */
+function newProjectCode() {
+	return randomFrom(CODE_ALPHABET, 7);
+}
+
 /**
  * The reference printed on a receipt.
  *
@@ -57,4 +62,4 @@ function newDeviceToken() {
 	return crypto.randomBytes(24).toString('base64url');
 }
 
-module.exports = { newId, newActivityCode, newDeviceToken, publicReference, CODE_ALPHABET };
+module.exports = { newId, newActivityCode, newProjectCode, newDeviceToken, publicReference, CODE_ALPHABET };

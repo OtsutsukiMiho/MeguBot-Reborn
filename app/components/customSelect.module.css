@@ -42,6 +42,16 @@
 	opacity: .72;
 }
 
+.compact .trigger {
+	min-height: 2.2rem;
+	padding: .4rem .58rem;
+}
+
+.compact .option {
+	min-height: 2.2rem;
+	padding: .4rem .5rem;
+}
+
 .triggerValue {
 	display: flex;
 	align-items: center;
@@ -60,7 +70,7 @@
 .selectedLabel,
 .optionLabel {
 	overflow: hidden;
-	font-size: .84rem;
+	font-size: .78rem;
 	font-weight: 650;
 	line-height: 1.25;
 	text-overflow: ellipsis;
@@ -79,7 +89,7 @@
 
 .placeholder {
 	overflow: hidden;
-	font-size: .84rem;
+	font-size: .78rem;
 	color: var(--faint, var(--muted));
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -106,7 +116,7 @@
 	flex-direction: column;
 	overflow: hidden;
 	border: 1px solid var(--line-2, var(--border-color));
-	border-radius: .8rem;
+	border-radius: 10px;
 	background: var(--surface);
 	box-shadow: 0 1rem 2.6rem color-mix(in srgb, var(--shadow) 18%, transparent);
 }
@@ -156,7 +166,7 @@
 	min-height: 2.45rem;
 	padding: .48rem .58rem;
 	border: 1px solid transparent;
-	border-radius: .55rem;
+	border-radius: 6px;
 	background: transparent;
 	font: inherit;
 	text-align: left;
@@ -194,14 +204,14 @@
 	width: 1.45rem;
 	height: 1.45rem;
 	object-fit: cover;
-	border-radius: .42rem;
+	border-radius: 6px;
 }
 
 .badge {
 	padding: .16rem .38rem;
 	border-radius: .4rem;
 	background: var(--sunk);
-	font-size: .64rem;
+	font-size: .68rem;
 	font-weight: 700;
 	color: var(--muted);
 }

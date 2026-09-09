@@ -56,6 +56,7 @@ function unionMode(a, b) {
  */
 const REPOINT = [
 	['activities', 'owner_user_id'],
+	['projects', 'owner_user_id'],
 	['participants', 'user_id'],
 	['payments', 'confirmed_by'],
 	['payments', 'reversed_by'],
@@ -76,6 +77,15 @@ const REPOINT = [
 	// arbitrarily against each other, which is a cosmetic outcome rather than a
 	// failed merge.
 	['payment_methods', 'user_id'],
+	['project_progress_reports', 'author_user_id'],
+	['project_events', 'actor_user_id'],
+	['project_mutations', 'actor_user_id'],
+	['project_invitations', 'inviter_user_id'],
+	['project_invitations', 'recipient_user_id'],
+	['project_invitations', 'accepted_by_user_id'],
+	['project_ownership_transfers', 'current_owner_id'],
+	['project_ownership_transfers', 'proposed_owner_id'],
+	['project_notification_settings', 'updated_by_user_id'],
 ];
 
 // Handled by hand further down, because moving the row would collide with a
@@ -83,6 +93,9 @@ const REPOINT = [
 const HANDLED_ELSEWHERE = [
 	['notification_preferences', 'user_id'],
 	['oauth_credentials', 'user_id'],
+	['project_memberships', 'user_id'],
+	['project_topic_assignees', 'user_id'],
+	['project_join_requests', 'user_id'],
 ];
 
 function referenceKey(table, column) {
@@ -447,12 +460,108 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 		);
 		await client.query('DELETE FROM oauth_credentials WHERE user_id = $1', [mergedId]);
 
+		// The same retry key can exist on both accounts only after two formerly
+		// separate identities become one actor. Keep the survivor's remembered
+		// result; all other mutation keys can be repointed normally below.
+		await client.query(
+			`DELETE FROM project_mutations old
+			 WHERE old.actor_user_id = $2
+			   AND EXISTS (
+			     SELECT 1 FROM project_mutations kept
+			      WHERE kept.project_id = old.project_id
+			        AND kept.actor_user_id = $1
+			        AND kept.idempotency_key = old.idempotency_key)`,
+			[survivorId, mergedId],
+		);
+
+		// A pending ownership transfer between the two accounts stops making
+		// sense once they become one person. Cancel it before repointing either
+		// side so the transfer cannot collapse into a self-transfer mid-update.
+		await client.query(
+			`UPDATE project_ownership_transfers SET cancelled_at=now()
+			 WHERE accepted_at IS NULL AND cancelled_at IS NULL
+			 AND ((current_owner_id=$1 AND proposed_owner_id=$2)
+			   OR (current_owner_id=$2 AND proposed_owner_id=$1))`,
+			[survivorId, mergedId],
+		);
+
 		for (const [table, column] of REPOINT) {
 			await client.query(
 				`UPDATE ${table} SET ${column} = $1 WHERE ${column} = $2`,
 				[survivorId, mergedId],
 			);
 		}
+
+		// Project memberships are unique per person and project, so they cannot
+		// join the generic repoint loop. Materialize the survivor's membership
+		// first, preserve the strongest role, then collapse duplicate topic
+		// assignments without creating a second primary assignee.
+		// Ownership already follows `projects.owner_user_id`, which the generic
+		// loop moved above. Demote the old account's owner row before creating the
+		// survivor row so the database's one-owner index is never violated.
+		await client.query(
+			`UPDATE project_memberships pm SET role='lead'
+			 FROM projects p WHERE pm.project_id=p.id AND pm.user_id=$2
+			 AND pm.role='owner' AND pm.revoked_at IS NULL AND p.owner_user_id=$1`,
+			[survivorId, mergedId],
+		);
+		await client.query(
+			`INSERT INTO project_memberships (project_id, user_id, role, created_at, revoked_at)
+			 SELECT pm.project_id, $1,
+			   CASE WHEN p.owner_user_id = $1 THEN 'owner' ELSE pm.role END,
+			   pm.created_at, pm.revoked_at
+			 FROM project_memberships pm
+			 JOIN projects p ON p.id = pm.project_id
+			 WHERE pm.user_id = $2
+			 ON CONFLICT (project_id, user_id) DO UPDATE SET
+			   role = CASE
+			     WHEN (SELECT owner_user_id FROM projects WHERE id = EXCLUDED.project_id) = $1 THEN 'owner'
+			     WHEN array_position(ARRAY['viewer','member','lead','owner'], EXCLUDED.role)
+			        > array_position(ARRAY['viewer','member','lead','owner'], project_memberships.role)
+			       THEN EXCLUDED.role ELSE project_memberships.role END,
+			   revoked_at = CASE WHEN project_memberships.revoked_at IS NULL OR EXCLUDED.revoked_at IS NULL
+			                     THEN NULL ELSE project_memberships.revoked_at END`,
+			[survivorId, mergedId],
+		);
+		// Remember primary ownership, demote it temporarily, collapse the rows,
+		// then restore it on the surviving assignment. Inserting a new primary
+		// before deleting the old one would violate the per-topic unique index.
+		const mergedPrimaryAssignments = await client.query(
+			'SELECT project_id, topic_id FROM project_topic_assignees WHERE user_id=$1 AND is_primary=true',
+			[mergedId],
+		);
+		await client.query('UPDATE project_topic_assignees SET is_primary=false WHERE user_id=$1 AND is_primary=true', [mergedId]);
+		await client.query(
+			`INSERT INTO project_topic_assignees (project_id, topic_id, user_id, is_primary, created_at)
+			 SELECT project_id, topic_id, $1, false, created_at
+			 FROM project_topic_assignees WHERE user_id = $2
+			 ON CONFLICT (topic_id, user_id) DO NOTHING`,
+			[survivorId, mergedId],
+		);
+		await client.query('DELETE FROM project_topic_assignees WHERE user_id = $1', [mergedId]);
+		for (const assignment of mergedPrimaryAssignments.rows) {
+			await client.query(
+				'UPDATE project_topic_assignees SET is_primary=true WHERE project_id=$1 AND topic_id=$2 AND user_id=$3',
+				[assignment.project_id, assignment.topic_id, survivorId],
+			);
+		}
+		await client.query('DELETE FROM project_memberships WHERE user_id = $1', [mergedId]);
+
+		// A person cannot have two join requests for the same project. If both
+		// accounts had one, keep the survivor's and drop the merged account's row,
+		// then move any unique join requests to the survivor.
+		await client.query(
+			`DELETE FROM project_join_requests old
+			 WHERE old.user_id = $2
+			   AND EXISTS (
+			     SELECT 1 FROM project_join_requests kept
+			      WHERE kept.project_id = old.project_id AND kept.user_id = $1)`,
+			[survivorId, mergedId],
+		);
+		await client.query(
+			'UPDATE project_join_requests SET user_id = $1 WHERE user_id = $2',
+			[survivorId, mergedId],
+		);
 
 		// Deliberately *not* merging duplicate participant rows.
 		//

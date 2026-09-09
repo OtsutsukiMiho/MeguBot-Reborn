@@ -1,0 +1,47 @@
+'use strict';
+const assert = require('node:assert/strict');
+const dbPath = require.resolve('../core/db');
+let replies = []; let calls = [];
+const query = async (sql, args) => { calls.push({ sql, args }); assert.ok(replies.length, 'Unexpected database call: '+sql); return { rows: replies.shift() }; };
+require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query, transaction: fn => fn({ query }) } };
+const projects = require('../core/projects');
+const project = { id:'p1', code:'ABC2345', status:'active', role:'owner', revision:1 };
+function setup(rows) { replies = rows; calls = []; }
+async function main() {
+	setup([[{...project,role:'lead'}]]);
+	await assert.rejects(projects.createJoinLink(project.code,'lead'), {code:'project_forbidden'});
+	assert.equal(calls.length,1);
+	setup([[project],[],[]]);
+	const link = await projects.createJoinLink(project.code,'owner');
+	assert.ok(link.token.length >= 32);
+	assert.notEqual(calls[2].args[2],link.token,'Only token hash is stored');
+	setup([[project],[{}],[],[],[{n:0}],[]]);
+	assert.deepEqual(await projects.requestProjectJoin(link.token,'person'),{status:'pending'});
+	assert.ok(!calls.some(c => /INSERT INTO project_memberships/.test(c.sql)), 'Requesting must not grant access');
+	setup([[project],[{}],[],[{status:'pending'}]]);
+	assert.deepEqual(await projects.requestProjectJoin(link.token,'person'),{status:'pending'});
+	setup([[project],[]]);
+	await assert.rejects(projects.requestProjectJoin(link.token,'person'),{code:'invitation_expired'});
+	setup([[{...project,role:'lead'}]]);
+	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','lead',{action:'approve'}),{code:'project_forbidden'});
+	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:50}]]);
+	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve'}),{code:'member_limit'});
+	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[]]);
+	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'reject'}),{status:'rejected'});
+	assert.ok(!calls.some(c => /INSERT INTO project_memberships/.test(c.sql)));
+	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:1}],[],[],[],[]]);
+	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve'}),{status:'approved'});
+	assert.ok(calls.some(c => /INSERT INTO project_memberships/.test(c.sql) && /'member'/.test(c.sql)));
+	assert.equal(replies.length,0);
+	setup([]);
+	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve',role:'owner'}),{code:'unknown_field'});
+	const notifications = require('../core/notifications');
+	setup([[{provider:'discord',provider_uid:'123'}],[],[{id:'event1',inserted:true}],[]]);
+	await notifications.enqueueWithClient({query},{userId:'person',eventType:'project_deadline_reminder',payload:{},dedupeKey:'test-dm'});
+	assert.equal(calls.at(-1).args[2],'discord','Discord accounts default to DM delivery');
+	setup([[{provider:'discord',provider_uid:'123'}],[{mode:'off'}],[{id:'event2',inserted:true}]]);
+	await notifications.enqueueWithClient({query},{userId:'person',eventType:'project_deadline_reminder',payload:{},dedupeKey:'test-muted'});
+	assert.ok(!calls.some(c => /INSERT INTO notification_deliveries/.test(c.sql)), 'Muted recipients stay muted');
+	console.log('Project join permission, token, duplicate, approval and membership-limit checks passed');
+}
+main().catch(e => { console.error(e); process.exitCode=1; });

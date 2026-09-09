@@ -487,7 +487,6 @@ export default function ServerConfigPage({ params }) {
 
 	return (
 		<div className={styles.detailPage}>
-			<a className={styles.skipLink} href="#active-server-tool">{copy.skipToSettings}</a>
 			{toastMsg && <Toast message={toastMsg} isError={toastError} onClose={() => setToastMsg(null)} />}
 
 			<header className={styles.serverContext}>

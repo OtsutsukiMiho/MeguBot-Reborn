@@ -77,15 +77,18 @@ async function unknownReferenceIsRefused(userIdA, userIdB) {
 
 async function main() {
 	await core.initCoreSchema();
+	const runId = `${process.pid}_${Date.now()}`;
+	const discordProviderUid = `__merge_discord_${runId}__`;
+	const googleProviderUid = `__merge_google_${runId}__`;
 
 	// Two accounts, one person: a Discord account that has been organising for a
 	// year, and a Google account made last week on a laptop.
 	const discord = await core.users.loginWithIdentity({
-		provider: 'discord', providerUid: '__merge_discord__',
+		provider: 'discord', providerUid: discordProviderUid,
 		username: 'merge-discord', displayName: 'Merge Discord',
 	});
 	const google = await core.users.loginWithIdentity({
-		provider: 'google', providerUid: '__merge_google__',
+		provider: 'google', providerUid: googleProviderUid,
 		email: 'merge@example.test', emailVerified: true,
 		username: 'merge@example.test', displayName: 'Merge Google',
 	});
@@ -93,7 +96,7 @@ async function main() {
 
 	assert.strictEqual(
 		(await core.users.linkIdentity(google.user.id, {
-			provider: 'discord', providerUid: '__merge_discord__',
+			provider: 'discord', providerUid: discordProviderUid,
 		})).reason,
 		'claimed-by-another-user',
 		'linking must still refuse on its own — the merge is a deliberate step above it',
@@ -136,6 +139,15 @@ async function main() {
 		type: 'payment_link', label: 'PayPal', url: 'https://example.test/pay',
 	});
 
+	// The newer account owns a project while both accounts are assigned to the
+	// same topic. The disappearing account is primary: this exercises ownership,
+	// strongest-role membership collapse, and the one-primary invariant together.
+	const mergeProject = await core.projects.createProject({ ownerUserId: google.user.id, title: 'Merged project', timezone: 'Asia/Bangkok' });
+	await core.db.query("INSERT INTO project_memberships (project_id, user_id, role) VALUES ($1,$2,'lead')", [mergeProject.id, discord.user.id]);
+	const mergeTopic = await core.projects.createTopic(mergeProject.code, google.user.id, {
+		title: 'Shared identity work', assigneeUserIds: [google.user.id, discord.user.id], expectedRevision: 0,
+	});
+
 	// --- the plan, which writes nothing ------------------------------------
 	const plan = await core.accountMerge.planMerge(google.user.id, discord.user.id);
 	assert.strictEqual(plan.blockedBy, null, 'disjoint providers must not block');
@@ -163,6 +175,12 @@ async function main() {
 	assert.strictEqual(result.survivorId, discord.user.id);
 	assert.strictEqual(result.mergedId, google.user.id);
 	assert.strictEqual(result.notificationMode, 'both');
+	const mergedProject = await core.projects.getProjectByCode(mergeProject.code, discord.user.id);
+	assert.strictEqual(mergedProject.project.ownerUserId, discord.user.id, 'project ownership follows the surviving account');
+	assert.strictEqual(mergedProject.me.role, 'owner', 'the strongest project role survives membership collapse');
+	assert.strictEqual(mergedProject.members.filter(member => member.userId === discord.user.id).length, 1, 'duplicate project memberships collapse to one');
+	const mergedTopic = mergedProject.topics.find(topic => topic.id === mergeTopic.topic.id);
+	assert.deepStrictEqual(mergedTopic.assignees.map(assignee => ({ userId: assignee.userId, primary: assignee.primary })), [{ userId: discord.user.id, primary: true }], 'duplicate assignments collapse without losing the primary flag');
 
 	// The promise: not one satang moved.
 	const after = await core.activities.getActivity(activity.id);
@@ -222,7 +240,7 @@ async function main() {
 	// Signing in through the account that no longer exists lands on the survivor
 	// rather than creating a third account.
 	const reLogin = await core.users.loginWithIdentity({
-		provider: 'google', providerUid: '__merge_google__',
+		provider: 'google', providerUid: googleProviderUid,
 		email: 'merge@example.test', emailVerified: true,
 		username: 'merge@example.test', displayName: 'Merge Google',
 	});
@@ -271,7 +289,7 @@ async function main() {
 
 	// --- a provider collision is refused, not guessed at ---------------------
 	const third = await core.users.loginWithIdentity({
-		provider: 'google', providerUid: '__merge_third_google__',
+		provider: 'google', providerUid: `__merge_third_google_${runId}__`,
 		email: 'third@example.test', emailVerified: true, displayName: 'Third',
 	});
 	track(third.user.id);
@@ -310,6 +328,14 @@ async function cleanup() {
 		await core.db.query('DELETE FROM account_merges WHERE survivor_user_id = $1', [id]).catch(() => undefined);
 		await core.db.query('DELETE FROM user_aliases WHERE user_id = $1 OR old_user_id = $1', [id]).catch(() => undefined);
 		await core.db.query('DELETE FROM activities WHERE owner_user_id = $1', [id]).catch(() => undefined);
+		const ownedProjects = await core.db.query('SELECT id FROM projects WHERE owner_user_id=$1', [id]).catch(() => ({ rows: [] }));
+		const projectIds = ownedProjects.rows.map(row => row.id);
+		if (projectIds.length) {
+			await core.db.query('DELETE FROM project_topic_assignees WHERE project_id=ANY($1::text[])', [projectIds]).catch(() => undefined);
+			await core.db.query('DELETE FROM project_progress_reports WHERE project_id=ANY($1::text[])', [projectIds]).catch(() => undefined);
+			await core.db.query('DELETE FROM project_events WHERE project_id=ANY($1::text[])', [projectIds]).catch(() => undefined);
+			await core.db.query('DELETE FROM projects WHERE id=ANY($1::text[])', [projectIds]).catch(() => undefined);
+		}
 		await core.db.query('DELETE FROM users WHERE id = $1', [id]).catch(() => undefined);
 	}
 }

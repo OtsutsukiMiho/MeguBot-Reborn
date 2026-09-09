@@ -2618,6 +2618,29 @@ process.on('message', async (msg) => {
 			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, delivered, blocked: discordBlock.blocked() });
 		}
 	}
+	else if (msg.type === 'validate_project_channel' || msg.type === 'project_channel_notice') {
+		const guild = client.guilds.cache.get(String(msg.guildId || ''));
+		let channel = guild?.channels.cache.get(String(msg.channelId || '')) || null;
+		if (guild && !channel) channel = await discordCall('validating a project channel', () => guild.channels.fetch(String(msg.channelId || '')), null);
+		const permissions = channel?.permissionsFor(client.user);
+		const valid = Boolean(channel?.isTextBased?.() && !channel?.isDMBased?.()
+			&& permissions?.has(PermissionFlagsBits.ViewChannel) && permissions?.has(PermissionFlagsBits.SendMessages));
+		if (msg.type === 'validate_project_channel') {
+			if (process.send) process.send({ target: 'web', type: 'validate_project_channel_response', reqId: msg.reqId, valid, name: valid ? channel.name : null });
+		}
+		else {
+			let delivered = false;
+			let error = null;
+			if (valid && !discordBlock.blocked()) {
+				const content = String(msg.message || '').slice(0, 1900);
+				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, null), allowedMentions: { parse: [] } }).then(() => true), false));
+			}
+			if (!valid) error = 'The configured channel is unavailable or Megu cannot send there';
+			else if (discordBlock.blocked()) error = 'Discord is temporarily blocking this server';
+			else if (!delivered) error = 'Discord did not accept the channel message';
+			if (process.send) process.send({ target: 'web', type: 'project_channel_notice_response', reqId: msg.reqId, delivered, error });
+		}
+	}
 	else if (msg.type === 'get_guild_details') {
 		const guild = client.guilds.cache.get(msg.guildId);
 		if (!guild) {

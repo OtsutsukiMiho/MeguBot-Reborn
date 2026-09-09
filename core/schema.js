@@ -628,6 +628,271 @@ const STATEMENTS = [
 	);`,
 	'CREATE INDEX IF NOT EXISTS payment_deferrals_participant_idx ON payment_deferrals (participant_id, created_at DESC);',
 	'CREATE INDEX IF NOT EXISTS payment_deferrals_activity_idx ON payment_deferrals (activity_id, created_at DESC);',
+
+	// Projects are private collaboration spaces. The short code locates a
+	// project; membership, never possession of the code, grants access.
+	`CREATE TABLE IF NOT EXISTS projects (
+		id                 TEXT PRIMARY KEY,
+		code               TEXT NOT NULL UNIQUE,
+		owner_user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		title              TEXT NOT NULL,
+		description        TEXT NOT NULL DEFAULT '',
+		status             TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('planning', 'active', 'paused', 'completed', 'cancelled')),
+		timezone           TEXT NOT NULL DEFAULT 'Asia/Bangkok',
+		starts_at          TIMESTAMPTZ,
+		starts_precision   TEXT CHECK (starts_precision IN ('date', 'instant')),
+		deadline_at        TIMESTAMPTZ,
+		deadline_precision TEXT CHECK (deadline_precision IN ('date', 'instant')),
+		close_reason       TEXT,
+		revision           INTEGER NOT NULL DEFAULT 0,
+		created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+		closed_at          TIMESTAMPTZ,
+		CHECK (starts_at IS NULL OR deadline_at IS NULL OR starts_at <= deadline_at)
+	);`,
+	'CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects (owner_user_id);',
+
+	`CREATE TABLE IF NOT EXISTS project_memberships (
+		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		role       TEXT NOT NULL CHECK (role IN ('owner', 'lead', 'member', 'viewer')),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		revoked_at TIMESTAMPTZ,
+		PRIMARY KEY (project_id, user_id)
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_memberships_user_idx ON project_memberships (user_id, revoked_at);',
+	`CREATE UNIQUE INDEX IF NOT EXISTS project_memberships_one_owner_key
+	 ON project_memberships (project_id) WHERE role='owner' AND revoked_at IS NULL;`,
+
+	`CREATE TABLE IF NOT EXISTS project_invitations (
+		id                   TEXT PRIMARY KEY,
+		project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		inviter_user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		recipient_user_id    TEXT REFERENCES users(id) ON DELETE RESTRICT,
+		recipient_provider   TEXT NOT NULL CHECK (recipient_provider IN ('discord', 'email')),
+		recipient_value      TEXT NOT NULL,
+		role                 TEXT NOT NULL CHECK (role IN ('lead', 'member', 'viewer')),
+		token_hash           TEXT NOT NULL UNIQUE,
+		expires_at           TIMESTAMPTZ NOT NULL,
+		accepted_by_user_id  TEXT REFERENCES users(id) ON DELETE RESTRICT,
+		accepted_at          TIMESTAMPTZ,
+		revoked_at           TIMESTAMPTZ,
+		created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK ((accepted_at IS NULL AND accepted_by_user_id IS NULL) OR
+		       (accepted_at IS NOT NULL AND accepted_by_user_id IS NOT NULL)),
+		CHECK (accepted_at IS NULL OR revoked_at IS NULL)
+	);`,
+	'ALTER TABLE project_invitations ADD COLUMN IF NOT EXISTS recipient_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT;',
+	'CREATE INDEX IF NOT EXISTS project_invitations_project_idx ON project_invitations (project_id, created_at DESC);',
+	'CREATE INDEX IF NOT EXISTS project_invitations_recipient_idx ON project_invitations (recipient_provider, recipient_value, expires_at);',
+	`CREATE UNIQUE INDEX IF NOT EXISTS project_invitations_pending_key
+	 ON project_invitations (project_id, recipient_provider, recipient_value)
+	 WHERE accepted_at IS NULL AND revoked_at IS NULL;`,
+
+	`CREATE TABLE IF NOT EXISTS project_ownership_transfers (
+		id                  TEXT PRIMARY KEY,
+		project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		current_owner_id    TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		proposed_owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		expires_at          TIMESTAMPTZ NOT NULL,
+		accepted_at         TIMESTAMPTZ,
+		cancelled_at        TIMESTAMPTZ,
+		created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK (current_owner_id <> proposed_owner_id OR cancelled_at IS NOT NULL),
+		CHECK (accepted_at IS NULL OR cancelled_at IS NULL)
+	);`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS project_ownership_transfers_pending_key
+	 ON project_ownership_transfers (project_id)
+	 WHERE accepted_at IS NULL AND cancelled_at IS NULL;`,
+	'CREATE INDEX IF NOT EXISTS project_ownership_transfers_recipient_idx ON project_ownership_transfers (proposed_owner_id, expires_at);',
+
+	`CREATE TABLE IF NOT EXISTS project_topics (
+		id                 TEXT PRIMARY KEY,
+		project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		topic_no           INTEGER NOT NULL CHECK (topic_no > 0),
+		title              TEXT NOT NULL,
+		description        TEXT NOT NULL DEFAULT '',
+		workflow           TEXT NOT NULL DEFAULT 'not_started' CHECK (workflow IN ('not_started', 'in_progress', 'in_review', 'completed')),
+		progress           INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+		blocked            BOOLEAN NOT NULL DEFAULT false,
+		blocker_reason     TEXT,
+		starts_at          TIMESTAMPTZ,
+		starts_precision   TEXT CHECK (starts_precision IN ('date', 'instant')),
+		deadline_at        TIMESTAMPTZ,
+		deadline_precision TEXT CHECK (deadline_precision IN ('date', 'instant')),
+		weight             INTEGER NOT NULL DEFAULT 1 CHECK (weight > 0),
+		position           INTEGER NOT NULL DEFAULT 0,
+		revision           INTEGER NOT NULL DEFAULT 0,
+		archived_at        TIMESTAMPTZ,
+		created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (project_id, id),
+		UNIQUE (project_id, topic_no),
+		CHECK (starts_at IS NULL OR deadline_at IS NULL OR starts_at <= deadline_at),
+		CHECK ((blocked = false AND blocker_reason IS NULL) OR (blocked = true AND length(trim(blocker_reason)) > 0)),
+		CHECK ((workflow = 'completed' AND progress = 100) OR (workflow = 'not_started' AND progress = 0) OR (workflow IN ('in_progress', 'in_review') AND progress BETWEEN 0 AND 99))
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_topics_order_idx ON project_topics (project_id, archived_at, position, topic_no);',
+
+	`CREATE TABLE IF NOT EXISTS project_topic_assignees (
+		project_id TEXT NOT NULL,
+		topic_id   TEXT NOT NULL,
+		user_id    TEXT NOT NULL,
+		is_primary BOOLEAN NOT NULL DEFAULT false,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		PRIMARY KEY (topic_id, user_id),
+		FOREIGN KEY (project_id, topic_id) REFERENCES project_topics(project_id, id) ON DELETE CASCADE,
+		FOREIGN KEY (project_id, user_id) REFERENCES project_memberships(project_id, user_id) ON DELETE RESTRICT
+	);`,
+	'CREATE UNIQUE INDEX IF NOT EXISTS project_topic_primary_key ON project_topic_assignees (topic_id) WHERE is_primary;',
+	'CREATE INDEX IF NOT EXISTS project_topic_assignees_user_idx ON project_topic_assignees (user_id, project_id);',
+
+	`CREATE TABLE IF NOT EXISTS project_progress_reports (
+		id             TEXT PRIMARY KEY,
+		project_id     TEXT NOT NULL,
+		topic_id       TEXT NOT NULL,
+		author_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		progress       INTEGER NOT NULL CHECK (progress BETWEEN 0 AND 99),
+		workflow       TEXT NOT NULL CHECK (workflow IN ('not_started', 'in_progress', 'in_review')),
+		summary        TEXT NOT NULL,
+		blocked        BOOLEAN NOT NULL DEFAULT false,
+		blocker_reason TEXT,
+		change_reason  TEXT,
+		correction_of_report_id TEXT REFERENCES project_progress_reports(id) ON DELETE RESTRICT,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+		FOREIGN KEY (project_id, topic_id) REFERENCES project_topics(project_id, id) ON DELETE RESTRICT
+	);`,
+	'ALTER TABLE project_progress_reports ADD COLUMN IF NOT EXISTS change_reason TEXT;',
+	'ALTER TABLE project_progress_reports ADD COLUMN IF NOT EXISTS correction_of_report_id TEXT REFERENCES project_progress_reports(id) ON DELETE RESTRICT;',
+	`DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'project_progress_reports_workflow_check') THEN
+			ALTER TABLE project_progress_reports DROP CONSTRAINT project_progress_reports_workflow_check;
+		END IF;
+		ALTER TABLE project_progress_reports ADD CONSTRAINT project_progress_reports_workflow_check
+			CHECK (workflow IN ('not_started', 'in_progress', 'in_review'));
+	EXCEPTION WHEN duplicate_object THEN NULL;
+	END $$;`,
+	'CREATE INDEX IF NOT EXISTS project_reports_topic_idx ON project_progress_reports (topic_id, created_at DESC, id DESC);',
+
+	`CREATE TABLE IF NOT EXISTS project_events (
+		id            TEXT PRIMARY KEY,
+		project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		topic_id      TEXT,
+		actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+		event_type    TEXT NOT NULL,
+		payload       JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		FOREIGN KEY (project_id, topic_id) REFERENCES project_topics(project_id, id) ON DELETE RESTRICT
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_events_cursor_idx ON project_events (project_id, created_at DESC, id DESC);',
+
+	`CREATE TABLE IF NOT EXISTS project_mutations (
+		id              TEXT PRIMARY KEY,
+		project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		actor_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		idempotency_key TEXT NOT NULL,
+		request_hash    TEXT NOT NULL,
+		response        JSONB NOT NULL,
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (project_id, actor_user_id, idempotency_key)
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_mutations_created_idx ON project_mutations (created_at);',
+
+	`CREATE TABLE IF NOT EXISTS project_notification_settings (
+		project_id             TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+		enabled                BOOLEAN NOT NULL DEFAULT false,
+		blocker_notifications  BOOLEAN NOT NULL DEFAULT false,
+		reminder_48h           BOOLEAN NOT NULL DEFAULT false,
+		reminder_24h           BOOLEAN NOT NULL DEFAULT false,
+		channel_enabled        BOOLEAN NOT NULL DEFAULT false,
+		guild_id               TEXT,
+		channel_id             TEXT,
+		channel_name           TEXT,
+		updated_by_user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`CREATE TABLE IF NOT EXISTS project_join_links (
+		id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL,
+		revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`CREATE TABLE IF NOT EXISTS project_join_requests (
+		id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ,
+		UNIQUE (project_id, user_id)
+	);`,
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS dm_enabled BOOLEAN NOT NULL DEFAULT true;',
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS reminder_48h BOOLEAN NOT NULL DEFAULT false;',
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS reminder_24h BOOLEAN NOT NULL DEFAULT false;',
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS channel_enabled BOOLEAN NOT NULL DEFAULT false;',
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS guild_id TEXT;',
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS channel_id TEXT;',
+	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS channel_name TEXT;',
+	'ALTER TABLE project_topics ADD COLUMN IF NOT EXISTS schedule_revision INTEGER NOT NULL DEFAULT 0;',
+
+	`CREATE TABLE IF NOT EXISTS project_reminder_jobs (
+		id                TEXT PRIMARY KEY,
+		project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		topic_id          TEXT NOT NULL,
+		threshold_hours   INTEGER NOT NULL CHECK (threshold_hours IN (24, 48)),
+		deadline_at       TIMESTAMPTZ NOT NULL,
+		deadline_revision INTEGER NOT NULL,
+		run_at            TIMESTAMPTZ NOT NULL,
+		status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'queued', 'cancelled', 'skipped')),
+		completed_at      TIMESTAMPTZ,
+		created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (topic_id, threshold_hours, deadline_at, deadline_revision),
+		FOREIGN KEY (project_id, topic_id) REFERENCES project_topics(project_id, id) ON DELETE CASCADE
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_reminder_jobs_due_idx ON project_reminder_jobs (run_at, id) WHERE status=\'pending\';',
+
+	`CREATE TABLE IF NOT EXISTS project_channel_deliveries (
+		id              TEXT PRIMARY KEY,
+		project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		event_type      TEXT NOT NULL,
+		guild_id        TEXT NOT NULL,
+		channel_id      TEXT NOT NULL,
+		payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
+		dedupe_key      TEXT NOT NULL UNIQUE,
+		status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'skipped')),
+		attempts        INTEGER NOT NULL DEFAULT 0,
+		next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		locked_at       TIMESTAMPTZ,
+		sent_at         TIMESTAMPTZ,
+		last_error      TEXT,
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_channel_deliveries_pending_idx ON project_channel_deliveries (next_attempt_at) WHERE status IN (\'pending\', \'failed\');',
+
+	`CREATE TABLE IF NOT EXISTS project_dependencies (
+		id                   TEXT PRIMARY KEY,
+		project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		predecessor_topic_id TEXT NOT NULL,
+		successor_topic_id   TEXT NOT NULL,
+		created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (project_id, predecessor_topic_id, successor_topic_id),
+		FOREIGN KEY (project_id, predecessor_topic_id) REFERENCES project_topics(project_id, id) ON DELETE CASCADE,
+		FOREIGN KEY (project_id, successor_topic_id) REFERENCES project_topics(project_id, id) ON DELETE CASCADE,
+		CHECK (predecessor_topic_id <> successor_topic_id)
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_dependencies_successor_idx ON project_dependencies (project_id, successor_topic_id);',
+
+	`CREATE TABLE IF NOT EXISTS project_milestones (
+		id            TEXT PRIMARY KEY,
+		project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		title         TEXT NOT NULL,
+		due_at        TIMESTAMPTZ NOT NULL,
+		due_precision TEXT NOT NULL CHECK (due_precision IN ('date', 'instant')),
+		state         TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'reached')),
+		reached_at    TIMESTAMPTZ,
+		revision      INTEGER NOT NULL DEFAULT 0,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK ((state = 'open' AND reached_at IS NULL) OR (state = 'reached' AND reached_at IS NOT NULL))
+	);`,
+	'CREATE INDEX IF NOT EXISTS project_milestones_due_idx ON project_milestones (project_id, due_at, id);',
 ];
 
 /**

@@ -17,6 +17,9 @@ export default function CustomSelect({
 	type = 'default',
 	searchable = true,
 	disabled = false,
+	required = false,
+	size = 'default',
+	className = '',
 	style = {},
 	ariaLabel,
 	ariaDescribedBy,
@@ -100,7 +103,7 @@ export default function CustomSelect({
 	const selectedColor = optionColor(selectedOption);
 
 	return (
-		<div ref={rootRef} className={styles.root} style={style}>
+		<div ref={rootRef} className={`${styles.root} ${size === 'compact' ? styles.compact : ''} ${className}`.trim()} style={style}>
 			<button
 				ref={triggerRef}
 				type="button"
@@ -110,6 +113,7 @@ export default function CustomSelect({
 				aria-haspopup="listbox"
 				aria-label={ariaLabel || resolvedPlaceholder}
 				aria-describedby={ariaDescribedBy}
+				aria-required={required || undefined}
 				aria-expanded={isOpen}
 				aria-controls={isOpen ? listboxId : undefined}
 			>

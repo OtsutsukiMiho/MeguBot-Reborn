@@ -8,6 +8,8 @@ import ThemeToggle from './ThemeToggle';
 import { useLang, LANGS } from './LangProvider';
 import { useCopy } from '../copy';
 
+const PROJECTS_ENABLED = process.env.NEXT_PUBLIC_MEGU_PROJECTS_ENABLED !== '0';
+
 export default function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDev, setIsDev] = useState(false);
@@ -125,6 +127,9 @@ export default function Navbar() {
 					<Link href="/activities" className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
 						{t.nav.activities}
 					</Link>
+					{PROJECTS_ENABLED && <Link href="/projects" className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
+						{t.nav.projects}
+					</Link>}
 					<Link href="/bills" className={`tab-btn ${pathname.startsWith('/bills') ? 'active' : ''}`}>
 						{t.nav.bills}
 					</Link>

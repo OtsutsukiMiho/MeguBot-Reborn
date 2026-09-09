@@ -29,6 +29,9 @@ const SUITES = [
 	['server-tabs-ui.test.js', 'server tools — one responsive workspace with accessible controls'],
 	['server-dashboard-drafts.test.js', 'server tool drafts — preserved locally and guarded on departure'],
 	['server-dashboard-request.test.js', 'server tool requests — confirmed, rejected and ambiguous outcomes'],
+	['project-join.test.js', 'project join requests — owner approval, token checks and member limits'],
+	['projects-contract.test.js', 'project UI and validation contracts — private routes, dates, invitations and assignments'],
+	['project-channel-dispatcher.test.js', 'project channel delivery — overlap, rate limits and lost acknowledgements'],
 	['auth-notifications.test.js', 'linked identities, encrypted credentials and channel preferences'],
 	['test-database.test.js', 'destructive suites are isolated from the development database'],
 	// First against Postgres, because it rebuilds the schema into its pre-rename
@@ -37,6 +40,8 @@ const SUITES = [
 	['session-store.test.js', 'sessions on Postgres — a restart no longer signs everyone out'],
 	['notification-integration.test.js', 'linked accounts fan one event out to Discord and email without merging'],
 	['account-merge.test.js', 'two accounts, one person — every reference moved, not one satang changed'],
+	['projects.test.js', 'private project work — scheduling, reporting, idempotency and review'],
+	['projects-scale.test.js', 'project pilot limits — bounded reads at 100 topics and 50 members'],
 	['e2e.test.js', 'core against Postgres — full badminton lifecycle'],
 	['recurring.test.js', 'monthly agreements, periods and DM reminders'],
 	['payment-due.test.js', 'the deadline — announced once, deferrable with a reason, never a mute'],

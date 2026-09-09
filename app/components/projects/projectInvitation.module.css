@@ -1,0 +1,10 @@
+.page { display: grid; place-items: center; min-height: calc(100vh - 72px); padding: 28px 16px 64px; color: var(--ink); }
+@media (min-width: 1121px) { :global(.container):has(.page) { max-width: 1568px; } }
+.panel { width: min(100%, 560px); border: 1px solid var(--line); border-radius: 14px; padding: 48px 56px 52px; background: var(--surface); text-align: center; }
+.panel h1 { margin: 18px 0 8px; font-size: clamp(1.7rem, 7vw, 2.8rem); letter-spacing: -.04em; }
+.panel > p { margin: 0 auto 28px; max-width: 42ch; color: var(--muted); line-height: 1.65; }
+.action { display: grid; justify-items: center; gap: 18px; }
+.privacy, .success { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.success { margin: 18px 0 0; color: var(--accent); }
+.error { border: 1px solid color-mix(in srgb, var(--due) 45%, var(--line)); border-radius: var(--r-sm); padding: 10px 12px; background: var(--due-soft); color: var(--ink) !important; text-align: left; }
+@media (max-width: 520px) { .panel { padding: 36px 24px 40px; } }

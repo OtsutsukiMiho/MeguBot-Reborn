@@ -6,7 +6,7 @@ const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
-const { activities, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
+const { activities, projects, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
 
 // A slip photographed on a phone is a few hundred kilobytes once the browser
 // has shrunk it. The ceiling is generous enough that nobody meets it by
@@ -34,6 +34,41 @@ function decodeDataImage(dataUrl, { maxBytes = SLIP_MAX_BYTES } = {}) {
  */
 function fail(res, status, code, message) {
 	return res.status(status).json({ error: message || code, code });
+}
+
+const PROJECT_NOT_FOUND = new Set(['project_not_found', 'topic_not_found', 'member_not_found', 'invitation_not_found', 'ownership_transfer_not_found', 'dependency_not_found', 'milestone_not_found']);
+const PROJECT_FORBIDDEN = new Set(['project_forbidden', 'invitation_recipient_mismatch']);
+const PROJECT_CONFLICT = new Set(['revision_conflict', 'idempotency_conflict', 'project_transition_invalid', 'topic_not_reviewable', 'topic_completed', 'topic_not_completed', 'member_exists', 'invitation_pending', 'ownership_transfer_pending', 'ownership_transfer_stale', 'dependency_exists', 'dependency_cycle']);
+const PROJECT_UNPROCESSABLE = new Set([
+	'title_required', 'title_too_long', 'description_too_long', 'timezone_invalid',
+	'starts_at_invalid', 'deadline_at_invalid', 'date_order_invalid', 'topic_title_required',
+	'topic_title_too_long', 'topic_limit', 'assignee_invalid', 'progress_invalid',
+	'summary_required', 'summary_too_long', 'blocker_reason_required', 'blocker_reason_too_long',
+	'blocked_review_invalid', 'progress_decrease_reason_required', 'reason_required', 'reason_too_long',
+	'blocker_clear_reason_required', 'correction_report_invalid',
+	'invitation_provider_invalid', 'invitation_recipient_invalid', 'invitation_role_invalid',
+	'invitation_token_required', 'invitation_token_too_long', 'member_role_invalid', 'member_limit', 'assignee_limit',
+	'cursor_invalid', 'timezone_change_mode_required', 'timezone_schedule_invalid', 'proposed_owner_id_required', 'proposed_owner_id_too_long', 'ownership_transfer_self',
+	'idempotency_key_required', 'idempotency_key_too_long', 'review_action_invalid', 'project_state_invalid',
+	'dependency_topics_required', 'dependency_self', 'dependency_topic_invalid',
+	'topic_deadline_override_required',
+	'milestone_title_required', 'milestone_title_too_long', 'milestone_due_required', 'milestone_limit',
+	'due_at_invalid', 'milestone_state_invalid',
+	'guild_id_required', 'guild_id_too_long', 'channel_id_required', 'channel_id_too_long',
+	'channel_name_required', 'channel_name_too_long', 'project_channel_invalid', 'project_channel_unavailable',
+	'unknown_field', 'request_body_invalid', 'search_too_long',
+]);
+
+function failProject(res, error) {
+	if (error.code === 'unknown_field') return res.status(422).json({ error: error.code, code: error.code, field: error.field });
+	if (PROJECT_NOT_FOUND.has(error.code)) return fail(res, 404, 'project_not_found');
+	if (PROJECT_FORBIDDEN.has(error.code)) return fail(res, 403, error.code);
+	if (PROJECT_CONFLICT.has(error.code)) return fail(res, 409, error.code);
+	if (['invitation_expired', 'invitation_revoked', 'invitation_used'].includes(error.code)) return fail(res, 410, error.code);
+	if (error.code === 'ownership_transfer_expired') return fail(res, 410, error.code);
+	if (error.code === 'project_not_active' || error.code === 'project_closed') return fail(res, 409, error.code);
+	if (PROJECT_UNPROCESSABLE.has(error.code)) return fail(res, 422, error.code);
+	return null;
 }
 
 // Amounts are stored as integer minor units for every currently supported
@@ -788,6 +823,8 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
  *        because it needs IPC to the bot process.
  * @param {(notice: {recipients: string[], message: string}) => Promise<void>} [deps.notifyPayment]
  *        Sends private Discord notices through the separately-running bot.
+ * @param {(destination: {guildId: string, channelId: string}) => Promise<object>} [deps.validateProjectChannel]
+ *        Rechecks that the bot can view and send to an owner-selected channel.
  */
 function router(deps = {}) {
 	const api = express.Router();
@@ -920,6 +957,351 @@ function router(deps = {}) {
 				return fail(res, 400, error.message);
 			}
 			next(error);
+		}
+	});
+
+	// Private project workspaces. Every lookup starts from the session account;
+	// the public code is a locator and never an authorization shortcut.
+	api.use('/projects', (req, res, next) => process.env.MEGU_PROJECTS_ENABLED === '0'
+		? fail(res, 404, 'projects_disabled')
+		: next());
+	api.get('/projects', requireAccount, async (req, res, next) => {
+		try {
+			const bucket = ['active', 'closed'].includes(req.query.bucket)
+				? req.query.bucket
+				: req.query.includeClosed === 'false' ? 'active' : 'all';
+			res.json(await projects.listProjectDirectory(req.actor.userId, {
+				bucket, search: req.query.q, assignedOnly: req.query.assigned === 'true',
+				cursor: req.query.cursor, limit: req.query.limit,
+			}));
+		}
+		catch (error) { next(error); }
+	});
+
+	api.post('/projects', requireAccount, async (req, res, next) => {
+		try {
+			const project = await projects.createProject({ ownerUserId: req.actor.userId, ...(req.body || {}) });
+			res.status(201).json({ project });
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/join/:token', requireAccount, async (req,res,next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.requestProjectJoin(req.params.token, req.actor.userId));
+		} catch(error) { if (!failProject(res,error)) next(error); }
+	});
+
+	api.get('/projects/:code/join-requests', requireAccount, async (req,res,next) => {
+		try {
+			res.json(await projects.listJoinRequests(req.params.code, req.actor.userId));
+		} catch(error) { if (!failProject(res,error)) next(error); }
+	});
+
+	api.post('/projects/:code/join-requests/:requestId', requireAccount, async (req,res,next) => {
+		try {
+			res.json(await projects.reviewJoinRequest(req.params.code, req.params.requestId, req.actor.userId, req.body || {}));
+		} catch(error) { if (!failProject(res,error)) next(error); }
+	});
+
+	api.post('/projects/:code/join-link', requireAccount, async (req,res,next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.createJoinLink(req.params.code, req.actor.userId));
+		} catch(error) { if (!failProject(res,error)) next(error); }
+	});
+
+	api.delete('/projects/:code/join-link', requireAccount, async (req,res,next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.revokeJoinLink(req.params.code, req.actor.userId));
+		} catch(error) { if (!failProject(res,error)) next(error); }
+	});
+
+	api.post('/projects/invitations/:token/accept', requireAccount, async (req, res, next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.acceptInvitation(req.params.token, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.getProjectByCode(req.params.code, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.patch('/projects/:code', requireAccount, async (req, res, next) => {
+		try {
+			res.json({ project: await projects.updateProject(req.params.code, req.actor.userId, req.body || {}) });
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/members', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.listProjectMembers(req.params.code, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.patch('/projects/:code/members/:memberId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.updateMemberRole(req.params.code, req.params.memberId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.delete('/projects/:code/members/:memberId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.removeProjectMember(req.params.code, req.params.memberId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/invitations', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.listProjectInvitations(req.params.code, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/invitations', requireAccount, async (req, res, next) => {
+		try {
+			res.status(201).json(await projects.createInvitation(req.params.code, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.delete('/projects/:code/invitations/:invitationId', requireAccount, async (req, res, next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.revokeInvitation(req.params.code, req.params.invitationId, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/ownership-transfer', requireAccount, async (req, res, next) => {
+		try {
+			res.status(201).json(await projects.proposeOwnershipTransfer(req.params.code, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.delete('/projects/:code/ownership-transfer/:transferId', requireAccount, async (req, res, next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.cancelOwnershipTransfer(req.params.code, req.params.transferId, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/ownership-transfer/:transferId/accept', requireAccount, async (req, res, next) => {
+		try {
+			projects.validate.assertKnownFields(req.body || {}, []);
+			res.json(await projects.acceptOwnershipTransfer(req.params.code, req.params.transferId, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/topics', requireAccount, async (req, res, next) => {
+		try {
+			res.status(201).json(await projects.createTopic(req.params.code, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/topics', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.listProjectTopics(req.params.code, req.actor.userId, { includeArchived: req.query.includeArchived === 'true' }));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/topics/:topicId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.getProjectTopic(req.params.code, req.params.topicId, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.patch('/projects/:code/topics/:topicId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.updateTopic(req.params.code, req.params.topicId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/topics/:topicId/reports', requireAccount, async (req, res, next) => {
+		try {
+			res.status(201).json(await projects.reportProgress(req.params.code, req.params.topicId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/topics/:topicId/reports', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.listTopicReports(req.params.code, req.params.topicId, req.actor.userId, req.query));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.put('/projects/:code/topics/:topicId/assignees', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.setTopicAssignees(req.params.code, req.params.topicId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/topics/:topicId/review', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.reviewTopic(req.params.code, req.params.topicId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/state', requireAccount, async (req, res, next) => {
+		try {
+			res.json({ project: await projects.setProjectState(req.params.code, req.actor.userId, req.body || {}) });
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/events', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.listProjectEvents(req.params.code, req.actor.userId, req.query));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/notification-settings', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.getProjectNotificationSettings(req.params.code, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.patch('/projects/:code/notification-settings', requireAccount, async (req, res, next) => {
+		try {
+			const input = { ...(req.body || {}) };
+			if (input.channelEnabled) {
+				const guildId = String(input.guildId || '');
+				const channelId = String(input.channelId || '');
+				const managesGuild = (req.session?.adminGuilds || []).some(guild => String(guild.id) === guildId);
+				if (!managesGuild) throw Object.assign(new Error('project_channel_invalid'), { code: 'project_channel_invalid' });
+				const validation = deps.validateProjectChannel ? await deps.validateProjectChannel({ guildId, channelId }) : null;
+				if (!validation?.valid) throw Object.assign(new Error('project_channel_unavailable'), { code: 'project_channel_unavailable' });
+				input.channelName = validation.name;
+			}
+			res.json(await projects.updateProjectNotificationSettings(req.params.code, req.actor.userId, input));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/dependencies', requireAccount, async (req, res, next) => {
+		try {
+			res.status(201).json(await projects.createDependency(req.params.code, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.delete('/projects/:code/dependencies/:dependencyId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.removeDependency(req.params.code, req.params.dependencyId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.get('/projects/:code/milestones', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.listMilestones(req.params.code, req.actor.userId));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.post('/projects/:code/milestones', requireAccount, async (req, res, next) => {
+		try {
+			res.status(201).json(await projects.createMilestone(req.params.code, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.patch('/projects/:code/milestones/:milestoneId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.updateMilestone(req.params.code, req.params.milestoneId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
+		}
+	});
+
+	api.delete('/projects/:code/milestones/:milestoneId', requireAccount, async (req, res, next) => {
+		try {
+			res.json(await projects.removeMilestone(req.params.code, req.params.milestoneId, req.actor.userId, req.body || {}));
+		}
+		catch (error) {
+			if (!failProject(res, error)) next(error);
 		}
 	});
 

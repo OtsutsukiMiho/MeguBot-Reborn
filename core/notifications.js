@@ -17,9 +17,8 @@ function channelsFor(mode, { hasDiscord, hasEmail }) {
  * mute setting is a security notice the one person who needed it never sees.
  * It is still filtered by which channels the account actually has.
  */
-async function enqueue({ userId, eventType, payload, dedupeKey, channels = null }) {
+async function enqueueWithClient(client, { userId, eventType, payload, dedupeKey, channels = null }) {
 	if (!userId || !eventType || !dedupeKey) throw new Error('notification_event_invalid');
-	return transaction(async (client) => {
 		const identities = await client.query(
 			'SELECT provider, provider_uid, email, email_verified FROM identities WHERE user_id = $1',
 			[userId],
@@ -54,7 +53,10 @@ async function enqueue({ userId, eventType, payload, dedupeKey, channels = null 
 			);
 		}
 		return { eventId: event.rows[0].id, created: event.rows[0].inserted === true, mode };
-	});
+}
+
+async function enqueue(options) {
+	return transaction(client => enqueueWithClient(client, options));
 }
 
 async function claimPending(limit = 20) {
@@ -128,4 +130,4 @@ function render(delivery) {
 	};
 }
 
-module.exports = { channelsFor, enqueue, claimPending, markSent, markFailed, render };
+module.exports = { channelsFor, enqueue, enqueueWithClient, claimPending, markSent, markFailed, render };
