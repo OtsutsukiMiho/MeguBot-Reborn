@@ -1164,6 +1164,7 @@ async function reportProgress(code, topicId, actorUserId, input = {}) {
 		}
 		if (report.progress < topic.progress && !text(input.reason)) throw codedError('progress_decrease_reason_required');
 		if (topic.blocked && !report.blocked && !text(input.reason)) throw codedError('blocker_clear_reason_required');
+		if (project.role === 'viewer') throw codedError('project_forbidden');
 		if (!LEAD_ROLES.has(project.role)) {
 			const assigned = await client.query('SELECT 1 FROM project_topic_assignees WHERE project_id = $1 AND topic_id = $2 AND user_id = $3', [project.id, topic.id, actorUserId]);
 			if (!assigned.rows[0]) throw codedError('project_forbidden');
@@ -1349,8 +1350,10 @@ async function listJoinRequests(code, actorUserId) {
 }
 
 async function reviewJoinRequest(code, requestId, actorUserId, input = {}) {
-	assertKnownFields(input, ['action']);
+	assertKnownFields(input, ['action', 'role']);
 	if (!['approve','reject'].includes(input.action)) throw codedError('review_action_invalid');
+	const role = input.role || 'member';
+	if (!['lead','member','viewer'].includes(role)) throw codedError('member_role_invalid');
 	return transaction(async client => {
 		const project = await accessByCode(client, code, actorUserId, { lock: true });
 		if (project.role !== 'owner') throw codedError('project_forbidden');
@@ -1364,9 +1367,9 @@ async function reviewJoinRequest(code, requestId, actorUserId, input = {}) {
 			if (!existing.rows[0]) {
 				const count = await client.query('SELECT count(*)::int AS n FROM project_memberships WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
 				if (count.rows[0].n >= 50) throw codedError('member_limit');
-				await client.query("INSERT INTO project_memberships (project_id,user_id,role) VALUES ($1,$2,'member') ON CONFLICT (project_id,user_id) DO UPDATE SET role='member',revoked_at=NULL,created_at=now()", [project.id,request.user_id]);
+				await client.query('INSERT INTO project_memberships (project_id,user_id,role) VALUES ($1,$2,$3) ON CONFLICT (project_id,user_id) DO UPDATE SET role=$3,revoked_at=NULL,created_at=now()', [project.id,request.user_id,role]);
 				await client.query('UPDATE projects SET revision=revision+1,updated_at=now() WHERE id=$1', [project.id]);
-				await addEvent(client, project.id, null, actorUserId, 'member_joined', { userId: request.user_id, role: 'member' });
+				await addEvent(client, project.id, null, actorUserId, 'member_joined', { userId: request.user_id, role });
 			}
 		}
 		const status = input.action === 'approve' ? 'approved' : 'rejected';

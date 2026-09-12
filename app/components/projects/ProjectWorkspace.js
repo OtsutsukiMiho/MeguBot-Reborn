@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import AuthGate from '../AuthGate';
 import ProjectAvatar from './ProjectAvatar';
+import ProjectTopicFilters from './ProjectTopicFilters';
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
+import { deriveProjectTopicFilters, deriveReportableTopics, normalizeTopicQuery, parseProjectFilterParams, writeProjectFilterParams } from './projectFilters.mjs';
 import styles from './projectWorkspace.module.css';
 
 const DAY = 86_400_000;
@@ -99,6 +101,7 @@ export default function ProjectWorkspace({ code }) {
 	const p = t.projects;
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(true);
+	const [refreshing, setRefreshing] = useState(false);
 	const [signedOut, setSignedOut] = useState(false);
 	const [error, setError] = useState('');
 	const [tab, setTabState] = useState('timeline');
@@ -109,12 +112,18 @@ export default function ProjectWorkspace({ code }) {
 	const [busyState, setBusyState] = useState(false);
 	const [reportAnnouncement, setReportAnnouncement] = useState('');
 	const [focusDetail, setFocusDetail] = useState(false);
+	const [attention, setAttentionState] = useState('all');
+	const [assignedToMe, setAssignedToMe] = useState(false);
+	const [topicQuery, setTopicQuery] = useState('');
+	const [appliedTopicQuery, setAppliedTopicQuery] = useState('');
+	const [filterNow, setFilterNow] = useState(() => Date.now());
+	const [filtersHydrated, setFiltersHydrated] = useState(false);
 	const tabsRef = useRef([]);
 	const detailTriggerRef = useRef(null);
 
 	const readError = useCallback(problem => p.errors[problem?.code] || p.errors.failed, [p.errors]);
 	const load = useCallback(async ({ quiet = false } = {}) => {
-		if (!quiet) setLoading(true);
+		if (quiet) setRefreshing(true); else setLoading(true);
 		setError('');
 		try {
 			const response = await fetch(`/api/megu/projects/${encodeURIComponent(code)}`, { credentials: 'same-origin' });
@@ -130,21 +139,83 @@ export default function ProjectWorkspace({ code }) {
 			});
 		}
 		catch (problem) { setError(readError(problem)); }
-		finally { setLoading(false); }
+		finally { setLoading(false); setRefreshing(false); }
 	}, [code, readError]);
 
 	useEffect(() => {
-		const view = new URLSearchParams(window.location.search).get('view');
-		if (TABS.includes(view)) setTabState(view);
-		else if (window.matchMedia('(max-width: 620px)').matches) setTabState('topics');
+		const restoreUrlState = () => {
+			const params = new URLSearchParams(window.location.search);
+			const view = params.get('view');
+			const filters = parseProjectFilterParams(params);
+			if (TABS.includes(view)) setTabState(view);
+			else if (window.matchMedia('(max-width: 620px)').matches) setTabState('topics');
+			else setTabState('timeline');
+			setAttentionState(filters.attention);
+			setAssignedToMe(filters.assignedToMe);
+			setTopicQuery(filters.query);
+			setAppliedTopicQuery(filters.query);
+			setSelectedId(params.get('topic'));
+		};
+		restoreUrlState();
+		setFiltersHydrated(true);
 		load();
+		window.addEventListener('popstate', restoreUrlState);
+		return () => window.removeEventListener('popstate', restoreUrlState);
 	}, [load]);
+	useEffect(() => {
+		if (!filtersHydrated) return undefined;
+		const timer = window.setTimeout(() => {
+			setAppliedTopicQuery(topicQuery);
+			const next = new URL(window.location.href);
+			next.search = writeProjectFilterParams(next.searchParams, { attention, assignedToMe, query: topicQuery }).toString();
+			window.history.replaceState({}, '', next);
+		}, 250);
+		return () => window.clearTimeout(timer);
+	}, [attention, assignedToMe, filtersHydrated, topicQuery]);
+	useEffect(() => {
+		const refreshClock = () => {
+			if (document.visibilityState === 'visible') setFilterNow(Date.now());
+		};
+		const timer = window.setInterval(refreshClock, 60_000);
+		document.addEventListener('visibilitychange', refreshClock);
+		window.addEventListener('focus', refreshClock);
+		return () => {
+			window.clearInterval(timer);
+			document.removeEventListener('visibilitychange', refreshClock);
+			window.removeEventListener('focus', refreshClock);
+		};
+	}, []);
+	useEffect(() => {
+		if (!data?.project?.title) return undefined;
+		document.title = `${data.project.title} · Megu`;
+		return undefined;
+	}, [data?.project?.title]);
 
 	const setTab = value => {
 		setTabState(value);
 		const next = new URL(window.location.href);
 		next.searchParams.set('view', value);
-		window.history.replaceState({}, '', next);
+		window.history.pushState({}, '', next);
+	};
+	const updateFilterUrl = filters => {
+		const next = new URL(window.location.href);
+		next.search = writeProjectFilterParams(next.searchParams, filters).toString();
+		window.history.pushState({}, '', next);
+	};
+	const setAttention = value => {
+		setAttentionState(value);
+		updateFilterUrl({ attention: value, assignedToMe, query: topicQuery });
+	};
+	const setAssignedFilter = value => {
+		setAssignedToMe(value);
+		updateFilterUrl({ attention, assignedToMe: value, query: topicQuery });
+	};
+	const clearTopicFilters = () => {
+		setAttentionState('all');
+		setAssignedToMe(false);
+		setTopicQuery('');
+		setAppliedTopicQuery('');
+		updateFilterUrl({ attention: 'all', assignedToMe: false, query: '' });
 	};
 	const selectTopic = value => {
 		if (value && document.activeElement instanceof HTMLElement) {
@@ -158,7 +229,10 @@ export default function ProjectWorkspace({ code }) {
 	};
 	const closeTopic = () => {
 		selectTopic(null); setReporting(false); setFocusDetail(false);
-		requestAnimationFrame(() => detailTriggerRef.current?.focus?.());
+		requestAnimationFrame(() => {
+			if (detailTriggerRef.current?.isConnected) detailTriggerRef.current.focus();
+			else tabsRef.current[TABS.indexOf(tab)]?.focus?.();
+		});
 	};
 	const startReport = topicId => { selectTopic(topicId); setReporting(true); setChoosingReport(false); };
 
@@ -171,6 +245,13 @@ export default function ProjectWorkspace({ code }) {
 		else return;
 		event.preventDefault(); setTab(TABS[next]); tabsRef.current[next]?.focus();
 	};
+	const topicFilterResult = useMemo(() => deriveProjectTopicFilters(data?.topics || [], {
+		attention,
+		assignedToMe,
+		query: appliedTopicQuery,
+		currentUserId: data?.me?.userId,
+		now: filterNow,
+	}), [appliedTopicQuery, assignedToMe, attention, data?.me?.userId, data?.topics, filterNow]);
 
 	if (loading) return <ProjectSkeleton />;
 	if (signedOut) return <AuthGate title={p.signedOutTitle} lede={p.signedOutLede} />;
@@ -180,9 +261,10 @@ export default function ProjectWorkspace({ code }) {
 	const canLead = LEADS.has(me.role);
 	const selected = topics.find(topic => topic.id === selectedId) || null;
 	const mine = topics.filter(topic => topic.assignees.some(assignee => assignee.userId === me.userId));
-	const reportableMine = mine.filter(topic => topic.workflow !== 'completed');
+	const reportableTopics = deriveReportableTopics(topics, { role: me.role, userId: me.userId, projectStatus: project.status });
 	const awaiting = mine.filter(topic => topic.workflow === 'in_review').length;
-	const canReportSelected = selected && project.status === 'active' && (canLead || selected.assignees.some(a => a.userId === me.userId)) && selected.workflow !== 'completed';
+	const canReportSelected = Boolean(selected && reportableTopics.some(topic => topic.id === selected.id));
+	const selectedOutsideFilters = Boolean(selected && topicFilterResult.isActive && !topicFilterResult.visibleTopics.some(topic => topic.id === selected.id));
 
 	const activate = async () => {
 		setBusyState(true); setError('');
@@ -213,12 +295,12 @@ export default function ProjectWorkspace({ code }) {
 				<div className={styles.headActions}>
 					<Link href={`/p/${project.code}/manage`} className="btn btn-secondary"><Settings2 size={16} />{p.manage}</Link>
 					{project.status === 'planning' && canLead ? <button type="button" className="btn btn-primary" disabled={busyState || topics.length === 0} onClick={activate}>{busyState ? p.starting : p.startProject}</button> :
-						<button type="button" className="btn btn-primary" disabled={reportableMine.length === 0 || project.status !== 'active'} onClick={() => reportableMine.length === 1 ? startReport(reportableMine[0].id) : setChoosingReport(true)}>{p.reportProgress}</button>}
+						reportableTopics.length > 0 && <button type="button" className="btn btn-primary" onClick={() => reportableTopics.length === 1 ? startReport(reportableTopics[0].id) : setChoosingReport(true)}>{p.reportProgress}</button>}
 				</div>
-				<div className={styles.projectProgress}><span style={{ width: `${project.progress}%` }} /><strong>{project.progress}%</strong><em>{p.progress}</em></div>
+				<div className={styles.projectProgress} role="progressbar" aria-label={p.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow={project.progress}><span className={styles.projectProgressTrack} aria-hidden="true"><i style={{ width: `${project.progress}%` }} /></span><span className={styles.projectProgressValue}><strong>{project.progress}%</strong><em>{p.progress}</em></span></div>
 			</header>
 
-			{error && <div className={styles.errorBanner} role="alert"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')} aria-label={p.cancel}><X size={16} /></button></div>}
+			{error && <div className={styles.errorBanner} role="alert"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => load({ quiet: true })}>{p.retry}</button><button type="button" onClick={() => setError('')} aria-label={p.cancel}><X size={16} /></button></div>}
 			{reportAnnouncement && <div className={styles.successBanner} role="status"><Check size={17} /><span>{reportAnnouncement}</span><button type="button" onClick={() => setReportAnnouncement('')} aria-label={p.cancel}><X size={16} /></button></div>}
 			{project.status === 'planning' && <div className={styles.planningNote}><Flag size={16} /><span>{p.planningNote}</span>{canLead && topics.length === 0 && <button type="button" onClick={() => setAdding(true)}>{p.addTopic}</button>}</div>}
 
@@ -226,9 +308,9 @@ export default function ProjectWorkspace({ code }) {
 				<div><strong id="my-work-title">{p.myWork}</strong><span>{mine.length ? `${p.assigned(mine.length)} · ${p.awaitingReview(awaiting)}` : p.noAssignedWork}</span></div>
 				{mine.length > 0 && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { selectTopic(mine[0].id); setTab('topics'); }}>{p.chooseTopic}</button>}
 			</section>
-			{choosingReport && <AssignedTopicChooser topics={reportableMine} project={project} p={p} lang={lang} onChoose={startReport} onClose={() => setChoosingReport(false)} />}
+			{choosingReport && <AssignedTopicChooser topics={reportableTopics} project={project} p={p} lang={lang} onChoose={startReport} onClose={() => setChoosingReport(false)} />}
 
-			{adding && <AddTopic project={project} me={me} p={p} readError={readError} onCancel={() => setAdding(false)} onSaved={async result => { setAdding(false); await load({ quiet: true }); selectTopic(result.topic.id); }} />}
+			{adding && <AddTopic project={project} members={members} me={me} p={p} readError={readError} onCancel={() => setAdding(false)} onSaved={async result => { setAdding(false); await load({ quiet: true }); selectTopic(result.topic.id); }} />}
 
 			<div className={`${styles.workArea}${selected ? ` ${styles.hasDetail}` : ''}`}>
 				<div className={styles.mainArea}>
@@ -238,16 +320,17 @@ export default function ProjectWorkspace({ code }) {
 						</div>
 						<div className={styles.toolActions}>{canLead && <button type="button" className="btn btn-primary btn-sm" onClick={() => setAdding(true)}><Plus size={15} />{p.addTopic}</button>}</div>
 					</div>
+					{tab !== 'updates' && topics.length > 0 && <ProjectTopicFilters attention={attention} assignedToMe={assignedToMe} query={topicQuery} counts={topicFilterResult.counts} visibleCount={topicFilterResult.visibleCount} totalCount={topicFilterResult.totalCount} refreshing={refreshing} p={p} onAttentionChange={setAttention} onAssignedChange={setAssignedFilter} onQueryChange={value => setTopicQuery(normalizeTopicQuery(value))} onClear={clearTopicFilters} />}
 
 					<div role="tabpanel" id={`project-panel-${tab}`} aria-labelledby={`project-tab-${tab}`} className={styles.tabPanel}>
 						{topics.length === 0 && tab !== 'topics' ? <NoTopics canLead={canLead} p={p} onAdd={() => setAdding(true)} /> : tab === 'timeline' ?
-							<Timeline topics={topics} milestones={data.milestones || []} dependencies={data.dependencies || []} project={project} canLead={canLead} readError={readError} onChanged={() => load({ quiet: true })} selectedId={selectedId} onSelect={selectTopic} p={p} lang={lang} timezone={project.timezone} /> :
-							tab === 'topics' ? <TopicList topics={topics} archivedTopics={archivedTopics} project={project} canLead={canLead} selectedId={selectedId} onSelect={selectTopic} onChanged={() => load({ quiet: true })} readError={readError} p={p} lang={lang} timezone={project.timezone} /> :
+							<Timeline topics={topics} visibleTopics={topicFilterResult.visibleTopics} filtersActive={topicFilterResult.isActive} onClearFilters={clearTopicFilters} milestones={data.milestones || []} dependencies={data.dependencies || []} project={project} canLead={canLead} readError={readError} onChanged={() => load({ quiet: true })} selectedId={selectedId} onSelect={selectTopic} p={p} lang={lang} timezone={project.timezone} /> :
+							tab === 'topics' ? <TopicList topics={topicFilterResult.visibleTopics} archivedTopics={archivedTopics} project={project} canLead={canLead} filtersActive={topicFilterResult.isActive} onClearFilters={clearTopicFilters} onAdd={() => setAdding(true)} selectedId={selectedId} onSelect={selectTopic} onChanged={() => load({ quiet: true })} readError={readError} p={p} lang={lang} timezone={project.timezone} /> :
 							<Updates events={events} topics={topics} members={members} code={project.code} p={p} lang={lang} />}
 					</div>
 				</div>
 
-				{selected && <TopicDetail key={selected.id} topic={selected} project={project} members={members} notificationSettings={data.notificationSettings} p={p} lang={lang} canLead={canLead} canReport={canReportSelected} reporting={reporting} setReporting={setReporting} readError={readError} shouldFocus={focusDetail} onClose={closeTopic} onReportSaved={async () => { setReporting(false); await load({ quiet: true }); setReportAnnouncement(p.reportSaved); }} onChanged={() => load({ quiet: true })} />}
+				{selected && <TopicDetail key={selected.id} topic={selected} project={project} members={members} notificationSettings={data.notificationSettings} p={p} lang={lang} canLead={canLead} canReport={canReportSelected} reporting={reporting} setReporting={setReporting} readError={readError} shouldFocus={focusDetail} outsideFilters={selectedOutsideFilters} onClearFilters={clearTopicFilters} onClose={closeTopic} onReportSaved={async () => { setReporting(false); await load({ quiet: true }); setReportAnnouncement(p.reportSaved); }} onChanged={() => load({ quiet: true })} />}
 			</div>
 		</div>
 	);
@@ -263,7 +346,7 @@ function State({ value, p, workflow = false, blocked = false, overdue = false })
 	return <span className={`${styles.state} ${styles[`tone_${value}`]}${blocked || overdue ? ` ${styles.tone_blocked}` : ''}`}>{workflow ? p.workflow[value] : p.state[value]}{blocked ? ` · ${p.blocked}` : ''}{overdue && !blocked ? ` · ${p.overdue}` : ''}</span>;
 }
 
-function Timeline({ topics, milestones, dependencies, project, canLead, readError, onChanged, selectedId, onSelect, p, lang, timezone }) {
+function Timeline({ topics, visibleTopics, filtersActive, onClearFilters, milestones, dependencies, project, canLead, readError, onChanged, selectedId, onSelect, p, lang, timezone }) {
 	const [zoom, setZoom] = useState('week');
 	const [centerOverride, setCenterOverride] = useState(null);
 	const [scheduleDraft, setScheduleDraft] = useState(null);
@@ -327,19 +410,19 @@ function Timeline({ topics, milestones, dependencies, project, canLead, readErro
 	};
 	return (
 		<div className={styles.timelineFrame}>
-			<p className="sr-only" aria-live="polite">{scheduleAnnouncement}</p>
+			<p className={styles.srOnly} aria-live="polite">{scheduleAnnouncement}</p>
 			<div className={styles.timelineToolbar}><strong>{projectDate(start, lang, timezone)} — {projectDate(end, lang, timezone)}</strong><div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setCenterOverride(center - span * .6)} aria-label={p.previousRange}><ChevronLeft size={15} /></button><button type="button" className="btn btn-secondary btn-sm" onClick={() => setCenterOverride(Date.now())}>{p.today}</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => setCenterOverride(center + span * .6)} aria-label={p.nextRange}><ChevronRight size={15} /></button><button type="button" className="btn btn-secondary btn-sm" onClick={() => { setZoom('week'); setCenterOverride(null); }}>{p.fitProject}</button>{['day', 'week', 'month'].map(value => <button key={value} type="button" className={`btn btn-sm ${zoom === value ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={zoom === value} onClick={() => { setZoom(value); setCenterOverride(center); }}>{p.zoom[value]}</button>)}</div></div>
 			{scheduleDraft && !scheduleDraft.dragging && <ScheduleChange draft={scheduleDraft} project={project} p={p} timezone={timezone} readError={readError} onCancel={() => setScheduleDraft(null)} onChanged={async () => { setScheduleAnnouncement(p.scheduleSaved(scheduleDraft.startsAt || '—', scheduleDraft.deadlineAt || '—')); setScheduleDraft(null); await onChanged(); }} />}
-			<div className={styles.timelineScroll}>
+			{visibleTopics.length > 0 ? <><div className={styles.timelineScroll}>
 				<div className={styles.timelineGrid}>
 					<div className={styles.topicHeader}><span aria-hidden="true" /><span>{p.topic}</span><span>{p.owner}</span><span>{p.status}</span><span>%</span></div>
 					<div className={styles.axis}>{markers.map(marker => <span key={marker.position} style={{ left: `${marker.position * 100}%` }}>{marker.label}</span>)}</div>
-					{topics.map(topic => <TimelineRow key={topic.id} topic={scheduleDraft?.topic.id === topic.id ? { ...topic, startsAt: scheduleDraft.startsAt || null, deadlineAt: scheduleDraft.deadlineAt || null } : topic} selected={selectedId === topic.id} onSelect={onSelect} onDrag={beginDrag} canLead={canLead} p={p} start={start} span={span} />)}
+					{visibleTopics.map(topic => <TimelineRow key={topic.id} topic={scheduleDraft?.topic.id === topic.id ? { ...topic, startsAt: scheduleDraft.startsAt || null, deadlineAt: scheduleDraft.deadlineAt || null } : topic} selected={selectedId === topic.id} onSelect={onSelect} onDrag={beginDrag} canLead={canLead} p={p} start={start} span={span} />)}
 					{todayVisible && <div className={styles.todayLine} style={{ left: `${42 + .58 * today}%` }}><span>{p.today}</span></div>}
 					{visibleMilestones.map(item => <div key={item.id} className={`${styles.milestoneLine}${item.state === 'reached' ? ` ${styles.milestoneReached}` : ''}`} style={{ left: `${42 + .58 * item.position}%` }}><span><Diamond size={12} fill="currentColor" />{item.title}</span></div>)}
 				</div>
 			</div>
-			<div className={styles.legend}><span><i className={styles.legendComplete} />{p.workflow.completed}</span><span><i className={styles.legendProgress} />{p.workflow.in_progress}</span><span><i className={styles.legendBlocked} />{p.blocked}</span><span><i className={styles.legendToday} />{p.today}</span></div>
+			<div className={styles.legend}><span><i className={styles.legendComplete} />{p.workflow.completed}</span><span><i className={styles.legendProgress} />{p.workflow.in_progress}</span><span><i className={styles.legendBlocked} />{p.blocked}</span><span><i className={styles.legendToday} />{p.today}</span></div></> : filtersActive ? <FilteredTopicsEmpty p={p} onClear={onClearFilters} /> : null}
 			<ScheduleStructure project={project} topics={topics} milestones={milestones} dependencies={dependencies} canLead={canLead} p={p} lang={lang} readError={readError} onChanged={onChanged} />
 		</div>
 	);
@@ -432,7 +515,7 @@ function TimelineRow({ topic, selected, onSelect, onDrag, canLead, p, start, spa
 	</div>;
 }
 
-function TopicList({ topics, archivedTopics, project, canLead, selectedId, onSelect, onChanged, readError, p, lang, timezone }) {
+function TopicList({ topics, archivedTopics, project, canLead, filtersActive, onClearFilters, onAdd, selectedId, onSelect, onChanged, readError, p, lang, timezone }) {
 	const [error, setError] = useState('');
 	const [sort, setSort] = useState('number');
 	const orderedTopics = useMemo(() => [...topics].sort((left, right) => {
@@ -447,7 +530,7 @@ function TopicList({ topics, archivedTopics, project, canLead, selectedId, onSel
 		try { const response = await fetch(`/api/megu/projects/${project.code}/topics/${topic.id}`, { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: false, expectedRevision: topic.revision }) }); const body = await response.json(); if (!response.ok) throw body; await onChanged(); }
 		catch (problem) { setError(readError(problem)); }
 	};
-	return <div className={styles.listView}><div className={styles.listToolbar}><label><span>{p.sortTopics}</span><CustomSelect size="compact" searchable={false} ariaLabel={p.sortTopics} value={sort} onChange={setSort} options={Object.entries(p.topicSort).map(([value, label]) => ({ value, label }))} /></label></div>{orderedTopics.map(topic => { const primary = topic.assignees.find(a => a.primary); const overdue = Boolean(topic.deadlineAt && new Date(canonicalProjectDate(topic.deadlineAt)) < new Date() && topic.workflow !== 'completed'); return <button type="button" key={topic.id} className={`${styles.listRow}${selectedId === topic.id ? ` ${styles.selected}` : ''}`} onClick={() => onSelect(topic.id)}><span className={styles.topicNumber}>#{String(topic.number).padStart(2, '0')}</span><span><strong>{topic.title}</strong><small>{topic.deadlineAt ? `${p.due} ${projectDate(topic.deadlineAt, lang, timezone)}` : p.unscheduled}</small></span><span>{primary ? primary.displayName : p.unassigned}</span><State value={topic.workflow} p={p} workflow blocked={topic.blocked} overdue={overdue} /><b>{topic.progress}%</b></button>; })}{archivedTopics.length > 0 && <section className={styles.archivedTopics}><h2>{p.archivedTopics}</h2>{archivedTopics.map(topic => <div key={topic.id}><span>#{topic.number}</span><strong>{topic.title}</strong>{canLead && <button type="button" className="btn btn-secondary btn-sm" onClick={() => restore(topic)}>{p.restoreTopic}</button>}</div>)}</section>}{error && <p className={styles.formError} role="alert">{error}</p>}</div>;
+	return <div className={styles.listView}>{orderedTopics.length > 0 && <div className={styles.listToolbar}><label><span>{p.sortTopics}</span><CustomSelect size="compact" searchable={false} ariaLabel={p.sortTopics} value={sort} onChange={setSort} options={Object.entries(p.topicSort).map(([value, label]) => ({ value, label }))} /></label></div>}{orderedTopics.length > 0 ? orderedTopics.map(topic => { const primary = topic.assignees.find(a => a.primary); const overdue = Boolean(topic.deadlineAt && new Date(canonicalProjectDate(topic.deadlineAt)) < new Date() && topic.workflow !== 'completed'); return <button type="button" key={topic.id} className={`${styles.listRow}${selectedId === topic.id ? ` ${styles.selected}` : ''}`} onClick={() => onSelect(topic.id)}><span className={styles.topicNumber}>#{String(topic.number).padStart(2, '0')}</span><span className={styles.listTopic}><strong>{topic.title}</strong><small>{topic.deadlineAt ? `${p.due} ${projectDate(topic.deadlineAt, lang, timezone)}` : p.unscheduled}</small></span><span className={`${styles.listAssignee}${primary ? '' : ` ${styles.unassigned}`}`}>{primary && <ProjectAvatar name={primary.displayName} avatarUrl={primary.avatarUrl} className={`${styles.avatar} ${styles.listAvatar}`} />}<span>{primary ? primary.displayName : p.unassigned}</span></span><span className={styles.listState}><State value={topic.workflow} p={p} workflow blocked={topic.blocked} overdue={overdue} /></span><span className={styles.listProgress} role="progressbar" aria-label={p.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow={topic.progress}><strong>{topic.progress}%</strong><span aria-hidden="true"><i style={{ width: `${topic.progress}%` }} /></span></span></button>; }) : filtersActive ? <FilteredTopicsEmpty p={p} onClear={onClearFilters} /> : <NoTopics canLead={canLead} p={p} onAdd={onAdd} />}{archivedTopics.length > 0 && <section className={styles.archivedTopics}><h2>{p.archivedTopicsSeparate}</h2>{archivedTopics.map(topic => <div key={topic.id}><span>#{topic.number}</span><strong>{topic.title}</strong>{canLead && <button type="button" className="btn btn-secondary btn-sm" onClick={() => restore(topic)}>{p.restoreTopic}</button>}</div>)}</section>}{error && <p className={styles.formError} role="alert">{error}</p>}</div>;
 }
 
 function historyCursor(event) {
@@ -478,7 +561,7 @@ function Updates({ events, topics, members, code, p, lang }) {
 	return <div><div className={styles.updateFilters}><label><span>{p.filterTopic}</span><CustomSelect size="compact" ariaLabel={p.filterTopic} value={topicFilter} onChange={setTopicFilter} options={[{ value: '', label: p.allTopics }, ...topics.map(topic => ({ value: topic.id, label: `#${topic.number} ${topic.title}` }))]} searchable={topics.length > 5} /></label><label><span>{p.filterPerson}</span><CustomSelect size="compact" type="member" ariaLabel={p.filterPerson} value={personFilter} onChange={setPersonFilter} options={[{ value: '', label: p.allPeople }, ...members.map(member => ({ value: member.userId, label: member.displayName, avatar: member.avatarUrl }))]} searchable={members.length > 5} /></label></div>{filtered.length ? <ol className={styles.updates}>{filtered.map(event => <li key={event.id} style={{ '--event-hue': EVENT_HUES[event.type] ?? 215 }}><CircleDot className={styles.eventBullet} size={16} aria-hidden="true" /><div><strong>{p.event?.[event.type] || event.type.replaceAll('_', ' ')}</strong><SafeProjectMarkdown>{event.payload?.summary || event.payload?.title || event.payload?.reason || ''}</SafeProjectMarkdown><small>{event.actorName || 'Megu'} · {relativeDate(event.createdAt, lang)}</small></div></li>)}</ol> : <div className={styles.emptyPanel}>{p.filteredUpdatesEmpty}</div>}{error && <p className={styles.formError} role="alert">{error}</p>}{nextCursor && <div className={styles.loadMore}><button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={loadMore}>{busy ? p.loadingMore : p.loadMore}</button></div>}</div>;
 }
 
-function TopicDetail({ topic, project, members, notificationSettings, p, lang, canLead, canReport, reporting, setReporting, readError, shouldFocus, onClose, onReportSaved, onChanged }) {
+function TopicDetail({ topic, project, members, notificationSettings, p, lang, canLead, canReport, reporting, setReporting, readError, shouldFocus, outsideFilters, onClearFilters, onClose, onReportSaved, onChanged }) {
 	const primary = topic.assignees.find(a => a.primary);
 	const panelRef = useRef(null);
 	const [busy, setBusy] = useState(false);
@@ -515,6 +598,7 @@ function TopicDetail({ topic, project, members, notificationSettings, p, lang, c
 	};
 	return <aside ref={panelRef} className={styles.detail} role="dialog" aria-labelledby="topic-detail-title" tabIndex="-1" onKeyDown={handlePanelKey}>
 		<div className={styles.detailTop}><span>#{String(topic.number).padStart(2, '0')} · {p.topicDetails}</span><button type="button" onClick={onClose} aria-label={p.closeDetails}><X size={18} /></button></div>
+		{outsideFilters && <div className={styles.outsideFiltersNotice} role="status"><span>{p.topicOutsideFilters}</span><button type="button" onClick={onClearFilters}>{p.clearFilters}</button></div>}
 		{reporting ? <ReportForm topic={topic} project={project} notificationSettings={notificationSettings} correctionOf={correctionOf} p={p} readError={readError} onCancel={() => { setReporting(false); setCorrectionOf(null); }} onSaved={async () => { setCorrectionOf(null); await onReportSaved(); }} /> : historyOpen ? <ReportHistory topic={topic} project={project} p={p} lang={lang} canCorrect={canReport} onCorrect={report => { setHistoryOpen(false); setCorrectionOf(report); setReporting(true); }} onClose={() => setHistoryOpen(false)} /> : <>
 			<div className={styles.detailTitle}><h2 id="topic-detail-title">{topic.title}</h2><State value={topic.workflow} p={p} workflow blocked={topic.blocked} overdue={Boolean(topic.deadlineAt && new Date(canonicalProjectDate(topic.deadlineAt)) < new Date() && topic.workflow !== 'completed')} /></div>
 			{topic.description && <p className={styles.detailDescription}>{topic.description}</p>}
@@ -644,26 +728,32 @@ function ReportForm({ topic, project, notificationSettings, correctionOf, p, rea
 	</form>;
 }
 
-function AddTopic({ project, me, p, readError, onCancel, onSaved }) {
-	const [form, setForm] = useState({ title: '', description: '', startsAt: '', deadlineAt: '', assignToMe: true, acknowledgeProjectDeadline: false });
+function AddTopic({ project, members, me, p, readError, onCancel, onSaved }) {
+	const [form, setForm] = useState({ title: '', description: '', startsAt: '', deadlineAt: '', assigneeUserId: me.userId, assignToMe: true, acknowledgeProjectDeadline: false });
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
 	const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+	const contributors = members.filter(member => member.role !== 'viewer');
+	const assigneeOptions = [{ value: '', label: p.unassigned }, ...contributors.map(member => ({ value: member.userId, label: member.displayName, avatar: member.avatarUrl }))];
 	const submit = async event => {
 		event.preventDefault(); setBusy(true); setError('');
 		try {
-			const response = await fetch(`/api/megu/projects/${project.code}/topics`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: form.title, description: form.description, startsAt: form.startsAt || null, startsPrecision: form.startsAt ? 'date' : null, deadlineAt: form.deadlineAt || null, deadlinePrecision: form.deadlineAt ? 'date' : null, acknowledgeProjectDeadline: form.acknowledgeProjectDeadline, assigneeUserIds: form.assignToMe ? [me.userId] : [], expectedRevision: project.revision }) });
+			const response = await fetch(`/api/megu/projects/${project.code}/topics`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: form.title, description: form.description, startsAt: form.startsAt || null, startsPrecision: form.startsAt ? 'date' : null, deadlineAt: form.deadlineAt || null, deadlinePrecision: form.deadlineAt ? 'date' : null, acknowledgeProjectDeadline: form.acknowledgeProjectDeadline, assigneeUserIds: form.assigneeUserId ? [form.assigneeUserId] : [], expectedRevision: project.revision }) });
 			const body = await response.json(); if (!response.ok) throw body; await onSaved(body);
 		}
 		catch (problem) { setError(readError(problem)); setBusy(false); }
 	};
 	const projectDeadline = dateInput(project.deadlineAt, project.timezone);
 	const needsOverride = Boolean(form.deadlineAt && projectDeadline && form.deadlineAt > projectDeadline);
-	return <section className={styles.addTopic} aria-labelledby="add-topic-title"><div className={styles.addTopicHead}><h2 id="add-topic-title">{p.addTopic}</h2><button type="button" onClick={onCancel} aria-label={p.cancel}><X size={18} /></button></div><form onSubmit={submit} className={styles.addTopicForm}><label className={styles.field}><span>{p.topicTitle}</span><input autoFocus required maxLength={120} value={form.title} onChange={e => set('title', e.target.value)} /></label><label className={styles.field}><span>{p.topicDescription}</span><input maxLength={4000} value={form.description} onChange={e => set('description', e.target.value)} /></label><label className={styles.field}><span>{p.startDate}</span><input type="date" value={form.startsAt} onChange={e => set('startsAt', canonicalProjectDate(e.target.value))} /></label><label className={styles.field}><span>{p.dueDate}</span><input type="date" value={form.deadlineAt} onChange={e => set('deadlineAt', canonicalProjectDate(e.target.value))} /></label><label className={styles.option}><input type="checkbox" checked={form.assignToMe} onChange={e => set('assignToMe', e.target.checked)} /><span>{p.assignToMe}</span></label>{needsOverride && <label className={`${styles.option} ${styles.overrideCheck}`}><input type="checkbox" required checked={form.acknowledgeProjectDeadline} onChange={e => set('acknowledgeProjectDeadline', e.target.checked)} /><span>{p.deadlineOverride}</span></label>}{error && <p className={styles.formError} role="alert">{error}</p>}<div className={styles.formActions}><button type="button" className="btn btn-secondary" onClick={onCancel}>{p.cancel}</button><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? p.saving : p.saveTopic}</button></div></form></section>;
+	return <section className={styles.addTopic} aria-labelledby="add-topic-title"><div className={styles.addTopicHead}><h2 id="add-topic-title">{p.addTopic}</h2><button type="button" onClick={onCancel} aria-label={p.cancel}><X size={18} /></button></div><form onSubmit={submit} className={styles.addTopicForm}><label className={styles.field}><span>{p.topicTitle}</span><input autoFocus required maxLength={120} value={form.title} onChange={e => set('title', e.target.value)} /></label><label className={styles.field}><span>{p.topicDescription}</span><input maxLength={4000} value={form.description} onChange={e => set('description', e.target.value)} /></label><label className={styles.field}><span>{p.startDate}</span><input type="date" value={form.startsAt} onChange={e => set('startsAt', canonicalProjectDate(e.target.value))} /></label><label className={styles.field}><span>{p.dueDate}</span><input type="date" value={form.deadlineAt} onChange={e => set('deadlineAt', canonicalProjectDate(e.target.value))} /></label><div className={styles.addTopicAssignment}><label className={styles.field}><span>{p.assignees}</span><CustomSelect type="member" ariaLabel={p.assignees} value={form.assigneeUserId} options={assigneeOptions} searchable={contributors.length > 5} onChange={assigneeUserId => setForm(current => ({ ...current, assigneeUserId, assignToMe: assigneeUserId === me.userId }))} /></label><label className={styles.option}><input type="checkbox" checked={form.assignToMe} onChange={e => setForm(current => ({ ...current, assignToMe: e.target.checked, assigneeUserId: e.target.checked ? me.userId : current.assigneeUserId === me.userId ? '' : current.assigneeUserId }))} /><span>{p.assignToMe}</span></label></div>{needsOverride && <label className={`${styles.option} ${styles.overrideCheck}`}><input type="checkbox" required checked={form.acknowledgeProjectDeadline} onChange={e => set('acknowledgeProjectDeadline', e.target.checked)} /><span>{p.deadlineOverride}</span></label>}{error && <p className={styles.formError} role="alert">{error}</p>}<div className={`${styles.formActions} ${styles.addTopicActions}`}><button type="button" className="btn btn-secondary" onClick={onCancel}>{p.cancel}</button><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? p.saving : p.saveTopic}</button></div></form></section>;
 }
 
 function NoTopics({ canLead, p, onAdd }) {
 	return <div className={styles.emptyPanel}><Flag size={24} /><h2>{p.noTopicsTitle}</h2><p>{canLead ? p.noTopicsLead : p.noTopicsMember}</p>{canLead && <button type="button" className="btn btn-primary" onClick={onAdd}><Plus size={16} />{p.addTopic}</button>}</div>;
+}
+
+function FilteredTopicsEmpty({ p, onClear }) {
+	return <div className={`${styles.emptyPanel} ${styles.filteredEmpty}`}><CircleDot size={24} /><h2>{p.filteredTopicsTitle}</h2><p>{p.filteredTopicsBody}</p><button type="button" className="btn btn-secondary" onClick={onClear}>{p.clearFilters}</button></div>;
 }
 
 

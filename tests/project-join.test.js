@@ -30,11 +30,11 @@ async function main() {
 	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'reject'}),{status:'rejected'});
 	assert.ok(!calls.some(c => /INSERT INTO project_memberships/.test(c.sql)));
 	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:1}],[],[],[],[]]);
-	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve'}),{status:'approved'});
-	assert.ok(calls.some(c => /INSERT INTO project_memberships/.test(c.sql) && /'member'/.test(c.sql)));
+	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve',role:'viewer'}),{status:'approved'});
+	assert.ok(calls.some(c => /INSERT INTO project_memberships/.test(c.sql) && c.args[2] === 'viewer'));
 	assert.equal(replies.length,0);
 	setup([]);
-	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve',role:'owner'}),{code:'unknown_field'});
+	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve',role:'owner'}),{code:'member_role_invalid'});
 	const notifications = require('../core/notifications');
 	setup([[{provider:'discord',provider_uid:'123'}],[],[{id:'event1',inserted:true}],[]]);
 	await notifications.enqueueWithClient({query},{userId:'person',eventType:'project_deadline_reminder',payload:{},dedupeKey:'test-dm'});

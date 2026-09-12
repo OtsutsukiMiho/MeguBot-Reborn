@@ -30,6 +30,7 @@ const SUITES = [
 	['server-dashboard-drafts.test.js', 'server tool drafts — preserved locally and guarded on departure'],
 	['server-dashboard-request.test.js', 'server tool requests — confirmed, rejected and ambiguous outcomes'],
 	['project-join.test.js', 'project join requests — owner approval, token checks and member limits'],
+	['project-filters.test.js', 'project attention filters — exact rules, counts, search and URL state'],
 	['projects-contract.test.js', 'project UI and validation contracts — private routes, dates, invitations and assignments'],
 	['project-channel-dispatcher.test.js', 'project channel delivery — overlap, rate limits and lost acknowledgements'],
 	['auth-notifications.test.js', 'linked identities, encrypted credentials and channel preferences'],

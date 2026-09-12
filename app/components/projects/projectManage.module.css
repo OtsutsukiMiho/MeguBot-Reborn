@@ -40,7 +40,8 @@
 .iconButton { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
 .iconButton:hover { background: color-mix(in srgb, var(--danger, #b33) 10%, transparent); color: var(--danger, #b33); }
 .inviteArea { margin-top: 38px; padding-top: 24px; border-top: 1px solid var(--line); }
-.inviteArea > div > p, .pending > p { margin: 5px 0 0; color: var(--muted); }
+.inviteArea > p, .inviteArea > div > p, .pending > p { margin: 5px 0 0; color: var(--muted); line-height: 1.55; }
+.inviteArea > .joinStatus { color: var(--accent); font-weight: 700; }
 .inviteForm { display: grid; grid-template-columns: 1fr 1.5fr 1fr auto; gap: 10px; align-items: end; margin-top: 18px; }
 .inviteForm label, .reason { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
 .inviteReady, .note { display: flex; align-items: flex-start; gap: 12px; margin-top: 18px; border-left: 3px solid var(--accent); padding: 14px 16px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
@@ -62,7 +63,11 @@
 .notificationForm input { width: 18px; height: 18px; accent-color: var(--accent); }
 .inviteReady code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }
 .pending { margin-top: 28px; }
-.pendingRow { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.pendingRow { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 180px) auto; align-items: end; gap: 14px; padding: 15px 0; border-bottom: 1px solid var(--line); }
+.pendingIdentity { display: flex; align-items: center; align-self: center; gap: 12px; min-width: 0; }
+.pendingIdentity strong { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.pendingRole { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.pendingActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .alert { margin: 16px 0; border-left: 3px solid var(--danger, #b33); padding: 10px 13px; background: color-mix(in srgb, var(--danger, #b33) 8%, transparent); color: var(--ink); }
 .unsavedWarning { position: sticky; top: 10px; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; margin: 16px 0 0; border: 1px solid color-mix(in srgb, var(--due) 42%, var(--line)); border-left: 4px solid var(--due); border-radius: 8px; padding: 12px 14px; background: var(--surface); box-shadow: 0 12px 28px color-mix(in srgb, var(--ink) 10%, transparent); }
 .unsavedWarning p { margin: 3px 0 0; color: var(--muted); font-size: .78rem; }
@@ -79,6 +84,6 @@
 .transferForm label { display: grid; flex: 1; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
 .transferPending { align-items: center; padding: 12px 0; border-block: 1px solid var(--line); }
 @media (min-width: 1121px) { :global(.container):has(.shell) { max-width: 1568px; } .content { max-width: 1040px; } }
-@media (max-width: 760px) { .shell { width: min(100% - 22px, 680px); padding-top: 20px; } .layout { grid-template-columns: 1fr; gap: 24px; } .nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; } .nav button { width: auto; white-space: nowrap; } .inviteForm { grid-template-columns: 1fr 1fr; } .inviteForm button { min-height: 42px; } }
-@media (max-width: 520px) { .header { align-items: start; } .header .code { display: none; } .facts div, .dateFields, .channelFields { grid-template-columns: 1fr; gap: 5px; } .member { grid-template-columns: 38px 1fr auto; } .memberSelect, .member .role { grid-column: 2; } .memberSelect { width: 100%; } .member .iconButton { grid-column: 3; grid-row: 1 / span 2; } .inviteForm { grid-template-columns: 1fr; } .inviteReady { flex-wrap: wrap; } .unsavedWarning { grid-template-columns: 1fr 1fr; } .unsavedWarning > div { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .shell { width: min(100% - 22px, 680px); padding-top: 20px; } .layout { grid-template-columns: 1fr; gap: 24px; } .nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; } .nav button { width: auto; white-space: nowrap; } .pendingRow { grid-template-columns: minmax(0, 1fr) minmax(145px, 180px); } .pendingActions { grid-column: 1 / -1; justify-content: flex-end; } }
+@media (max-width: 520px) { .header { align-items: start; } .header .code { display: none; } .facts div, .dateFields, .channelFields { grid-template-columns: 1fr; gap: 5px; } .member { grid-template-columns: 38px 1fr auto; } .memberSelect, .member .role { grid-column: 2; } .memberSelect { width: 100%; } .member .iconButton { grid-column: 3; grid-row: 1 / span 2; } .pendingRow { grid-template-columns: 1fr; align-items: stretch; } .pendingActions { grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; } .inviteReady { flex-wrap: wrap; } .unsavedWarning { grid-template-columns: 1fr 1fr; } .unsavedWarning > div { grid-column: 1 / -1; } }
 @media (max-width: 360px) { .unsavedWarning { grid-template-columns: 1fr; } .unsavedWarning > div { grid-column: 1; } .unsavedWarning > button { width: 100%; } }

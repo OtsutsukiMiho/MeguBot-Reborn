@@ -1,8 +1,8 @@
 import ProjectWorkspace from '../../components/projects/ProjectWorkspace';
 
 export async function generateMetadata({ params }) {
-	const { code } = await params;
-	return { title: `Project ${String(code).toUpperCase()}` };
+	await params;
+	return { title: 'Projects' };
 }
 
 export default async function ProjectPage({ params }) {
