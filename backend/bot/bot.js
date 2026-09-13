@@ -19,6 +19,7 @@ if (fs.existsSync('.env')) {
 }
 const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
+const { getOrCreateVoiceConnection } = require('./voice_connection.js');
 const {
 	isGlobalBlock,
 	isSevereRateLimit,
@@ -435,16 +436,16 @@ const userTtsHistoryMap = new Map();
 
 function getOrCreateConnection(guild, channel) {
 	let connection = getVoiceConnection(guild.id);
-	if ((!connection || connection.state.status === 'destroyed') && channel) {
+	const queue = require('./audio_queue.js').audioQueueManager.getQueue(guild.id);
+	const wrongChannel = connection && channel && String(connection.joinConfig?.channelId || '') !== String(channel.id);
+	if (wrongChannel && queue.length > 0) return connection;
+	if (channel) {
 		try {
-			connection = joinVoiceChannel({
-				channelId: channel.id,
-				guildId: guild.id,
-				adapterCreator: guild.voiceAdapterCreator,
-			});
+			connection = getOrCreateVoiceConnection(guild, channel).connection;
 		}
 		catch (error) {
 			BotLogs(guild.name, `${COLOR.red}Failed to establish voice connection: ${error.toString()}`);
+			return null;
 		}
 	}
 	return connection;
@@ -464,6 +465,8 @@ const AUTO_JOIN_SCAN_LIMIT = 25;
 
 function autoJoinActiveVC(guild) {
 	if (discordBlock.blocked()) return false;
+	const { audioQueueManager } = require('./audio_queue.js');
+	if (audioQueueManager.getQueue(guild.id).length > 0) return false;
 
 	let scanned = 0;
 	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2);
@@ -495,6 +498,23 @@ client.once(Events.ClientReady, async (readyClient) => {
 	// If you see this line twice for one deploy, or once here and once in
 	// another host's log, that is the bot answering twice.
 	BotLogs('Bot', `${COLOR.green}Gateway instance ${COLOR.white}${INSTANCE}${COLOR.reset} — one token, one of these. Two means duplicate replies.`);
+	if (process.env.MEGU_YOUTUBE_ENABLED === '1') {
+		try {
+			const { audioQueueManager } = require('./audio_queue.js');
+			audioQueueManager.youtubeReady = false;
+			await audioQueueManager.youtubeProvider.checkDigest(process.env.MEGU_YOUTUBE_YTDLP_SHA256);
+			const version = await audioQueueManager.youtubeProvider.checkBinary();
+			const runtime = await audioQueueManager.youtubeProvider.checkRuntime();
+			const ffmpegPath = require('ffmpeg-static');
+			if (!ffmpegPath || !fs.existsSync(ffmpegPath)) throw new Error('the packaged FFmpeg executable was not found');
+			const runtimeVersion = String(runtime.version).replace(/[\r\n]/g, ' ').slice(0, 120);
+			audioQueueManager.youtubeReady = true;
+			BotLogs('YouTube', `${COLOR.green}Playback dependencies ready ${COLOR.gray}(yt-dlp ${COLOR.white}${version}${COLOR.gray}, SHA-256 verified, ${runtime.name} ${COLOR.white}${runtimeVersion}${COLOR.gray}, FFmpeg packaged)`);
+		}
+		catch (error) {
+			BotLogs('YouTube', `${COLOR.red}MEGU_YOUTUBE_ENABLED=1 but playback dependencies are unavailable: ${String(error?.message || error).replace(/[\r\n]/g, ' ').slice(0, 300)}. Disable the flag or configure the pinned yt-dlp digest, YT_DLP_PATH, and YT_DLP_JS_RUNTIME.`);
+		}
+	}
 
 	await database.initDatabase();
 	if (DISCORD_TEST_MODE) {
@@ -619,19 +639,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 					if (member && member.voice && member.voice.channel && botMember && botMember.voice && botMember.voice.channel && member.voice.channel.id === botMember.voice.channel.id) {
 						const { addToQueue, generateUUID } = require('./audio_queue.js');
-						let connection = getVoiceConnection(guild.id);
-						if (!connection || connection.state.status === 'destroyed') {
-							try {
-								connection = joinVoiceChannel({
-									channelId: botMember.voice.channel.id,
-									guildId: guild.id,
-									adapterCreator: guild.voiceAdapterCreator,
-								});
-							}
-							catch {
-								// Ignore
-							}
-						}
+						const connection = getOrCreateConnection(guild, botMember.voice.channel);
 
 						if (connection) {
 							const nick = await database.getUserNick(guild.id, r.user_id);
@@ -1052,6 +1060,14 @@ async function getUserNick(guildId, userId) {
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	const guild = newState.guild || oldState.guild;
 	const botMember = guild.members.me;
+	if (newState.member.id === client.user.id && oldState.channelId && oldState.channelId !== newState.channelId) {
+		const { audioQueueManager } = require('./audio_queue.js');
+		const ownedChannelId = audioQueueManager.getQueue(guild.id)[0]?.voiceChannelId;
+		if (ownedChannelId && String(ownedChannelId) !== String(newState.channelId || '')) {
+			audioQueueManager.clearQueue(guild.id);
+			BotLogs('Audio', `${COLOR.yellow}Audio queue cancelled because the bot was moved away from its owned voice channel.`);
+		}
+	}
 
 	// Re-arm a room as soon as its last human leaves. Megu may still be present,
 	// so collection size alone does not describe whether the room is empty.
@@ -2547,6 +2563,27 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 	}
 });
 
+let shutdownStarted = false;
+
+function shutdownBot(reason, exitCode = 0) {
+	if (shutdownStarted) return;
+	shutdownStarted = true;
+	BotLogs('SYSTEM', `${COLOR.yellow}Shutting down Discord Bot (${reason})...`);
+	try {
+		const { audioQueueManager } = require('./audio_queue.js');
+		audioQueueManager.clearAllQueues();
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `${COLOR.red}Audio queue shutdown cleanup failed: ${error.message}`);
+	}
+	try { client.destroy(); }
+	catch (error) { BotLogs('SYSTEM', `${COLOR.red}Discord client shutdown failed: ${error.message}`); }
+	setTimeout(() => process.exit(exitCode), 500);
+}
+
+process.once('SIGINT', () => shutdownBot('SIGINT'));
+process.once('SIGTERM', () => shutdownBot('SIGTERM'));
+
 process.on('message', async (msg) => {
 	if (!msg) return;
 
@@ -3226,11 +3263,7 @@ process.on('message', async (msg) => {
 				const targetChannel = voiceChannels.find(c => c.members && c.members.size > 0) || voiceChannels.first();
 
 				if (targetChannel) {
-					connection = joinVoiceChannel({
-						channelId: targetChannel.id,
-						guildId: guild.id,
-						adapterCreator: guild.voiceAdapterCreator,
-					});
+					connection = getOrCreateConnection(guild, targetChannel);
 				}
 			}
 
@@ -3315,12 +3348,7 @@ process.on('message', async (msg) => {
 		}
 	}
 	else if (msg.type === 'restart_bot') {
-		BotLogs('SYSTEM', `${COLOR.yellow}Received restart request via Developer Web Console. Exiting process for clean supervisor restart...`);
-		try {
-			if (client) client.destroy();
-		}
-		catch { }
-		setTimeout(() => process.exit(0), 500);
+		shutdownBot('Developer Web Console restart');
 	}
 	else if (msg.type === 'add_reaction_role_react') {
 		const { guildId, channelId, messageId, emoji } = msg;

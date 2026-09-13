@@ -1,22 +1,14 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const { audioQueueManager } = require('../../backend/bot/audio_queue.js');
+const { SlashCommandBuilder } = require('discord.js');
+const { executeAction } = require('./queue.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('stop')
-		.setDescription('Stop audio playback and clear the playback queue'),
+		.setDescription('Stop playback and clear the audio queue')
+		.setDescriptionLocalizations({ th: 'หยุดและล้างคิวเสียงทั้งหมด' })
+		.setDMPermission(false),
 
-	async execute(interaction) {
-		const guildId = interaction.guild.id;
-		const queue = audioQueueManager.getQueue(guildId);
-		const count = queue ? queue.length : 0;
-
-		audioQueueManager.clearQueue(guildId);
-
-		return await interaction.reply({
-			content: count > 0
-				? `🛑 **Audio playback stopped and ${count} item(s) cleared from queue.**`
-				: '🛑 **Audio playback stopped.**',
-		});
+	async execute(interaction, dependencies = {}) {
+		return await executeAction(interaction, 'clear', dependencies);
 	},
 };

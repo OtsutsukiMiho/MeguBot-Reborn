@@ -14,6 +14,7 @@ const SUITES = [
 	['rate-limit.test.js', 'the Discord block guard — recognise it, hold it, share it'],
 	['discord-oauth.test.js', 'OAuth 429s — preserve the body and honour Retry-After'],
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
+	['youtube-audio.test.js', 'YouTube audio — safe input, explicit selection and queue controls'],
 	['voice-announce.test.js', 'saying who arrived — once, not once per reconnect'],
 	['health-log.test.js', 'the health log — it describes an incident, it never causes one'],
 	['locales.test.js', 'the locale registry — a third language is translations, not code'],

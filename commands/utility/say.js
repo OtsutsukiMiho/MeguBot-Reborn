@@ -1,7 +1,7 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const { joinVoiceChannel } = require('@discordjs/voice');
-const { addToQueue, generateUUID } = require('../../backend/bot/audio_queue.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { addToQueue, audioQueueManager } = require('../../backend/bot/audio_queue.js');
 const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
+const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -44,17 +44,20 @@ module.exports = {
 		const text = interaction.options.getString('text');
 		const lang = interaction.options.getString('lang') || 'th';
 		const engine = interaction.options.getString('engine') || 'google';
-
-		const connection = joinVoiceChannel({
-			channelId: voiceChannel.id,
-			guildId: interaction.guild.id,
-			adapterCreator: interaction.guild.voiceAdapterCreator,
-		});
+		const permissions = voiceChannel.permissionsFor(interaction.guild.members.me);
+		if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
+			return await interaction.reply({ content: '❌ I need Connect and Speak permissions in your voice channel.', flags: MessageFlags.Ephemeral });
+		}
+		if (!audioQueueManager.canUseChannel(interaction.guild.id, voiceChannel.id)) {
+			return await interaction.reply({ content: '❌ The shared audio queue is active in another voice channel.', flags: MessageFlags.Ephemeral });
+		}
+		let connection;
+		try { connection = await getReadyVoiceConnection(interaction.guild, voiceChannel); }
+		catch { return await interaction.reply({ content: '❌ I could not establish a ready voice connection.', flags: MessageFlags.Ephemeral }); }
 
 		const type = engine === 'edge' ? 'TTS' : 'GOOGLE_TTS';
 
 		const entry = {
-			uuid: generateUUID(),
 			name: text,
 			lang: lang,
 			type: type,
@@ -67,7 +70,7 @@ module.exports = {
 		const result = addToQueue(interaction.guild.id, entry);
 
 		if (!result.success) {
-			if (result.reason === 'SPAM') {
+			if (result.reason === 'DUPLICATE') {
 				return await interaction.reply({
 					content: '❌ Spam detected: You have queued too many requests!',
 					flags: MessageFlags.Ephemeral,
@@ -84,8 +87,9 @@ module.exports = {
 		BotLogs(interaction.guild.name, `${COLOR.gold}New TTS Added to Queue ${COLOR.gray}[${COLOR.white}${interaction.user.tag}(${entry.type}) - ${entry.name}${COLOR.gray}]`);
 
 		await interaction.reply({
-			content: `📣 Added TTS to the queue: "${text}" (\`${lang}\` via \`${engine}\`)`,
+			content: `📣 Added TTS to the queue at position ${result.position}: "${text}" (\`${lang}\` via \`${engine}\`)`,
 			flags: MessageFlags.Ephemeral,
+			allowedMentions: { parse: [] },
 		});
 	},
 };

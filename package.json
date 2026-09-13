@@ -14,6 +14,7 @@
     "build": "node scripts/vendor-ocr.js && next build",
     "ocr:setup": "node scripts/vendor-ocr.js",
     "deploy": "node deploy-commands.js",
+    "deploy:guild": "node deploy-commands.js --guild",
     "boot": "node index.js",
     "test": "node tests/run.js",
     "db:up": "docker compose up -d",
@@ -29,6 +30,8 @@
     "contrast": "node scripts/contrast-audit.js",
     "bot:instances": "node scripts/instance-audit.js",
     "bot:health": "node scripts/health-log.js",
+    "youtube:preflight": "node scripts/youtube-pilot-preflight.js",
+    "youtube:smoke": "node scripts/youtube-provider-smoke.js",
     "dev:login": "node scripts/dev-login.js",
     "cloud:setup": "bash scripts/cloud-setup.sh"
   },

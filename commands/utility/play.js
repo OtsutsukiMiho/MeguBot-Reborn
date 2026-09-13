@@ -1,9 +1,10 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
-const { joinVoiceChannel } = require('@discordjs/voice');
 const fs = require('fs');
 const path = require('path');
 
 const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
+const { addToQueue, audioQueueManager } = require('../../backend/bot/audio_queue.js');
+const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
 
 const soundsList = [
 	{ name: 'เรียกไอบอล (Megu)', value: 'ball_megu' },
@@ -54,23 +55,22 @@ module.exports = {
 		}
 
 		const selectedSound = interaction.options.getString('sound');
-
-		const connection = joinVoiceChannel({
-			channelId: voiceChannel.id,
-			guildId: interaction.guild.id,
-			adapterCreator: interaction.guild.voiceAdapterCreator,
-		});
-
+		if (!soundsList.some(sound => sound.value === selectedSound)) {
+			return await interaction.reply({ content: '❌ Select a valid sound from the command suggestions.', flags: MessageFlags.Ephemeral });
+		}
 		const soundPath = path.join(__dirname, '../../sounds', `${selectedSound}.mp3`);
 		if (!fs.existsSync(soundPath)) {
 			BotLogs('SYSTEM', `${COLOR.red}File Not Found: ${COLOR.white}${soundPath}`);
 			return await interaction.reply({ content: `❌ Error: Could not find the file for \`${selectedSound}\`.`, flags: MessageFlags.Ephemeral });
 		}
-
-		const { addToQueue, generateUUID } = require('../../backend/bot/audio_queue.js');
+		if (!audioQueueManager.canUseChannel(interaction.guild.id, voiceChannel.id)) {
+			return await interaction.reply({ content: '❌ The shared audio queue is active in another voice channel.', flags: MessageFlags.Ephemeral });
+		}
+		let connection;
+		try { connection = await getReadyVoiceConnection(interaction.guild, voiceChannel); }
+		catch { return await interaction.reply({ content: '❌ I could not establish a ready voice connection.', flags: MessageFlags.Ephemeral }); }
 
 		const entry = {
-			uuid: generateUUID(),
 			name: selectedSound,
 			file: soundPath,
 			type: 'AUDIO_MP3',
@@ -84,19 +84,21 @@ module.exports = {
 		const result = addToQueue(interaction.guild.id, entry);
 
 		if (!result.success) {
-			if (result.reason === 'SPAM') {
+			if (result.reason === 'DUPLICATE') {
 				return await interaction.reply({ content: '❌ Spam detected: You have queued this sound too many times!', flags: MessageFlags.Ephemeral });
 			}
-			else {
-				return await interaction.reply({ content: '❌ The audio queue is currently full!', flags: MessageFlags.Ephemeral });
+			if (result.reason === 'CHANNEL_CONFLICT') {
+				return await interaction.reply({ content: '❌ The shared audio queue is active in another voice channel.', flags: MessageFlags.Ephemeral });
 			}
+			return await interaction.reply({ content: '❌ The audio queue is currently full!', flags: MessageFlags.Ephemeral });
 		}
 
 		BotLogs(interaction.guild.name, `${COLOR.gold}New Audio Added to Queue ${COLOR.gray}[${COLOR.white}${interaction.user.tag}(${entry.type}) - ${entry.name}${COLOR.gray}]`);
 
 		await interaction.reply({
-			content: `✅ Added \`${entry.name}\` to the queue!`,
+			content: `✅ Added \`${entry.name}\` to the queue at position ${result.position}.`,
 			flags: MessageFlags.Ephemeral,
+			allowedMentions: { parse: [] },
 		});
 	},
 };

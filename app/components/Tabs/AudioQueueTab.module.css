@@ -40,6 +40,21 @@
 	white-space: nowrap;
 }
 
+.itemLink {
+	color: inherit;
+	text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.18em;
+}
+
+.itemLink:hover { color: var(--accent); }
+
+.itemLink:focus-visible {
+	border-radius: var(--r-sm);
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
 .nowPlaying span,
 .queueList div span {
 	color: var(--muted);

@@ -1111,11 +1111,6 @@ async function updateAudioStatus(itemId, status, errorMessage = null) {
 async function getAudioLogs({ limit = 50, status = 'ALL', search = null, guildId = null } = {}) {
 	if (pool) {
 		try {
-			// Auto-resolve any audio logs stuck at PLAYING for more than 15 seconds
-			await pool.query(
-				"UPDATE audio_logs SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE status = 'PLAYING' AND updated_at < NOW() - INTERVAL '15 seconds'"
-			).catch(() => undefined);
-
 			let query = 'SELECT * FROM audio_logs WHERE 1=1';
 			const params = [];
 

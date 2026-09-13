@@ -42,14 +42,44 @@ const INITIAL_DRAFT = {
 };
 
 function formatEngine(engine, voice, copy) {
+	if (engine === 'YOUTUBE') return copy.youtubeType;
 	if (engine === 'AUDIO_MP3') return copy.soundType;
 	if (engine === 'EDGE_TTS') return voice?.split('-')?.[2]?.replace('Neural', '') || copy.neuralVoice;
 	if (engine === 'GOOGLE_TTS') return copy.googleVoice;
 	return engine || copy.unknownType;
 }
 
+function formatDuration(seconds) {
+	const value = Number(seconds);
+	if (!Number.isFinite(value) || value <= 0) return '';
+	const rounded = Math.round(value);
+	const hours = Math.floor(rounded / 3600);
+	const minutes = Math.floor((rounded % 3600) / 60);
+	const remainder = String(rounded % 60).padStart(2, '0');
+	return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${remainder}` : `${minutes}:${remainder}`;
+}
+
+function queueItemTitle(item, copy) {
+	return item?.title || item?.text || copy.untitledAudio;
+}
+
+function queueItemMeta(item, copy) {
+	return [
+		copy.statuses[item?.state] || '',
+		formatEngine(item?.source || item?.engine, item?.voice, copy),
+		formatDuration(item?.durationSeconds),
+		copy.requestedBy(item?.userName || copy.system),
+	].filter(Boolean).join(' · ');
+}
+
+function QueueItemTitle({ item, copy }) {
+	const title = queueItemTitle(item, copy);
+	return <strong>{item?.canonicalUrl ? <a className={styles.itemLink} href={item.canonicalUrl} target="_blank" rel="noreferrer">{title}</a> : title}</strong>;
+}
+
 function statusTone(status) {
 	if (status === 'PLAYING') return 'warning';
+	if (status === 'PREPARING') return 'accent';
 	if (status === 'COMPLETED') return 'success';
 	if (status === 'ENQUEUED') return 'accent';
 	if (status === 'ERROR' || status === 'REMOVED') return 'danger';
@@ -211,7 +241,8 @@ export default function AudioQueueTab({ guildId, showToast, draft = {}, onDraftC
 
 	const current = queueData?.currentItem;
 	const items = Array.isArray(queueData?.items) ? queueData.items : [];
-	const isPlaying = queueData?.playerState === 'playing' || queueData?.isBusy;
+	const currentState = current?.state || (queueData?.isBusy ? 'PREPARING' : '');
+	const currentStateLabel = currentState ? (copy.statuses[currentState] || currentState) : copy.idleStatus;
 	const destination = queueData?.voiceChannelName || queueData?.channelName || '';
 	const totalAudioPages = Math.max(1, Math.ceil(audioLogs.length / audioPageSize));
 	const currentAudioPage = Math.min(audioPage, totalAudioPages);
@@ -226,7 +257,7 @@ export default function AudioQueueTab({ guildId, showToast, draft = {}, onDraftC
 	return (
 		<TabWorkspace>
 			<TabActionBar actions={<button type="button" className="btn btn-secondary" onClick={() => Promise.all([fetchQueue(), fetchAudioLogs()])} disabled={queueLoading || historyLoading}><RefreshCw size={16} aria-hidden="true" /> {shared.refresh}</button>}>
-				<TabStatus tone={isPlaying ? 'warning' : 'neutral'}>{isPlaying ? copy.playing : copy.idleStatus}</TabStatus>
+				<TabStatus tone={statusTone(currentState)}>{currentStateLabel}</TabStatus>
 				<span>{destination ? copy.destination(destination) : copy.destinationUnknown}</span>
 			</TabActionBar>
 
@@ -236,11 +267,11 @@ export default function AudioQueueTab({ guildId, showToast, draft = {}, onDraftC
 				<div id="audio-queue-panel" role="tabpanel" aria-labelledby="audio-queue-tab" className={styles.panel}>
 					{queueError ? <TabNotice tone="warning" title={copy.queueLoadError} actions={<button type="button" className="btn btn-secondary btn-sm" onClick={fetchQueue}>{shared.retry}</button>}>{queueData ? copy.stale : queueError}</TabNotice> : null}
 					{queueLoading && !queueData ? <TabSkeleton rows={5} label={copy.queueLoading} /> : <>
-						<TabSection title={copy.nowPlaying} description={copy.nowPlayingDescription} actions={current ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => performQueueAction('skip', null, copy.skipSuccess, copy.skipError)} disabled={Boolean(actionLoading)}>{actionLoading === 'skip' ? shared.working : copy.skip}</button> : null}>
-							{current ? <div className={styles.nowPlaying}><span className={styles.playingIcon} aria-hidden="true"><Volume2 size={19} /></span><div><strong>{current.text || copy.untitledAudio}</strong><span>{copy.requestedBy(current.userName || copy.system)} · {formatEngine(current.engine, current.voice, copy)}</span></div></div> : <TabEmpty title={copy.idle} description={copy.idleDescription} />}
+						<TabSection title={currentState === 'PREPARING' ? copy.preparing : copy.nowPlaying} description={currentState === 'PREPARING' ? copy.preparingDescription : copy.nowPlayingDescription} actions={current ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => performQueueAction('skip', null, copy.skipSuccess, copy.skipError)} disabled={Boolean(actionLoading)}>{actionLoading === 'skip' ? shared.working : copy.skip}</button> : null}>
+							{current ? <div className={styles.nowPlaying}><span className={styles.playingIcon} aria-hidden="true"><Volume2 size={19} /></span><div><QueueItemTitle item={current} copy={copy} /><span>{queueItemMeta(current, copy)}</span></div></div> : <TabEmpty title={copy.idle} description={copy.idleDescription} />}
 						</TabSection>
 						<TabSection title={copy.upcoming} description={copy.upcomingDescription} meta={<TabStatus tone={items.length ? 'accent' : 'neutral'}>{copy.waiting(items.length)}</TabStatus>} actions={items.length ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowClearConfirm(true)} disabled={Boolean(actionLoading)}>{copy.clear}</button> : null}>
-							{items.length ? <ol className={styles.queueList}>{items.map((item, index) => <li key={item.id || `${item.text}-${index}`}><span className={styles.position}>{index + 1}</span><div><strong>{item.text || copy.untitledAudio}</strong><span>{copy.requestedBy(item.userName || copy.system)} · {formatEngine(item.engine, item.voice, copy)}</span></div><button type="button" className="btn btn-ghost btn-sm" onClick={() => performQueueAction('remove', { itemId: item.id }, copy.removeSuccess, copy.removeError)} disabled={Boolean(actionLoading)}>{shared.remove}</button></li>)}</ol> : <TabEmpty title={copy.emptyQueue} description={copy.emptyQueueDescription} />}
+							{items.length ? <ol className={styles.queueList}>{items.map((item, index) => <li key={item.id || `${item.text}-${index}`}><span className={styles.position}>{index + 1}</span><div><QueueItemTitle item={item} copy={copy} /><span>{queueItemMeta(item, copy)}</span></div><button type="button" className="btn btn-ghost btn-sm" onClick={() => performQueueAction('remove', { itemId: item.id }, copy.removeSuccess, copy.removeError)} disabled={Boolean(actionLoading)}>{shared.remove}</button></li>)}</ol> : <TabEmpty title={copy.emptyQueue} description={copy.emptyQueueDescription} />}
 						</TabSection>
 						<TabSection title={copy.addTitle} description={copy.addDescription} meta={<span className={styles.scope}>{copy.immediate}</span>}><TabInlineActions align="start"><button type="button" className="btn btn-primary" onClick={() => { setEditorError(''); setShowTtsDialog(true); }}>{copy.addTts}</button><button type="button" className="btn btn-secondary" onClick={() => { setEditorError(''); setShowSoundDialog(true); }}>{copy.addSound}</button></TabInlineActions></TabSection>
 					</>}

@@ -60,6 +60,8 @@ desktop.ini
 !DISCORD-RATE-LIMITS.md
 !DIRECTION.md
 !DISCORD-PROXY-SETUP.md
+!YOUTUBE_AUDIO_QUEUE_IMPLEMENTATION_PLAN.md
 
 # Local env backups
 .env.backup*
+tools/yt-dlp/

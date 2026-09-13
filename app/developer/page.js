@@ -68,6 +68,21 @@ function formatDate(value, options = {}) {
 	}).format(date);
 }
 
+function formatAudioDuration(seconds) {
+	const value = Number(seconds);
+	if (!Number.isFinite(value) || value <= 0) return '';
+	const rounded = Math.round(value);
+	const minutes = Math.floor(rounded / 60);
+	return `${minutes}:${String(rounded % 60).padStart(2, '0')}`;
+}
+
+function describeAudioItem(item) {
+	if (!item) return 'Preparing playback…';
+	const title = item.title || item.text || 'Untitled audio';
+	const details = [item.source || item.engine, formatAudioDuration(item.durationSeconds), item.userName && `by ${item.userName}`].filter(Boolean);
+	return details.length ? `${title} · ${details.join(' · ')}` : title;
+}
+
 function logSeverity(message = '') {
 	if (/error|failed|blocked|fatal/i.test(message)) return 'error';
 	if (/warn|rate limit|cooldown|retry/i.test(message)) return 'warning';
@@ -490,8 +505,8 @@ export default function DeveloperPage() {
 							? <div className={styles.compactEmpty}>No active playback or queued clips.</div>
 							: <div className={styles.queueList}>{audioQueues.map(queue => (
 								<div className={styles.queueItem} key={queue.guildId}>
-									<div><strong>{queue.guildName}</strong><span>{queue.playerState} · {queue.queueLength} clip{queue.queueLength === 1 ? '' : 's'}</span></div>
-									<p>{queue.currentItem?.text || 'Preparing playback…'}</p>
+									<div><strong>{queue.guildName}</strong><span>{queue.currentItem?.state || queue.playerState} · {queue.queueLength} clip{queue.queueLength === 1 ? '' : 's'}</span></div>
+									<p>{describeAudioItem(queue.currentItem)}</p>
 								</div>
 							))}</div>}
 						<p className={styles.panelNote}>Queue status comes from bot memory over IPC and makes no Discord request.</p>

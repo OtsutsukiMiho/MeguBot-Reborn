@@ -11,6 +11,7 @@ const config = require('./config.json');
 const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
 const fs = require('node:fs');
 const path = require('node:path');
+const { DEPLOYMENT_CONFIG_ERROR, resolveDeploymentTarget } = require('./scripts/command-deployment-target.js');
 
 const commands = [];
 const foldersPath = path.join(__dirname, 'commands');
@@ -59,11 +60,12 @@ const rest = new REST({
 
 (async () => {
 	try {
-		BotLogs('SYSTEM', `${COLOR.yellow}Started refreshing ${COLOR.white}${commands.length} ${COLOR.yellow}application (/) commands.`);
+		const target = resolveDeploymentTarget({ routes: Routes, clientId });
+		BotLogs('SYSTEM', `${COLOR.yellow}Started refreshing ${COLOR.white}${commands.length} ${COLOR.yellow}application (/) commands ${target.label}.`);
 
-		const data = await rest.put(Routes.applicationCommands(clientId), { body: commands });
+		const data = await rest.put(target.route, { body: commands });
 
-		BotLogs('SYSTEM', `${COLOR.green}Successfully reloaded ${COLOR.white}${data.length} ${COLOR.green}application (/) commands.`);
+		BotLogs('SYSTEM', `${COLOR.green}Successfully reloaded ${COLOR.white}${data.length} ${COLOR.green}application (/) commands ${target.label}.`);
 	}
 	catch (error) {
 		BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
@@ -80,5 +82,6 @@ const rest = new REST({
 			BotLogs('SYSTEM', `${COLOR.red}Discord is blocking this server's IP. Not starting the bot — a restart now would extend the block. See DISCORD-RATE-LIMITS.md.`);
 			process.exit(BLOCK_EXIT_CODE);
 		}
+		if (error.code === DEPLOYMENT_CONFIG_ERROR) process.exitCode = 1;
 	}
 })();

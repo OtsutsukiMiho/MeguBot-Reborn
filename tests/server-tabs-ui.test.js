@@ -54,6 +54,13 @@ assert.match(roleManagerSource, /const PAGE_SIZES = \[10, 30, 50, 100\]/, 'Role 
 assert.match(roleManagerSource, /visibleRoles\.map/, 'Role Manager must only render the active page');
 assert.match(roleManagerSource, /copy\.pageSize/, 'Role Manager must localize its page-size control');
 
+const audioQueueSource = fs.readFileSync(path.join(tabsDir, 'AudioQueueTab.js'), 'utf8');
+assert.match(audioQueueSource, /item\?\.title \|\| item\?\.text/, 'Audio queue items must prefer source titles while preserving TTS text compatibility');
+assert.match(audioQueueSource, /item\?\.source \|\| item\?\.engine/, 'Audio queue items must display their typed source');
+assert.match(audioQueueSource, /formatDuration\(item\?\.durationSeconds\)/, 'Audio queue items must display known media duration');
+assert.match(audioQueueSource, /copy\.statuses\[item\?\.state\]/, 'Audio queue items must distinguish queued, preparing, and playing states');
+assert.match(audioQueueSource, /item\?\.canonicalUrl/, 'YouTube queue titles must expose their canonical source link');
+
 const selectSource = fs.readFileSync(path.join(root, 'app', 'components', 'CustomSelect.js'), 'utf8');
 assert.match(selectSource, /aria-haspopup="listbox"/, 'CustomSelect must identify its popup');
 assert.match(selectSource, /aria-expanded=\{isOpen\}/, 'CustomSelect must expose open state');
