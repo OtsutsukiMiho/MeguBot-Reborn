@@ -80,6 +80,10 @@ const workspaceSource = fs.readFileSync(path.join(tabsDir, 'TabWorkspace.js'), '
 assert.match(workspaceSource, /setPortalRoot\(document\.body\)/, 'Shared dialogs must target the document root');
 assert.match(workspaceSource, /return createPortal\(/, 'Shared dialogs must render through a portal');
 assert.match(workspaceSource, /export function TabModalLayer/, 'Legacy tab modals must share the viewport portal layer');
+assert.match(workspaceSource, /const onCloseRef = useRef\(onClose\)/, 'Shared dialogs must keep changing close callbacks outside the focus lifecycle');
+assert.doesNotMatch(workspaceSource, /\[onClose, open, portalRoot\]/, 'Typing in a dialog must not rerun focus setup when an inline close callback changes');
+assert.match(workspaceSource, /\[open, portalRoot\]/, 'Dialog focus setup must run only when its visible portal lifecycle changes');
+assert.match(workspaceSource, /querySelector\('input:not\(:disabled\), textarea:not\(:disabled\), select:not\(:disabled\), \[autofocus\]'/, 'Form dialogs must initially focus an editable control before their Close button');
 
 const voiceTtsSource = fs.readFileSync(path.join(tabsDir, 'VoiceTtsTab.js'), 'utf8');
 assert.match(voiceTtsSource, /tts_join_greeting_enabled/, 'Voice automation must expose the first-join room greeting');

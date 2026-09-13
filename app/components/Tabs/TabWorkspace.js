@@ -367,6 +367,8 @@ export function TabSkeleton({ rows = 3, label = 'Loading' }) {
 
 export function TabModalLayer({ children, onClose, closeOnBackdrop = true }) {
 	const [portalRoot, setPortalRoot] = useState(null);
+	const onCloseRef = useRef(onClose);
+	onCloseRef.current = onClose;
 
 	useEffect(() => {
 		setPortalRoot(document.body);
@@ -377,7 +379,7 @@ export function TabModalLayer({ children, onClose, closeOnBackdrop = true }) {
 
 		const previousOverflow = document.body.style.overflow;
 		const handleKeyDown = event => {
-			if (event.key === 'Escape') onClose?.();
+			if (event.key === 'Escape') onCloseRef.current?.();
 		};
 
 		document.body.style.overflow = 'hidden';
@@ -387,7 +389,7 @@ export function TabModalLayer({ children, onClose, closeOnBackdrop = true }) {
 			document.body.style.overflow = previousOverflow;
 			document.removeEventListener('keydown', handleKeyDown);
 		};
-	}, [onClose, portalRoot]);
+	}, [portalRoot]);
 
 	if (!portalRoot) return null;
 
@@ -419,7 +421,9 @@ export function TabDialog({
 	const titleId = useId();
 	const descriptionId = useId();
 	const dialogRef = useRef(null);
+	const onCloseRef = useRef(onClose);
 	const [portalRoot, setPortalRoot] = useState(null);
+	onCloseRef.current = onClose;
 
 	useEffect(() => {
 		setPortalRoot(document.body);
@@ -431,12 +435,13 @@ export function TabDialog({
 		const previousOverflow = document.body.style.overflow;
 		document.body.style.overflow = 'hidden';
 		const dialog = dialogRef.current;
-		const focusTarget = dialog?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+		const focusTarget = dialog?.querySelector('input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [autofocus]')
+			|| dialog?.querySelector('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])');
 		(focusTarget || dialog)?.focus();
 
 		const handleKeyDown = event => {
 			if (event.key === 'Escape') {
-				onClose?.();
+				onCloseRef.current?.();
 				return;
 			}
 			if (event.key !== 'Tab' || !dialog) return;
@@ -462,7 +467,7 @@ export function TabDialog({
 			document.body.style.overflow = previousOverflow;
 			if (previousFocus instanceof HTMLElement) previousFocus.focus();
 		};
-	}, [onClose, open, portalRoot]);
+	}, [open, portalRoot]);
 
 	if (!open || !portalRoot) return null;
 
