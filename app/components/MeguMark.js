@@ -95,7 +95,7 @@ export default function MeguMark({ size = 64, mood = 'calm', className = '', tit
 			aria-label={title || 'Megu'}
 		>
 			<defs>
-				{/* Megu's coat is navy, and on the dark theme the page behind her
+				{/* Megu's coat is navy, and on the dark theme the page behind Megu
 				    is navy too — measured at 1.36:1, which is not a low-contrast
 				    logo, it is an invisible one. The stops are theme variables
 				    now, so the mark lifts off a night ground instead of sinking

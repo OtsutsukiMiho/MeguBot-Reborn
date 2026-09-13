@@ -379,7 +379,7 @@ core/                    knows nothing about Discord, HTTP or React
   format.js              months, dates and money, per language, from keys only
   auth/access.js         the two permission domains
   megu/voice.js          every line Megu says, in one place
-  reminders.js           who is late, and the statement she sends them
+  reminders.js           who is late, and the statement Megu sends them
 adapters/
   discord/oauth.js       token exchange and profile reads
   http/megu-api.js       REST over core, mounted at /api/megu

@@ -4,7 +4,7 @@ const { formatMoney, formatWhen } = require('./format.js');
 const activities = require('./activities.js');
 const notifications = require('./notifications.js');
 
-// Megu nags on a schedule, but she is not a spammer. One person gets at most
+// Megu nags on a schedule, but Megu is not a spammer. One person gets at most
 // one message per cooldown window, and it covers everything they owe across
 // every group at once — a statement, not a pile of pokes.
 
@@ -125,7 +125,7 @@ async function lastRemindedAt(participantIds) {
 
 /**
  * Who should hear from Megu right now, with the message already written.
- * Returns nothing for anyone she spoke to inside the cooldown.
+ * Returns nothing for anyone Megu spoke to inside the cooldown.
  */
 async function due({ now = new Date(), cooldownHours = DEFAULT_COOLDOWN_HOURS, baseUrl = '' } = {}) {
 	const people = await outstandingByPerson({ now });

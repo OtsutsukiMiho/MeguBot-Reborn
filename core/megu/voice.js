@@ -1,6 +1,8 @@
 // Megu's words live here and nowhere else.
+// Megu is a friend with no fixed gender; users may interpret it for themselves.
+// Use neutral product references, Thai "เรา", and English "I".
 //
-// The moment a phrase gets written inline in the Discord adapter, she becomes
+// The moment a phrase gets written inline in the Discord adapter, Megu becomes
 // a different person on LINE — and the character is the product, so that is
 // the one refactor we cannot afford later. Adapters ask for a line; they never
 // write one.
@@ -24,7 +26,7 @@ function pick(options, seed) {
 // back polite and cold — which is a different character, and the character is
 // the product. Where Thai leans on particles to soften ("นะ", "ใช่มั้ย"),
 // English leans on brevity and the em dash; neither is a transliteration of
-// the other, and both are her.
+// the other, and both are Megu.
 const TONES = {
 	megu: {
 		th: {
@@ -104,7 +106,7 @@ const TONES = {
 				`"${title}" ยังหาเวลาที่ทุกคนว่างตรงกันไม่ได้เลย ลองเสนอช่วงอื่นมั้ย`,
 			],
 			// Stands in for a date that has not been set. It is one word, but it is
-			// one of hers, so it lives here rather than inline in an adapter.
+			// one of Megu's, so it lives here rather than inline in an adapter.
 			soon: () => ['เร็ว ๆ นี้'],
 		},
 
@@ -196,7 +198,7 @@ const TONES = {
  *                           of the same event stable instead of reshuffling
  *
  * An unwritten line in one language falls back to Thai rather than throwing.
- * She was Thai first, and a sentence in the wrong language is a smaller
+ * Megu was Thai first, and a sentence in the wrong language is a smaller
  * failure than a page that will not render.
  */
 function say(key, vars = {}, options = {}) {
@@ -204,7 +206,7 @@ function say(key, vars = {}, options = {}) {
 	// Thai when nobody says otherwise — not the site's default, which is
 	// English. A caller with a reader in front of it knows which language that
 	// reader chose and passes it; a caller that does not is the bot, talking to
-	// the Thai friend group she was built for. Falling back to the site default
+	// the Thai friend group Megu was built for. Falling back to the site default
 	// here would have switched every Discord DM to English without anyone
 	// asking for it.
 	const lang = options.lang ? resolveLang(options.lang) : 'th';

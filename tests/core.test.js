@@ -152,7 +152,7 @@ ok('missing lines fail loudly instead of rendering undefined');
 const THAI_LETTERS = /[ก-ฺเ-๎]/;
 assert.ok(THAI_LETTERS.test(voice.say('allSettled', { title: 'ตีแบด' }, { seed: 'x' })));
 assert.ok(!THAI_LETTERS.test(voice.say('allSettled', { title: 'Badminton' }, { seed: 'x', lang: 'en' })));
-ok('she speaks Thai unless asked for English, and English when asked');
+ok('Megu speaks Thai unless asked for English, and English when asked');
 
 console.log('\nsettlement');
 const settled = activities.settlement({

@@ -92,7 +92,7 @@ const STATEMENTS = [
 
 	// Where money sent to this person ends up. It is their own bank account,
 	// reached by PromptPay, and Megu never stands between the two ends of that
-	// transfer — she only knows the address to print on the QR.
+	// transfer — Megu only knows the address to print on the QR.
 	//
 	// `promptpay_name` is shown beside the number so whoever is about to send
 	// ฿60 can check the name their banking app offers back matches the person

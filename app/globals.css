@@ -1085,7 +1085,7 @@ textarea.form-control {
 	color: var(--gold);
 }
 
-/* Her signature, and the only gold on the page. */
+/* Megu's signature, and the only gold on the page. */
 .megu-says .who::before {
 	content: '';
 	width: 12px;
@@ -1902,7 +1902,7 @@ textarea.form-control {
 
    Quiet everywhere is not restraint, it is absence — the page needs somewhere
    for the eye to land. Each surface spends its boldness once and stays calm
-   around it: the home page on Megu herself, the activity page on the number
+   around it: the home page on Megu, the activity page on the number
    the reader came for.
    ========================================================================== */
 
@@ -1942,8 +1942,8 @@ textarea.form-control {
 	color: var(--accent);
 }
 
-/* Megu is the loud moment on this page, so she has to be whole. She used to
-   bleed off the right edge, which the hero's overflow then cut her whiskers
+/* Megu is the loud moment on this page, so Megu has to be whole. Megu used to
+   bleed off the right edge, which the hero's overflow then cut Megu's whiskers
    off with — the crop read as a broken image, not as a deliberate bleed. */
 .hero-portrait {
 	justify-self: end;
@@ -4610,7 +4610,7 @@ textarea.form-control {
 
 /* -------------------------------------------------------- Megu speaking */
 
-/* Not a panel. Megu is a voice commenting on the state, and giving her the
+/* Not a panel. Megu is a voice commenting on the state, and giving Megu the
    same cream rectangle as the roster is what made the top of this page read as
    one undifferentiated block of text. */
 .megu-aside {

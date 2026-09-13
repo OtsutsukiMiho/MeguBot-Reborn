@@ -1039,7 +1039,7 @@ const DEFAULT_TTS_VOLUME = 0.5;
 
 /**
  * Loudness for one clip, as a fraction. A server sets this because Megu talking
- * over a match is the complaint that gets her muted, and the queue's own default
+ * over a match is the complaint that gets Megu muted, and the queue's own default
  * is a guess that suits nobody in particular.
  *
  * Clamped rather than trusted: `setVolume` above 1 clips the audio and a
@@ -1230,7 +1230,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	}
 
 	/**
-	 * One line when she stops, so a channel that has just gone silent does not
+	 * One line when Megu stops, so a channel that has just gone silent does not
 	 * read as a bot that has crashed. Said once per burst — `enteredQuiet` is
 	 * true only on the event that tripped the limit.
 	 */

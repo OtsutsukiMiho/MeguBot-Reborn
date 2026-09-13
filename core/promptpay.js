@@ -264,7 +264,7 @@ const NAME_PLACEHOLDERS = new Set(['NA', 'N/A', 'NULL', 'NONE', '-']);
  *
  * What comes back is an account, never a payment: the amount, if the QR carried
  * one, is reported so the screen can say it is being ignored. A saved account
- * has no amount, because Megu puts the amount in herself.
+ * has no amount, because Megu puts the amount in automatically.
  *
  * Throws with a code rather than returning null, because every failure here has
  * a different sentence attached to it — "that is a shop's code", "that is not a

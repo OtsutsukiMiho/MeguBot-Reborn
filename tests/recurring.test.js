@@ -161,7 +161,7 @@ async function main() {
 	const tomorrow = new Date('2026-09-22T00:00:00Z');
 	const third = await reminders.due({ now: tomorrow, baseUrl: 'https://megu.app' });
 	assert.ok(third.some(p => p.discordUid === '__rec_nut__'));
-	ok('but she comes back the next day');
+	ok('but Megu comes back the next day');
 
 	console.log(`\n  statement preview:\n${nut.message.split('\n').map(l => `    ${l}`).join('\n')}`);
 }

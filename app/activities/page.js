@@ -432,7 +432,7 @@ function CreateActivity({ guilds, user, onCreated, onCancel }) {
 				) : (
 					<>
 						{/* Not knowing yet is the ordinary case and the reason
-						    Megu exists — she asks everyone and then calls it. A
+						    Megu exists — Megu asks everyone and then calls it. A
 						    bare datetime input asked for an answer the organizer
 						    usually does not have, and hid the poll entirely. */}
 						<fieldset className="field">

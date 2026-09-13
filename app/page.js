@@ -22,7 +22,7 @@ import styles from './landing.module.css';
 
 const COPY = {
 	th: {
-		eyebrow: 'ผู้ช่วยประจำ Discord server ของคุณ',
+		eyebrow: 'เพื่อนประจำ Discord server ของคุณ',
 		h1: ['คุยกันใน Discord', 'ที่เหลือให้ Megu', 'จัดการต่อ'],
 		lede: 'เปลี่ยนบทสนทนาให้เป็นอีเวนต์ งานเตือน และรายการที่ต้องตามต่อ พร้อมดูแลสมาชิก ห้องเสียง และความเรียบร้อยของเซิร์ฟเวอร์—โดยไม่ต้องย้ายทุกคนไปใช้แอปใหม่',
 		primaryOut: 'เพิ่ม Megu เข้าเซิร์ฟเวอร์',
@@ -49,7 +49,7 @@ const COPY = {
 		proof: 'หนึ่งข้อความ กลายเป็นแผนที่ทุกคนเห็นตรงกัน',
 		workflowEyebrow: 'จากข้อความธรรมดา สู่งานที่เสร็จจริง',
 		workflowTitle: 'Megu รับช่วงต่อจากที่คุยกันค้างไว้',
-		workflowLede: 'ไม่ต้องเปิด dashboard เพื่อสร้างงานทุกครั้ง แค่บอก Megu ในห้องที่ทีมใช้อยู่แล้ว แล้วให้เธอจัดโครงสร้างและตามต่อให้',
+		workflowLede: 'ไม่ต้องเปิด dashboard เพื่อสร้างงานทุกครั้ง แค่บอก Megu ในห้องที่ทีมใช้อยู่แล้ว แล้วให้ Megu จัดโครงสร้างและตามต่อให้',
 		steps: [
 			{ label: 'เข้าใจ', title: 'รับเรื่องจากบทสนทนา', body: 'เรียกชื่อ Megu แล้วบอกเวลา คนที่เกี่ยวข้อง และสิ่งที่ต้องการด้วยภาษาปกติ' },
 			{ label: 'จัดให้', title: 'สร้างแผนในเซิร์ฟเวอร์', body: 'เปลี่ยนข้อความเป็นอีเวนต์ เช็กลิสต์ หรืองานเตือน พร้อมสรุปรายละเอียดให้ตรวจได้ทันที' },
@@ -57,7 +57,7 @@ const COPY = {
 		],
 		managerEyebrow: 'มากกว่า event bot',
 		managerTitle: 'ผู้จัดการเซิร์ฟเวอร์ที่อยู่ในวงสนทนาด้วย',
-		managerLede: 'Megu ไม่ได้รอให้คุณจำทุกคำสั่ง เธอช่วยดูทั้งแผนของทีม ประสบการณ์ในห้องเสียง และงานดูแลชุมชนที่กินเวลาทุกวัน',
+		managerLede: 'Megu ไม่ได้รอให้คุณจำทุกคำสั่ง Megu ช่วยดูทั้งแผนของทีม ประสบการณ์ในห้องเสียง และงานดูแลชุมชนที่กินเวลาทุกวัน',
 		groups: [
 			{
 				label: 'จัดการแผน',
@@ -91,11 +91,11 @@ const COPY = {
 		webBody: 'ใช้เว็บเฉพาะตอนที่จอใหญ่ช่วยให้ทำงานง่ายกว่า—ตั้งค่าระบบ ดู audit log จัดรายละเอียดกิจกรรม และตรวจรายการค่าใช้จ่าย ส่วนชีวิตประจำวันเกิดขึ้นใน Discord',
 		webCta: 'เปิดหน้าจัดการเซิร์ฟเวอร์',
 		closeEyebrow: 'ให้เซิร์ฟเวอร์เดินหน้าต่อเองได้',
-		closeTitle: 'เพิ่ม Megu ครั้งเดียว แล้วให้เธอช่วยดูเรื่องที่หล่นระหว่างแชท',
+		closeTitle: 'เพิ่ม Megu ครั้งเดียว แล้วให้ Megu ช่วยดูเรื่องที่หล่นระหว่างแชท',
 		closeBody: 'นัดหมาย งานเตือน ห้องเสียง สมาชิก และค่าใช้จ่ายของกลุ่ม—อยู่ในจังหวะเดียวกับที่ทุกคนคุยกันอยู่แล้ว',
 	},
 	en: {
-		eyebrow: 'The assistant inside your Discord server',
+		eyebrow: 'Your friend inside your Discord server',
 		h1: ['Talk in Discord.', 'Let Megu', 'take it from there.'],
 		lede: 'Turn conversations into events, reminders, and follow-ups while Megu helps with members, voice rooms, and everyday server operations—without moving everyone into another app.',
 		primaryOut: 'Add Megu to your server',
@@ -122,7 +122,7 @@ const COPY = {
 		proof: 'One message becomes a plan everyone can see.',
 		workflowEyebrow: 'From loose chat to finished work',
 		workflowTitle: 'Megu picks up where the conversation leaves off',
-		workflowLede: 'You should not need a dashboard to create every task. Tell Megu in the channel your team already uses, then let her structure the plan and follow through.',
+		workflowLede: 'You should not need a dashboard to create every task. Tell Megu in the channel your team already uses, then let Megu structure the plan and follow through.',
 		steps: [
 			{ label: 'Understand', title: 'Take the request from chat', body: 'Mention Megu and describe the time, people, and outcome in ordinary language.' },
 			{ label: 'Organize', title: 'Create the plan in-server', body: 'Turn the message into an event, checklist, or reminder and show the structured details immediately.' },
@@ -164,7 +164,7 @@ const COPY = {
 		webBody: 'Use it where a larger screen genuinely helps: configure the server, inspect the audit log, shape an activity, and review expenses. Everyday work stays in Discord.',
 		webCta: 'Open server controls',
 		closeEyebrow: 'Keep the server moving',
-		closeTitle: 'Add Megu once. Let her catch what falls between messages.',
+		closeTitle: 'Add Megu once. Let Megu catch what falls between messages.',
 		closeBody: 'Schedules, reminders, voice rooms, members, and shared expenses—handled in the same rhythm as the conversation.',
 	},
 };

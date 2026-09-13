@@ -1,13 +1,14 @@
 // Runs the Megu suite in order: pure logic, then core against Postgres, then
 // the HTTP layer. Refuses to run against anything but a local database — these
 // tests create and delete rows, and that must never happen on the live one.
+// Both core and the legacy bot adapter inherit the disposable URL below.
 require('dotenv').config();
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const {
 	describeDatabase,
+	constrainTestDatabaseEnv,
 	ensureTestDatabase,
-	resolveTestDatabaseUrl,
 } = require('./test-database.js');
 
 const SUITES = [
@@ -62,10 +63,11 @@ const SUITES = [
 ];
 
 async function main() {
-	const testUrl = resolveTestDatabaseUrl();
+	// The legacy adapter still reads DATABASE_URL. Constrain both names before
+	// any child is spawned; legacy integration remains a separate, unverified
+	// database check, while queue tests inject that boundary entirely.
+	const testUrl = constrainTestDatabaseEnv();
 	await ensureTestDatabase(testUrl);
-	// Set this before any core module is loaded. Child suites inherit it too.
-	process.env.MEGU_DATABASE_URL = testUrl;
 
 	console.log(`\nMegu test suite\n  isolated database: ${describeDatabase(testUrl)}\n`);
 

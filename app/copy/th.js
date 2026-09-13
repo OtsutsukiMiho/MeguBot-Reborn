@@ -4,7 +4,7 @@
 // Most of these were already in the pages and are kept word for word — they
 // were written in Megu's register, and a translation round-trip through
 // English would have flattened them into something politer and colder than
-// she is.
+// Megu is.
 
 const th = {
 	code: 'th',

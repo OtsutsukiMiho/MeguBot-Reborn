@@ -1,7 +1,7 @@
-// Whether Megu says a name out loud, and when she keeps quiet.
+// Whether Megu says a name out loud, and when Megu keeps quiet.
 //
-// The join announcement is the reason a server keeps her: you hear who arrived
-// without tabbing out of a game. It is also the fastest way to get her muted,
+// The join announcement is the reason a server keeps Megu: you hear who arrived
+// without tabbing out of a game. It is also the fastest way to get Megu muted,
 // and there are two different ways it goes wrong.
 //
 // The first is one person. Discord reports a dropped-and-restored connection as
@@ -18,7 +18,7 @@
 // of solid speech. The cooldown cannot see this, because no single name repeats.
 //
 // So there is a second limit on the total: past so many announcements inside a
-// window she stops, says one short line so nobody thinks she has broken, and
+// window Megu stops, says one short line so nobody thinks Megu has broken, and
 // stays quiet until the burst is over. One clip instead of twenty.
 //
 // Free of Discord and of the database — the whole decision is (guild, user,
@@ -56,7 +56,7 @@ const DEFAULT_QUIET_MS = 60 * 1000;
  */
 const MAX_ENTRIES_PER_GUILD = 1000;
 
-/** The two things she announces. Kept apart so a leave does not silence a join. */
+/** The two things Megu announces. Kept apart so a leave does not silence a join. */
 const EVENTS = ['join', 'leave'];
 
 function isEvent(value) {
@@ -172,7 +172,7 @@ function createAnnounceGuard(defaults = {}) {
 			const state = stateFor(guildId);
 
 			// Already riding out a burst. Nothing is recorded while quiet: a name
-			// she never said must not start a cooldown, or the first arrival
+			// Megu never said must not start a cooldown, or the first arrival
 			// after the burst would be swallowed too.
 			if (state.quietUntil !== null) {
 				if (now < state.quietUntil) return decision(false, 'flood');
@@ -215,7 +215,7 @@ function createAnnounceGuard(defaults = {}) {
 		},
 
 		/**
-		 * Forget a guild — she has left its voice channels, so the next arrival
+		 * Forget a guild — Megu has left its voice channels, so the next arrival
 		 * is genuinely new and deserves a greeting whatever happened before.
 		 */
 		forget(guildId) {
@@ -383,7 +383,7 @@ function createSpeakerTracker({ regroupMs = DEFAULT_REGROUP_MS } = {}) {
 			return now - previous.at >= windowMs;
 		},
 
-		/** She left the channel; the next voice in it is starting fresh. */
+		/** Megu left the channel; the next voice in it is starting fresh. */
 		forget(guildId) {
 			last.delete(guildId);
 		},

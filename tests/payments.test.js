@@ -445,7 +445,7 @@ async function main() {
 	assert.ok(monthly.periods.every(p => p.label === undefined));
 	pass('periods travel as a key, so a month can be read in either language');
 
-	// ── Megu answers in the language she was asked in ──────────────────────
+	// ── Megu answers in the language Megu was asked in ──────────────────────
 
 	r = await owner('GET', `/api/megu/a/${code}?lang=en`);
 	const english = r.body.activity.megu;
@@ -454,7 +454,7 @@ async function main() {
 
 	assert.notStrictEqual(english, thai);
 
-	// Her sentence is checked with the names taken out. People are called what
+	// Megu's sentence is checked with the names taken out. People are called what
 	// they are called: "โอม is ฿130.00 short" is correct English about someone
 	// named โอม, and a plain Thai-character test would read it as a translation
 	// that leaked.

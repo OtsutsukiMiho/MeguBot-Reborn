@@ -10,6 +10,15 @@ function parseDatabaseUrl(value) {
 	catch {
 		throw new Error('The test database URL is not a valid PostgreSQL URL.');
 	}
+	if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+		throw new Error('The test database URL must use the PostgreSQL protocol.');
+	}
+	// pg-connection-string copies query parameters into its connection config;
+	// a query `host` therefore overrides URL.hostname after this helper runs.
+	// Reject that ambiguous form so a local-looking URL cannot reach a remote DB.
+	if ([...url.searchParams.keys()].some((key) => key.toLowerCase() === 'host')) {
+		throw new Error('The test database URL must not override its host through a query parameter.');
+	}
 
 	const database = decodeURIComponent(url.pathname.replace(/^\//, ''));
 	if (!LOCAL_HOSTS.has(url.hostname)) {
@@ -49,6 +58,26 @@ function resolveTestDatabaseUrl(env = process.env) {
 	return url.toString();
 }
 
+/**
+ * Point every database environment name inherited by a test child at the
+ * same disposable local database. Core reads MEGU_DATABASE_URL, while the
+ * older bot adapter reads DATABASE_URL. Keeping this at the test boundary
+ * means production's DATABASE_URL may remain configured in .env without
+ * making a child test capable of reaching it.
+ */
+function constrainTestDatabaseEnv(env = process.env) {
+	const testUrl = resolveTestDatabaseUrl(env);
+	// Re-parse here so this boundary remains fail-closed if the resolver ever
+	// changes its return shape or validation rules.
+	parseDatabaseUrl(testUrl);
+	if (!isDisposableTestDatabase(testUrl)) {
+		throw new Error('Refusing to pass a non-disposable database URL to a test child.');
+	}
+	env.MEGU_DATABASE_URL = testUrl;
+	env.DATABASE_URL = testUrl;
+	return testUrl;
+}
+
 function describeDatabase(value) {
 	const { url } = parseDatabaseUrl(value);
 	if (url.password) url.password = '***';
@@ -83,4 +112,5 @@ module.exports = {
 	ensureTestDatabase,
 	isDisposableTestDatabase,
 	resolveTestDatabaseUrl,
+	constrainTestDatabaseEnv,
 };

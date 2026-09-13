@@ -1060,7 +1060,7 @@ const en = {
 			event: 'One time',
 			eventHint: 'Dinner, a trip, a shopping run, badminton — happens once, gets split, done.',
 			recurring: 'Every month',
-			recurringHint: 'Wifi, Netflix, rent — the same amount each month, and Megu opens the round herself.',
+			recurringHint: 'Wifi, Netflix, rent — the same amount each month, and Megu opens the round automatically.',
 		},
 
 		saysEvent: 'What are we doing, and who with? I will go and ask them.',

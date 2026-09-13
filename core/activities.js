@@ -902,7 +902,7 @@ function slotStanding(activity) {
 }
 
 /**
- * Whether Megu has heard enough to call it. She waits for everyone who is
+ * Whether Megu has heard enough to call it. Megu waits for everyone who is
  * still pending, but never guesses from a half-filled ballot — every
  * participant must answer every option before the answer is in.
  */
@@ -1134,7 +1134,7 @@ async function removeExpense(expenseId) {
 
 // How long "not now" buys. Long enough that the answer is respected — nobody
 // wants to explain twice that payday is the 25th — and short enough that it
-// cannot be used to switch Megu off: two days later she asks again, and the
+// cannot be used to switch Megu off: two days later Megu asks again, and the
 // person still appears as unpaid to the organizer the whole time.
 const DEFERRAL_SNOOZE_HOURS = 48;
 

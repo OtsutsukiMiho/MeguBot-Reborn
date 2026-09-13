@@ -1,9 +1,9 @@
-// When Megu says a name, and when she keeps quiet.
+// When Megu says a name, and when Megu keeps quiet.
 //
 // Two failures are covered here, and they are not the same shape. One person on
 // bad wifi reconnecting six times is caught by the cooldown. Twenty different
 // people arriving at once is not — every one of them passes the cooldown, and
-// only a limit on the total stops her reading names over the top of a match.
+// only a limit on the total stops Megu reading names over the top of a match.
 // Both are the reason a server switches the feature off.
 
 const assert = require('node:assert');
@@ -32,7 +32,7 @@ const G2 = 'guild_b';
 const FIG = 'user_fig';
 const OHM = 'user_ohm';
 
-/** Most checks only care whether she spoke. */
+/** Most checks only care whether Megu spoke. */
 function spoke(result) {
 	return result.speak;
 }
@@ -173,11 +173,11 @@ console.log('\nafter the burst');
 	assert.strictEqual(spoke(guard.claim({ guildId: G, userId: 'p_late', event: 'join', now: t + 29_000 })), false);
 	ok('nothing is announced while the quiet period runs');
 
-	// Once it lapses she speaks again, from an empty count — otherwise the
+	// Once it lapses Megu speaks again, from an empty count — otherwise the
 	// stale ticks would trip it a second time immediately.
 	assert.strictEqual(spoke(guard.claim({ guildId: G, userId: 'p_after', event: 'join', now: t + 31_000 })), true);
 	assert.strictEqual(guard.isQuiet(G, t + 31_000), false);
-	ok('when it lapses she resumes, counting from empty');
+	ok('when it lapses Megu resumes, counting from empty');
 
 	// A name refused during the quiet period was never spoken, so it must not
 	// be sitting on a cooldown afterwards.
@@ -292,8 +292,8 @@ console.log('\nleaving a guild clears it');
 	guard.claim({ guildId: G, userId: 'third', event: 'join', now: t + 200 });
 	assert.strictEqual(guard.isQuiet(G, t + 300), true);
 
-	// She was disconnected and has rejoined: whoever is in there now is new to
-	// her, and greeting them is correct even though the clock says otherwise.
+	// Megu was disconnected and has rejoined: whoever is in there now is new to
+	// Megu, and greeting them is correct even though the clock says otherwise.
 	guard.forget(G);
 	assert.strictEqual(guard.size(G), 0);
 	assert.strictEqual(guard.isQuiet(G, t + 300), false);
@@ -414,7 +414,7 @@ console.log('\nthe tracker keeps servers apart');
 	assert.strictEqual(tracker.shouldName({ guildId: G2, userId: FIG, now: t + 100 }), true);
 	ok('the same person in another server is a new conversation');
 
-	// She left; whoever speaks next has not been introduced to the room she
+	// Megu left; whoever speaks next has not been introduced to the room Megu
 	// came back to.
 	tracker.forget(G);
 	assert.strictEqual(tracker.shouldName({ guildId: G, userId: FIG, now: t + 200 }), true);
