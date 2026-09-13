@@ -153,6 +153,11 @@ function dates(input = {}, zone = 'Asia/Bangkok') {
 function projectRow(row) {
 	return row && {
 		id: row.id, code: row.code, ownerUserId: row.owner_user_id, title: row.title,
+		teamId: row.team_id || null,
+		team: row.team_id ? {
+			id: row.team_id, name: row.team_name || null, color: row.team_color || null,
+			role: row.team_role || null, archivedAt: row.team_archived_at || null,
+		} : null,
 		description: row.description, status: row.status, timezone: row.timezone,
 		startsAt: row.starts_at, startsPrecision: row.starts_precision,
 		deadlineAt: row.deadline_at, deadlinePrecision: row.deadline_precision,
@@ -292,14 +297,28 @@ function dependencyRow(row) {
 }
 
 async function createProject(input = {}) {
-	assertKnownFields(input, ['ownerUserId', 'title', 'description', 'timezone', 'startsAt', 'startsPrecision', 'deadlineAt', 'deadlinePrecision']);
+	assertKnownFields(input, ['ownerUserId', 'teamId', 'title', 'description', 'timezone', 'startsAt', 'startsPrecision', 'deadlineAt', 'deadlinePrecision']);
 	const { ownerUserId, title, description, timezone: zone, startsAt, startsPrecision, deadlineAt, deadlinePrecision } = input;
+	const teamId = text(input.teamId) || null;
 	const projectTitle = requiredText(title, 'title', 120);
 	const projectDescription = optionalText(description, 'description', 4000);
 	const projectZone = timezone(zone);
 	const schedule = dates({ startsAt, startsPrecision, deadlineAt, deadlinePrecision }, projectZone);
 
 	return transaction(async (client) => {
+		let team = null;
+		if (teamId) {
+			if (process.env.MEGU_PROJECT_TEAMS_ENABLED === '0') throw codedError('teams_disabled');
+			const found = await client.query(
+				`SELECT t.*,m.role FROM teams t JOIN team_memberships m ON m.team_id=t.id
+				 AND m.user_id=$2 AND m.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
+				[teamId, ownerUserId],
+			);
+			team = found.rows[0];
+			if (!team) throw codedError('team_not_found');
+			if (team.archived_at) throw codedError('team_archived');
+			if (!['owner', 'admin'].includes(team.role)) throw codedError('team_forbidden');
+		}
 		for (let attempt = 0; attempt < 6; attempt++) {
 			const project = {
 				id: newId('prj'), code: newProjectCode(), ownerUserId,
@@ -307,10 +326,10 @@ async function createProject(input = {}) {
 			};
 			const inserted = await client.query(
 					`INSERT INTO projects
-					 (id, code, owner_user_id, title, description, timezone, starts_at, starts_precision, deadline_at, deadline_precision)
-					 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+					 (id, code, owner_user_id, team_id, title, description, timezone, starts_at, starts_precision, deadline_at, deadline_precision)
+					 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 					 ON CONFLICT (code) DO NOTHING RETURNING id`,
-					[project.id, project.code, ownerUserId, projectTitle, projectDescription, projectZone,
+					[project.id, project.code, ownerUserId, teamId, projectTitle, projectDescription, projectZone,
 						schedule.startsAt, schedule.startsPrecision, schedule.deadlineAt, schedule.deadlinePrecision],
 				);
 			if (!inserted.rows[0]) continue;
@@ -318,8 +337,11 @@ async function createProject(input = {}) {
 					'INSERT INTO project_memberships (project_id, user_id, role) VALUES ($1, $2, \'owner\')',
 					[project.id, ownerUserId],
 				);
-				await addEvent(client, project.id, null, ownerUserId, 'project_created', { title: projectTitle });
-				return { ...project, status: 'planning', revision: 0, progress: 0, topicCount: 0, role: 'owner' };
+				await addEvent(client, project.id, null, ownerUserId, 'project_created', { title: projectTitle, teamId });
+				return {
+					...project, teamId, team: team ? { id: team.id, name: team.name, color: team.color, role: team.role, archivedAt: null } : null,
+					status: 'planning', revision: 0, progress: 0, topicCount: 0, role: 'owner',
+				};
 		}
 		throw codedError('project_code_unavailable');
 	});
@@ -327,7 +349,7 @@ async function createProject(input = {}) {
 
 async function listProjectsForUser(userId, { includeClosed = true } = {}) {
 	const result = await query(
-		`SELECT p.*, m.role,
+		`SELECT p.*, m.role,team_ref.name AS team_name,team_ref.color AS team_color,team_ref.archived_at AS team_archived_at,tm.role AS team_role,
 			 count(t.id) FILTER (WHERE t.archived_at IS NULL)::int AS topic_count,
 		 COALESCE(round((sum(t.progress * t.weight) FILTER (WHERE t.archived_at IS NULL))::numeric /
 		  NULLIF(sum(t.weight) FILTER (WHERE t.archived_at IS NULL), 0)), 0)::int AS progress,
@@ -338,9 +360,12 @@ async function listProjectsForUser(userId, { includeClosed = true } = {}) {
 		   WHERE mine.project_id = p.id AND mine.user_id = $1 AND mt.archived_at IS NULL) AS assigned_count
 		 FROM projects p
 		 JOIN project_memberships m ON m.project_id = p.id AND m.user_id = $1 AND m.revoked_at IS NULL
+		 LEFT JOIN teams team_ref ON team_ref.id=p.team_id
+		 LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=$1 AND tm.revoked_at IS NULL
 		 LEFT JOIN project_topics t ON t.project_id = p.id
 		 WHERE ($2::boolean OR p.status NOT IN ('completed', 'cancelled'))
-		 GROUP BY p.id, m.role ORDER BY p.updated_at DESC, p.id DESC`,
+		 AND (p.team_id IS NULL OR tm.user_id IS NOT NULL)
+		 GROUP BY p.id, m.role,team_ref.id,tm.role ORDER BY p.updated_at DESC, p.id DESC`,
 		[userId, includeClosed],
 	);
 	return result.rows.map(projectRow);
@@ -352,12 +377,14 @@ function directoryCursor(row) {
 
 async function listProjectDirectory(userId, options = {}) {
 	const bucket = ['active', 'closed'].includes(options.bucket) ? options.bucket : 'all';
+	const teamId = options.teamId === 'standalone' ? 'standalone' : text(options.teamId);
 	const search = text(options.search);
 	if (search.length > 120) throw codedError('search_too_long');
 	const cursor = parseHistoryCursor(options.cursor);
 	const limit = historyLimit(options.limit);
 	const [result, anyProjects] = await Promise.all([query(
-		`SELECT p.*, m.role,
+		`SELECT p.*, m.role,team_ref.name AS team_name,team_ref.color AS team_color,
+		 team_ref.archived_at AS team_archived_at,tm.role AS team_role,
 		 count(t.id) FILTER (WHERE t.archived_at IS NULL)::int AS topic_count,
 		 min(t.deadline_at) FILTER (WHERE t.archived_at IS NULL AND t.workflow <> 'completed') AS next_due_at,
 		 COALESCE(round((sum(t.progress * t.weight) FILTER (WHERE t.archived_at IS NULL))::numeric /
@@ -368,36 +395,64 @@ async function listProjectDirectory(userId, options = {}) {
 		   WHERE mine.project_id=p.id AND mine.user_id=$1 AND mt.archived_at IS NULL) AS assigned_count
 		 FROM projects p
 		 JOIN project_memberships m ON m.project_id=p.id AND m.user_id=$1 AND m.revoked_at IS NULL
+		 LEFT JOIN teams team_ref ON team_ref.id=p.team_id
+		 LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=$1 AND tm.revoked_at IS NULL
 		 LEFT JOIN project_topics t ON t.project_id=p.id
 		 WHERE ($2='all' OR ($2='closed' AND p.status IN ('completed','cancelled')) OR ($2='active' AND p.status NOT IN ('completed','cancelled')))
 		 AND ($3='' OR lower(p.title) LIKE '%' || lower($3) || '%' OR lower(p.code) LIKE '%' || lower($3) || '%')
 		 AND ($4::boolean=false OR EXISTS (SELECT 1 FROM project_topic_assignees mine JOIN project_topics mt ON mt.id=mine.topic_id WHERE mine.project_id=p.id AND mine.user_id=$1 AND mt.archived_at IS NULL))
 		 AND ($5::timestamptz IS NULL OR (p.updated_at,p.id) < ($5::timestamptz,$6::text))
-		 GROUP BY p.id,m.role ORDER BY p.updated_at DESC,p.id DESC LIMIT $7`,
-		[userId, bucket, search, options.assignedOnly === true, cursor?.at || null, cursor?.id || '', limit + 1],
-	), query('SELECT EXISTS (SELECT 1 FROM project_memberships WHERE user_id=$1 AND revoked_at IS NULL) AS present', [userId])]);
+		 AND (p.team_id IS NULL OR tm.user_id IS NOT NULL)
+		 AND ($7='' OR ($7='standalone' AND p.team_id IS NULL) OR p.team_id=$7)
+		 GROUP BY p.id,m.role,team_ref.id,tm.role ORDER BY p.updated_at DESC,p.id DESC LIMIT $8`,
+		[userId, bucket, search, options.assignedOnly === true, cursor?.at || null, cursor?.id || '', teamId, limit + 1],
+	), query(`SELECT EXISTS (
+		SELECT 1 FROM project_memberships pm JOIN projects p ON p.id=pm.project_id
+		LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=$1 AND tm.revoked_at IS NULL
+		WHERE pm.user_id=$1 AND pm.revoked_at IS NULL AND (p.team_id IS NULL OR tm.user_id IS NOT NULL)
+	) AS present`, [userId])]);
 	const hasMore = result.rows.length > limit;
 	const rows = result.rows.slice(0, limit);
 	return { projects: rows.map(projectRow), nextCursor: hasMore ? directoryCursor(rows.at(-1)) : null, hasAnyProjects: anyProjects.rows[0].present };
 }
 
 async function accessByCode(client, code, userId, { lock = false } = {}) {
+	const normalizedCode = String(code || '').toUpperCase();
+	if (lock) {
+		const locator = await client.query('SELECT team_id FROM projects WHERE code=$1', [normalizedCode]);
+		if (!locator.rows[0]) throw codedError('project_not_found');
+		if (locator.rows[0].team_id) {
+			const teamAccess = await client.query(
+				`SELECT t.archived_at FROM teams t JOIN team_memberships tm ON tm.team_id=t.id
+				 AND tm.user_id=$2 AND tm.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
+				[locator.rows[0].team_id, userId],
+			);
+			if (!teamAccess.rows[0]) throw codedError('project_not_found');
+			if (teamAccess.rows[0].archived_at) throw codedError('team_archived');
+		}
+	}
 	const result = await client.query(
-		`SELECT p.*, m.role FROM projects p
+		`SELECT p.*, m.role,team_ref.name AS team_name,team_ref.color AS team_color,
+		 team_ref.archived_at AS team_archived_at,tm.role AS team_role FROM projects p
 		 JOIN project_memberships m ON m.project_id = p.id AND m.user_id = $2 AND m.revoked_at IS NULL
+		 LEFT JOIN teams team_ref ON team_ref.id=p.team_id
+		 LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=$2 AND tm.revoked_at IS NULL
 		 WHERE p.code = $1 ${lock ? 'FOR UPDATE OF p' : ''}`,
-		[String(code || '').toUpperCase(), userId],
+		[normalizedCode, userId],
 	);
-	if (!result.rows[0]) throw codedError('project_not_found');
-	return projectRow(result.rows[0]);
+	if (!result.rows[0] || (result.rows[0].team_id && !result.rows[0].team_role)) throw codedError('project_not_found');
+	const project = projectRow(result.rows[0]);
+	return project;
 }
 
 async function getProjectByCode(code, userId) {
 	const project = await accessByCode({ query }, code, userId);
 	const [members, topics, assignees, reports, events, transfer, notificationSetting, dependencies, milestones] = await Promise.all([
 		query(`SELECT m.user_id, m.role, m.created_at, u.display_name, COALESCE((SELECT NULLIF(i.avatar_url, '') FROM identities i WHERE i.user_id = u.id AND i.provider = 'discord' ORDER BY i.id LIMIT 1), u.avatar_url) AS avatar_url FROM project_memberships m
-		 JOIN users u ON u.id = m.user_id WHERE m.project_id = $1 AND m.revoked_at IS NULL
-		 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'lead' THEN 1 WHEN 'member' THEN 2 ELSE 3 END, u.display_name`, [project.id]),
+		 JOIN users u ON u.id = m.user_id
+		 LEFT JOIN team_memberships tm ON tm.team_id=$2 AND tm.user_id=m.user_id AND tm.revoked_at IS NULL
+		 WHERE m.project_id = $1 AND m.revoked_at IS NULL AND ($2::text IS NULL OR tm.user_id IS NOT NULL)
+		 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'lead' THEN 1 WHEN 'member' THEN 2 ELSE 3 END, u.display_name`, [project.id, project.teamId]),
 		query('SELECT * FROM project_topics WHERE project_id = $1 ORDER BY archived_at NULLS FIRST, position, topic_no', [project.id]),
 		query(`SELECT a.topic_id, a.user_id, a.is_primary, u.display_name, COALESCE((SELECT NULLIF(i.avatar_url, '') FROM identities i WHERE i.user_id = u.id AND i.provider = 'discord' ORDER BY i.id LIMIT 1), u.avatar_url) AS avatar_url
 		 FROM project_topic_assignees a JOIN users u ON u.id = a.user_id
@@ -831,16 +886,18 @@ async function listProjectMembers(code, actorUserId) {
 	const result = await query(
 		`SELECT m.user_id, m.role, m.created_at, u.display_name, COALESCE((SELECT NULLIF(i.avatar_url, '') FROM identities i WHERE i.user_id = u.id AND i.provider = 'discord' ORDER BY i.id LIMIT 1), u.avatar_url) AS avatar_url
 		 FROM project_memberships m JOIN users u ON u.id=m.user_id
-		 WHERE m.project_id=$1 AND m.revoked_at IS NULL
+		 LEFT JOIN team_memberships tm ON tm.team_id=$2 AND tm.user_id=m.user_id AND tm.revoked_at IS NULL
+		 WHERE m.project_id=$1 AND m.revoked_at IS NULL AND ($2::text IS NULL OR tm.user_id IS NOT NULL)
 		 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'lead' THEN 1 WHEN 'member' THEN 2 ELSE 3 END, lower(u.display_name), u.id`,
-		[project.id],
+		[project.id, project.teamId],
 	);
-	return { project: { code: project.code, role: project.role, revision: project.revision }, members: result.rows.map(memberRow) };
+	return { project: { code: project.code, role: project.role, revision: project.revision, team: project.team }, members: result.rows.map(memberRow) };
 }
 
 async function listProjectInvitations(code, actorUserId) {
 	const project = await accessByCode({ query }, code, actorUserId);
 	assertLead(project);
+	if (project.teamId) throw codedError('team_project_invite_disabled');
 	const result = await query(
 		`SELECT i.*, u.display_name AS inviter_name FROM project_invitations i
 		 JOIN users u ON u.id=i.inviter_user_id
@@ -859,6 +916,7 @@ async function createInvitation(code, actorUserId, input = {}) {
 	return transaction(async (client) => {
 		const project = await accessByCode(client, code, actorUserId, { lock: true });
 		assertLead(project);
+		if (project.teamId) throw codedError('team_project_invite_disabled');
 		if (project.role === 'lead' && role === 'lead') throw codedError('project_forbidden');
 		if (['completed', 'cancelled'].includes(project.status)) throw codedError('project_closed');
 		const active = await client.query('SELECT count(*)::int AS n FROM project_memberships WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
@@ -896,6 +954,7 @@ async function revokeInvitation(code, invitationId, actorUserId) {
 	return transaction(async (client) => {
 		const project = await accessByCode(client, code, actorUserId, { lock: true });
 		assertLead(project);
+		if (project.teamId) throw codedError('team_project_invite_disabled');
 		const found = await client.query('SELECT * FROM project_invitations WHERE project_id=$1 AND id=$2 FOR UPDATE', [project.id, invitationId]);
 		const invitation = found.rows[0];
 		if (!invitation || invitation.accepted_at || invitation.revoked_at) throw codedError('invitation_not_found');
@@ -916,6 +975,10 @@ async function proposeOwnershipTransfer(code, actorUserId, input = {}) {
 		if (proposedOwnerId === actorUserId) throw codedError('ownership_transfer_self');
 		const member = await client.query('SELECT role FROM project_memberships WHERE project_id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE', [project.id, proposedOwnerId]);
 		if (!member.rows[0]) throw codedError('member_not_found');
+		if (project.teamId) {
+			const teamMember = await client.query('SELECT 1 FROM team_memberships WHERE team_id=$1 AND user_id=$2 AND revoked_at IS NULL', [project.teamId, proposedOwnerId]);
+			if (!teamMember.rows[0]) throw codedError('team_member_not_found');
+		}
 		await client.query(`UPDATE project_ownership_transfers SET cancelled_at=now()
 			WHERE project_id=$1 AND accepted_at IS NULL AND cancelled_at IS NULL AND expires_at <= now()`, [project.id]);
 		const pending = await client.query('SELECT 1 FROM project_ownership_transfers WHERE project_id=$1 AND accepted_at IS NULL AND cancelled_at IS NULL', [project.id]);
@@ -948,9 +1011,25 @@ async function cancelOwnershipTransfer(code, transferId, actorUserId) {
 
 async function acceptOwnershipTransfer(code, transferId, actorUserId) {
 	return transaction(async client => {
+		const locator = await client.query(
+			`SELECT p.team_id FROM project_ownership_transfers ot JOIN projects p ON p.id=ot.project_id
+			 WHERE p.code=$1 AND ot.id=$2 AND ot.proposed_owner_id=$3`,
+			[String(code || '').toUpperCase(), transferId, actorUserId],
+		);
+		if (!locator.rows[0]) throw codedError('project_not_found');
+		if (locator.rows[0].team_id) {
+			const team = await client.query(
+				`SELECT t.archived_at FROM teams t JOIN team_memberships tm ON tm.team_id=t.id
+				 AND tm.user_id=$2 AND tm.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
+				[locator.rows[0].team_id, actorUserId],
+			);
+			if (!team.rows[0]) throw codedError('project_not_found');
+			if (team.rows[0].archived_at) throw codedError('team_archived');
+		}
 		const found = await client.query(
-			`SELECT ot.*, p.code, p.owner_user_id FROM project_ownership_transfers ot
-			 JOIN projects p ON p.id=ot.project_id WHERE p.code=$1 AND ot.id=$2 FOR UPDATE OF ot, p`,
+			`SELECT ot.*, p.code, p.owner_user_id,p.team_id FROM project_ownership_transfers ot
+			 JOIN projects p ON p.id=ot.project_id
+			 WHERE p.code=$1 AND ot.id=$2 FOR UPDATE OF ot, p`,
 			[String(code || '').toUpperCase(), transferId],
 		);
 		const transfer = found.rows[0];
@@ -974,12 +1053,13 @@ async function acceptInvitation(tokenValue, actorUserId) {
 	const token = requiredText(tokenValue, 'invitation_token', 200);
 	return transaction(async (client) => {
 		const result = await client.query(
-			`SELECT i.*, p.code, p.status FROM project_invitations i
+			`SELECT i.*, p.code, p.status,p.team_id FROM project_invitations i
 			 JOIN projects p ON p.id=i.project_id WHERE i.token_hash=$1 FOR UPDATE OF i, p`,
 			[invitationHash(token)],
 		);
 		const invitation = result.rows[0];
 		if (!invitation) throw codedError('invitation_not_found');
+		if (invitation.team_id) throw codedError('team_project_invite_disabled');
 		if (invitation.revoked_at) throw codedError('invitation_revoked');
 		if (invitation.accepted_at) throw codedError('invitation_used');
 		if (new Date(invitation.expires_at).getTime() <= Date.now()) throw codedError('invitation_expired');
@@ -1044,6 +1124,102 @@ async function removeProjectMember(code, memberUserId, actorUserId, input = {}) 
 		const updated = await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1 RETURNING revision', [project.id]);
 		await addEvent(client, project.id, null, actorUserId, selfLeave ? 'member_left' : 'member_removed', { userId: memberUserId, role: member.role });
 		return { removed: true, projectRevision: updated.rows[0].revision };
+	});
+}
+
+async function addTeamMembers(code, actorUserId, input = {}) {
+	assertKnownFields(input, ['members', 'expectedRevision']);
+	const members = Array.isArray(input.members) ? input.members : [];
+	if (!members.length) throw codedError('team_members_required');
+	if (members.length > 50) throw codedError('member_limit');
+	const unique = new Map();
+	for (const candidate of members) {
+		assertKnownFields(candidate, ['userId', 'role']);
+		const userId = requiredText(candidate.userId, 'member_user_id', 100);
+		const role = text(candidate.role) || 'member';
+		if (!['lead', 'member', 'viewer'].includes(role)) throw codedError('member_role_invalid');
+		unique.set(userId, { userId, role });
+	}
+	return transaction(async client => {
+		const project = await accessByCode(client, code, actorUserId, { lock: true });
+		assertLead(project);
+		if (!project.teamId) throw codedError('project_not_team_managed');
+		if (['completed', 'cancelled'].includes(project.status)) throw codedError('project_closed');
+		if (input.expectedRevision != null && Number(input.expectedRevision) !== project.revision) throw codedError('revision_conflict');
+		const selections = [...unique.values()];
+		if (project.role === 'lead' && selections.some(candidate => candidate.role === 'lead')) throw codedError('project_forbidden');
+		const active = await client.query(
+			`SELECT user_id FROM team_memberships WHERE team_id=$1 AND revoked_at IS NULL AND user_id=ANY($2::text[]) FOR UPDATE`,
+			[project.teamId, selections.map(candidate => candidate.userId)],
+		);
+		const valid = new Set(active.rows.map(row => row.user_id));
+		if (selections.some(candidate => !valid.has(candidate.userId))) throw codedError('team_member_invalid');
+		const current = await client.query('SELECT count(*)::int AS n FROM project_memberships WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
+		const existing = await client.query('SELECT user_id FROM project_memberships WHERE project_id=$1 AND user_id=ANY($2::text[]) AND revoked_at IS NULL', [project.id, selections.map(candidate => candidate.userId)]);
+		const already = new Set(existing.rows.map(row => row.user_id));
+		if (current.rows[0].n + selections.filter(candidate => !already.has(candidate.userId)).length > 50) throw codedError('member_limit');
+		for (const candidate of selections) {
+			if (already.has(candidate.userId)) continue;
+			await client.query(
+				`INSERT INTO project_memberships (project_id,user_id,role) VALUES ($1,$2,$3)
+				 ON CONFLICT (project_id,user_id) DO UPDATE SET role=$3,revoked_at=NULL,created_at=now()`,
+				[project.id, candidate.userId, candidate.role],
+			);
+		}
+		const added = selections.filter(candidate => !already.has(candidate.userId));
+		if (added.length) {
+			await client.query('UPDATE projects SET revision=revision+1,updated_at=now() WHERE id=$1', [project.id]);
+			await addEvent(client, project.id, null, actorUserId, 'team_members_added', { members: added });
+		}
+		return { members: added, projectRevision: project.revision + (added.length ? 1 : 0) };
+	});
+}
+
+async function convertProjectToTeam(code, actorUserId, input = {}) {
+	assertKnownFields(input, ['teamId', 'expectedRevision']);
+	if (process.env.MEGU_PROJECT_TEAMS_ENABLED === '0') throw codedError('teams_disabled');
+	const teamId = requiredText(input.teamId, 'team_id', 100);
+	return transaction(async client => {
+		// Lock the destination team before the project. Team roster changes use
+		// the same ordering, preventing conversion/removal deadlocks.
+		const teamResult = await client.query(
+			`SELECT t.*,m.role FROM teams t JOIN team_memberships m ON m.team_id=t.id
+			 AND m.user_id=$2 AND m.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
+			[teamId, actorUserId],
+		);
+		const team = teamResult.rows[0];
+		if (!team) throw codedError('team_not_found');
+		if (team.archived_at) throw codedError('team_archived');
+		if (!['owner', 'admin'].includes(team.role)) throw codedError('team_forbidden');
+		const project = await accessByCode(client, code, actorUserId, { lock: true });
+		if (project.role !== 'owner') throw codedError('project_forbidden');
+		if (project.teamId) throw codedError('project_team_change_unsupported');
+		if (Number(input.expectedRevision) !== project.revision) throw codedError('revision_conflict');
+		const unresolved = await client.query(
+			`SELECT pm.user_id,u.display_name,
+			 COALESCE((SELECT NULLIF(i.avatar_url,'') FROM identities i WHERE i.user_id=u.id AND i.provider='discord' ORDER BY i.id LIMIT 1),u.avatar_url) AS avatar_url
+			 FROM project_memberships pm JOIN users u ON u.id=pm.user_id
+			 LEFT JOIN team_memberships tm ON tm.team_id=$2 AND tm.user_id=pm.user_id AND tm.revoked_at IS NULL
+			 WHERE pm.project_id=$1 AND pm.revoked_at IS NULL AND tm.user_id IS NULL
+			 ORDER BY lower(u.display_name),u.id`,
+			[project.id, teamId],
+		);
+		if (unresolved.rows.length) {
+			throw codedError('project_team_members_unresolved', 'project_team_members_unresolved', {
+				unresolvedMembers: unresolved.rows.map(row => ({ userId: row.user_id, displayName: row.display_name, avatarUrl: row.avatar_url })),
+			});
+		}
+		await client.query('UPDATE projects SET team_id=$2,revision=revision+1,updated_at=now() WHERE id=$1', [project.id, teamId]);
+		await client.query('UPDATE project_join_links SET revoked_at=now() WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
+		await client.query('UPDATE project_invitations SET revoked_at=now() WHERE project_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL', [project.id]);
+		await client.query(
+			"UPDATE project_join_requests SET status='rejected',reviewed_at=now(),reviewed_by_user_id=$2,rejection_reason='project_converted_to_team' WHERE project_id=$1 AND status='pending'",
+			[project.id, actorUserId],
+		);
+		await addEvent(client, project.id, null, actorUserId, 'project_converted_to_team', { teamId, teamName: team.name });
+		return {
+			project: { ...project, teamId, team: { id: teamId, name: team.name, color: team.color, role: team.role, archivedAt: null }, revision: project.revision + 1 },
+		};
 	});
 }
 
@@ -1303,6 +1479,7 @@ async function createJoinLink(code, actorUserId) {
 	return transaction(async client => {
 		const project = await accessByCode(client, code, actorUserId, { lock: true });
 		if (project.role !== 'owner') throw codedError('project_forbidden');
+		if (project.teamId) throw codedError('team_project_invite_disabled');
 		if (['completed', 'cancelled'].includes(project.status)) throw codedError('project_closed');
 		await client.query('UPDATE project_join_links SET revoked_at=now() WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
 		const token = invitationToken();
@@ -1315,6 +1492,7 @@ async function revokeJoinLink(code, actorUserId) {
 	return transaction(async client => {
 		const project = await accessByCode(client, code, actorUserId, { lock: true });
 		if (project.role !== 'owner') throw codedError('project_forbidden');
+		if (project.teamId) throw codedError('team_project_invite_disabled');
 		await client.query('UPDATE project_join_links SET revoked_at=now() WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
 		return { revoked: true };
 	});
@@ -1325,6 +1503,7 @@ async function requestProjectJoin(token, actorUserId) {
 		const found = await client.query('SELECT p.* FROM projects p JOIN project_join_links l ON l.project_id=p.id WHERE l.token_hash=$1 FOR UPDATE OF p', [invitationHash(requiredText(token, 'invitation_token', 200))]);
 		const project = found.rows[0];
 		if (!project) throw codedError('invitation_not_found');
+		if (project.team_id) throw codedError('team_project_invite_disabled');
 		const valid = await client.query('SELECT 1 FROM project_join_links WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now()', [invitationHash(token)]);
 		if (!valid.rows[0]) throw codedError('invitation_expired');
 		if (['completed', 'cancelled'].includes(project.status)) throw codedError('project_closed');
@@ -1342,6 +1521,7 @@ async function requestProjectJoin(token, actorUserId) {
 async function listJoinRequests(code, actorUserId) {
 	const project = await accessByCode({ query }, code, actorUserId);
 	if (project.role !== 'owner') throw codedError('project_forbidden');
+	if (project.teamId) throw codedError('team_project_invite_disabled');
 	const requests = await query(`SELECT r.id,r.status,r.created_at AS "createdAt",u.display_name AS "displayName",
 		COALESCE((SELECT i.avatar_url FROM identities i WHERE i.user_id=u.id AND i.provider='discord' ORDER BY i.id LIMIT 1),u.avatar_url) AS "avatarUrl"
 		FROM project_join_requests r JOIN users u ON u.id=r.user_id WHERE r.project_id=$1 AND r.status='pending' ORDER BY r.created_at`, [project.id]);
@@ -1357,6 +1537,7 @@ async function reviewJoinRequest(code, requestId, actorUserId, input = {}) {
 	return transaction(async client => {
 		const project = await accessByCode(client, code, actorUserId, { lock: true });
 		if (project.role !== 'owner') throw codedError('project_forbidden');
+		if (project.teamId) throw codedError('team_project_invite_disabled');
 		if (['completed','cancelled'].includes(project.status)) throw codedError('project_closed');
 		const found = await client.query('SELECT * FROM project_join_requests WHERE project_id=$1 AND id=$2 FOR UPDATE', [project.id,requestId]);
 		const request = found.rows[0];
@@ -1373,7 +1554,7 @@ async function reviewJoinRequest(code, requestId, actorUserId, input = {}) {
 			}
 		}
 		const status = input.action === 'approve' ? 'approved' : 'rejected';
-		await client.query('UPDATE project_join_requests SET status=$2,reviewed_at=now() WHERE id=$1', [request.id,status]);
+		await client.query('UPDATE project_join_requests SET status=$2,reviewed_at=now(),reviewed_by_user_id=$3 WHERE id=$1', [request.id,status,actorUserId]);
 		return { status };
 	});
 }
@@ -1385,6 +1566,7 @@ module.exports = {
 	listProjectMembers, listProjectInvitations, createInvitation, revokeInvitation, acceptInvitation,
 	proposeOwnershipTransfer, cancelOwnershipTransfer, acceptOwnershipTransfer,
 	updateMemberRole, removeProjectMember, setTopicAssignees, listProjectEvents, listTopicReports,
+	addTeamMembers, convertProjectToTeam,
 	updateProject, updateTopic,
 	getProjectNotificationSettings, updateProjectNotificationSettings,
 	createDependency, removeDependency, listMilestones, createMilestone, updateMilestone, removeMilestone,

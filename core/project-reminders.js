@@ -52,11 +52,13 @@ async function queueDue({ now = new Date(), baseUrl = '', limit = 50, projectId 
 		const due = await client.query(
 		`SELECT j.*, p.code, p.title AS project_title, p.status AS project_status,
 		 t.title AS topic_title, t.deadline_at AS current_deadline_at, t.schedule_revision,
-		 t.workflow, t.archived_at, s.enabled, s.reminder_48h, s.reminder_24h,
-		 s.dm_enabled, s.channel_enabled, s.guild_id, s.channel_id
+			 t.workflow, t.archived_at, s.enabled, s.reminder_48h, s.reminder_24h,
+			 s.dm_enabled, s.channel_enabled, s.guild_id, s.channel_id,
+			 p.team_id,team_ref.archived_at AS team_archived_at
 		 FROM project_reminder_jobs j
 		 JOIN projects p ON p.id=j.project_id
-		 JOIN project_topics t ON t.project_id=j.project_id AND t.id=j.topic_id
+			 JOIN project_topics t ON t.project_id=j.project_id AND t.id=j.topic_id
+			 LEFT JOIN teams team_ref ON team_ref.id=p.team_id
 		 LEFT JOIN project_notification_settings s ON s.project_id=j.project_id
 			 WHERE j.status='pending' AND j.run_at <= $1
 			 AND ($3::text IS NULL OR j.project_id=$3)
@@ -68,7 +70,7 @@ async function queueDue({ now = new Date(), baseUrl = '', limit = 50, projectId 
 		for (const job of due.rows) {
 			const thresholdEnabled = job.threshold_hours === 48 ? job.reminder_48h : job.reminder_24h;
 			const currentDeadline = job.current_deadline_at && new Date(job.current_deadline_at).getTime();
-			const stale = !job.enabled || !thresholdEnabled || job.project_status !== 'active'
+			const stale = !job.enabled || !thresholdEnabled || job.project_status !== 'active' || job.team_archived_at
 				|| job.archived_at || job.workflow === 'completed'
 				|| Number(job.schedule_revision) !== Number(job.deadline_revision)
 				|| currentDeadline !== new Date(job.deadline_at).getTime()
@@ -81,8 +83,10 @@ async function queueDue({ now = new Date(), baseUrl = '', limit = 50, projectId 
 			const assignees = await client.query(
 				`SELECT a.user_id FROM project_topic_assignees a
 				 JOIN project_memberships m ON m.project_id=a.project_id AND m.user_id=a.user_id
-				 WHERE a.project_id=$1 AND a.topic_id=$2 AND m.revoked_at IS NULL`,
-				[job.project_id, job.topic_id],
+				 LEFT JOIN team_memberships tm ON tm.team_id=$3 AND tm.user_id=a.user_id AND tm.revoked_at IS NULL
+				 WHERE a.project_id=$1 AND a.topic_id=$2 AND m.revoked_at IS NULL
+				 AND ($3::text IS NULL OR tm.user_id IS NOT NULL)`,
+				[job.project_id, job.topic_id, job.team_id],
 			);
 			const root = String(baseUrl || '').replace(/\/$/, '');
 			for (const assignee of (job.dm_enabled !== false ? assignees.rows : [])) {

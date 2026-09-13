@@ -133,7 +133,6 @@ export default function Navbar() {
 					<Link href="/bills" className={`tab-btn ${pathname.startsWith('/bills') ? 'active' : ''}`}>
 						{t.nav.bills}
 					</Link>
-					{user && <Link href="/account" className={`tab-btn ${pathname.startsWith('/account') ? 'active' : ''}`}>{t.nav.account}</Link>}
 					{isDev && (
 						<Link href="/developer" className={`tab-btn ${pathname.startsWith('/developer') ? 'active' : ''}`}>
 							Developer
@@ -158,8 +157,10 @@ export default function Navbar() {
 					<ThemeToggle />
 					{user ? (
 						<div className="user-profile-badge">
-							<img src={avatarUrl} className="user-avatar" alt="" width={28} height={28} />
-							<Link href="/account" className="user-name">{user.displayName}</Link>
+							<Link href="/account" className="user-identity-link" aria-current={pathname.startsWith('/account') ? 'page' : undefined} aria-label={`${user.displayName} · ${t.nav.account}`}>
+								<img src={avatarUrl} className="user-avatar" alt="" width={28} height={28} />
+								<span className="user-name">{user.displayName}</span>
+							</Link>
 							<button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ marginLeft: '0.25rem' }}>
 								{t.nav.signOut}
 							</button>

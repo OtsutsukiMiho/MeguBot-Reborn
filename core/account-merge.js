@@ -57,6 +57,7 @@ function unionMode(a, b) {
 const REPOINT = [
 	['activities', 'owner_user_id'],
 	['projects', 'owner_user_id'],
+	['teams', 'created_by'],
 	['participants', 'user_id'],
 	['payments', 'confirmed_by'],
 	['payments', 'reversed_by'],
@@ -86,6 +87,12 @@ const REPOINT = [
 	['project_ownership_transfers', 'current_owner_id'],
 	['project_ownership_transfers', 'proposed_owner_id'],
 	['project_notification_settings', 'updated_by_user_id'],
+	['project_join_requests', 'reviewed_by_user_id'],
+	['team_join_links', 'created_by'],
+	['team_join_requests', 'reviewed_by'],
+	['team_ownership_transfers', 'current_owner_id'],
+	['team_ownership_transfers', 'proposed_owner_id'],
+	['team_events', 'actor_user_id'],
 ];
 
 // Handled by hand further down, because moving the row would collide with a
@@ -96,6 +103,8 @@ const HANDLED_ELSEWHERE = [
 	['project_memberships', 'user_id'],
 	['project_topic_assignees', 'user_id'],
 	['project_join_requests', 'user_id'],
+	['team_memberships', 'user_id'],
+	['team_join_requests', 'user_id'],
 ];
 
 function referenceKey(table, column) {
@@ -484,6 +493,22 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 			   OR (current_owner_id=$2 AND proposed_owner_id=$1))`,
 			[survivorId, mergedId],
 		);
+		await client.query(
+			`UPDATE team_ownership_transfers SET cancelled_at=now()
+			 WHERE accepted_at IS NULL AND cancelled_at IS NULL
+			 AND ((current_owner_id=$1 AND proposed_owner_id=$2)
+			   OR (current_owner_id=$2 AND proposed_owner_id=$1))`,
+			[survivorId, mergedId],
+		);
+
+		// Preserve team ownership while collapsing the two accounts into one
+		// membership row. Owners are demoted only for the few statements needed
+		// to avoid the active-owner unique index, then restored on the survivor.
+		const mergedOwnedTeams = await client.query(
+			"SELECT team_id FROM team_memberships WHERE user_id=$1 AND role='owner' AND revoked_at IS NULL",
+			[mergedId],
+		);
+		await client.query("UPDATE team_memberships SET role='admin' WHERE user_id=$1 AND role='owner' AND revoked_at IS NULL", [mergedId]);
 
 		for (const [table, column] of REPOINT) {
 			await client.query(
@@ -562,6 +587,32 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 			'UPDATE project_join_requests SET user_id = $1 WHERE user_id = $2',
 			[survivorId, mergedId],
 		);
+
+		await client.query(
+			`INSERT INTO team_memberships (team_id,user_id,role,joined_at,revoked_at)
+			 SELECT team_id,$1,role,joined_at,revoked_at FROM team_memberships WHERE user_id=$2
+			 ON CONFLICT (team_id,user_id) DO UPDATE SET
+			 role=CASE WHEN array_position(ARRAY['member','admin','owner'],EXCLUDED.role)
+			                  > array_position(ARRAY['member','admin','owner'],team_memberships.role)
+			           THEN EXCLUDED.role ELSE team_memberships.role END,
+			 revoked_at=CASE WHEN team_memberships.revoked_at IS NULL OR EXCLUDED.revoked_at IS NULL
+			                 THEN NULL ELSE team_memberships.revoked_at END`,
+			[survivorId, mergedId],
+		);
+		await client.query('DELETE FROM team_memberships WHERE user_id=$1', [mergedId]);
+		if (mergedOwnedTeams.rows.length) {
+			await client.query(
+				"UPDATE team_memberships SET role='owner' WHERE user_id=$1 AND team_id=ANY($2::text[]) AND revoked_at IS NULL",
+				[survivorId, mergedOwnedTeams.rows.map(row => row.team_id)],
+			);
+		}
+
+		await client.query(
+			`DELETE FROM team_join_requests old WHERE old.user_id=$2 AND EXISTS (
+			 SELECT 1 FROM team_join_requests kept WHERE kept.team_id=old.team_id AND kept.user_id=$1)`,
+			[survivorId, mergedId],
+		);
+		await client.query('UPDATE team_join_requests SET user_id=$1 WHERE user_id=$2', [survivorId, mergedId]);
 
 		// Deliberately *not* merging duplicate participant rows.
 		//

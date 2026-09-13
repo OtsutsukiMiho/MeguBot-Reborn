@@ -19,6 +19,7 @@ const accountMerge = require('./account-merge.js');
 const oauthCredentials = require('./oauth-credentials.js');
 const activities = require('./activities.js');
 const projects = require('./projects.js');
+const teams = require('./teams.js');
 const projectReminders = require('./project-reminders.js');
 const projectChannelNotifications = require('./project-channel-notifications.js');
 const reminders = require('./reminders.js');
@@ -46,6 +47,7 @@ module.exports = {
 	oauthCredentials,
 	activities,
 	projects,
+	teams,
 	projectReminders,
 	projectChannelNotifications,
 	reminders,

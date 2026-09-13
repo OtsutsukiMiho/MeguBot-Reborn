@@ -36,6 +36,25 @@
 .avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 13%, var(--surface)); color: var(--accent); font-size: .72rem; font-weight: 800; }
 .inviteForm input, .reason textarea { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; background: var(--surface); color: var(--ink); font: inherit; }
 .memberSelect { width: min(100%, 180px); min-width: 120px; }
+.teamArea { display: grid; gap: 14px; margin-top: 20px; padding: 16px; border: 1px solid color-mix(in srgb,var(--accent) 26%,var(--line)); border-radius: 9px; background: color-mix(in srgb,var(--accent-soft) 38%,transparent); }
+.teamIdentity { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 11px; }
+.teamIdentity svg { color: var(--accent); }
+.teamIdentity p, .convertArea p { margin: 3px 0 0; color: var(--muted); line-height: 1.5; }
+.rosterPicker { border-top: 1px solid var(--line); padding-top: 14px; }
+.rosterTools { display: grid; grid-template-columns: minmax(0,1fr) minmax(130px,180px); gap: 10px; }
+.rosterTools > label { display: flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); }
+.rosterTools input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; }
+.rosterList { display: grid; max-height: 270px; overflow-y: auto; margin-top: 10px; border-block: 1px solid var(--line); }
+.rosterList > p { color: var(--muted); }
+.rosterMember { display: grid; grid-template-columns: 20px 36px minmax(0,1fr); align-items: center; gap: 10px; min-height: 58px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.rosterMember:last-child { border-bottom: 0; }
+.rosterMember input { width: 17px; height: 17px; accent-color: var(--accent); }
+.rosterMember small { display: block; color: var(--muted); }
+.rosterActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.convertArea { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--line); }
+.convertForm { display: grid; grid-template-columns: minmax(180px,1fr) auto; align-items: end; gap: 10px; margin-top: 14px; }
+.unresolved { display: grid; gap: 7px; margin-top: 12px; }
+.unresolved > span { display: flex; align-items: center; gap: 9px; }
 .role { color: var(--muted); font-weight: 700; }
 .iconButton { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
 .iconButton:hover { background: color-mix(in srgb, var(--danger, #b33) 10%, transparent); color: var(--danger, #b33); }
@@ -85,5 +104,5 @@
 .transferPending { align-items: center; padding: 12px 0; border-block: 1px solid var(--line); }
 @media (min-width: 1121px) { :global(.container):has(.shell) { max-width: 1568px; } .content { max-width: 1040px; } }
 @media (max-width: 760px) { .shell { width: min(100% - 22px, 680px); padding-top: 20px; } .layout { grid-template-columns: 1fr; gap: 24px; } .nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; } .nav button { width: auto; white-space: nowrap; } .pendingRow { grid-template-columns: minmax(0, 1fr) minmax(145px, 180px); } .pendingActions { grid-column: 1 / -1; justify-content: flex-end; } }
-@media (max-width: 520px) { .header { align-items: start; } .header .code { display: none; } .facts div, .dateFields, .channelFields { grid-template-columns: 1fr; gap: 5px; } .member { grid-template-columns: 38px 1fr auto; } .memberSelect, .member .role { grid-column: 2; } .memberSelect { width: 100%; } .member .iconButton { grid-column: 3; grid-row: 1 / span 2; } .pendingRow { grid-template-columns: 1fr; align-items: stretch; } .pendingActions { grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; } .inviteReady { flex-wrap: wrap; } .unsavedWarning { grid-template-columns: 1fr 1fr; } .unsavedWarning > div { grid-column: 1 / -1; } }
+@media (max-width: 520px) { .header { align-items: start; } .header .code { display: none; } .facts div, .dateFields, .channelFields, .rosterTools, .convertForm { grid-template-columns: 1fr; gap: 5px; } .teamIdentity { grid-template-columns:auto 1fr; } .teamIdentity :global(.btn) { grid-column:2; justify-self:start; } .member { grid-template-columns: 38px 1fr auto; } .memberSelect, .member .role { grid-column: 2; } .memberSelect { width: 100%; } .member .iconButton { grid-column: 3; grid-row: 1 / span 2; } .pendingRow { grid-template-columns: 1fr; align-items: stretch; } .pendingActions { grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; } .inviteReady { flex-wrap: wrap; } .unsavedWarning { grid-template-columns: 1fr 1fr; } .unsavedWarning > div { grid-column: 1 / -1; } }
 @media (max-width: 360px) { .unsavedWarning { grid-template-columns: 1fr; } .unsavedWarning > div { grid-column: 1; } .unsavedWarning > button { width: 100%; } }

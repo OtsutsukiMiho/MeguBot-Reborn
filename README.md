@@ -52,6 +52,21 @@ MEGU_EMAIL_FROM=Megu <notifications@example.com>
 `MEGU_OAUTH_CREDENTIAL_KEY` ใช้เข้ารหัส Discord refresh token แบบ AES-256-GCM
 เพื่อให้ผู้ใช้เดิมกลับมาเปิดคอนโซลเซิร์ฟเวอร์ได้โดยไม่ต้องอนุญาต Discord ใหม่ทุกครั้ง
 
+### โปรเจกต์และทีม
+
+ฟีเจอร์โปรเจกต์และทีมเปิดอยู่โดยค่าเริ่มต้น หากต้องการทยอยเปิดใช้งานให้กำหนด flag
+ฝั่งเซิร์ฟเวอร์และ browser ให้ตรงกันก่อน build:
+
+```dotenv
+MEGU_PROJECTS_ENABLED=1
+NEXT_PUBLIC_MEGU_PROJECTS_ENABLED=1
+MEGU_PROJECT_TEAMS_ENABLED=1
+NEXT_PUBLIC_MEGU_PROJECT_TEAMS_ENABLED=1
+```
+
+ตั้ง `MEGU_PROJECT_TEAMS_ENABLED=0` เพื่อปิด API ของทีม และตั้งค่า `NEXT_PUBLIC_...`
+เป็น `0` ใน build เดียวกันเพื่อซ่อนทางเข้า UI ระหว่าง rollback โดยโปรเจกต์แบบเดี่ยวยังคงทำงานได้
+
 ## โครงสร้าง
 
 ```

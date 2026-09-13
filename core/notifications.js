@@ -64,11 +64,16 @@ async function claimPending(limit = 20) {
 		const res = await client.query(
 			`SELECT d.id, d.channel, d.attempts, e.event_type, e.payload, e.user_id,
 				i.provider_uid AS discord_uid,
-				ge.email
+				ge.email,p.id AS project_id,p.status AS project_status,p.team_id,
+				pm.user_id AS project_member_id,tm.user_id AS team_member_id,t.archived_at AS team_archived_at
 			 FROM notification_deliveries d
 			 JOIN notification_events e ON e.id = d.event_id
 			 LEFT JOIN identities i ON i.user_id = e.user_id AND i.provider = 'discord'
 			 LEFT JOIN identities ge ON ge.user_id = e.user_id AND ge.provider = 'google' AND ge.email_verified = true
+			 LEFT JOIN projects p ON p.id=(e.payload->>'projectId')
+			 LEFT JOIN project_memberships pm ON pm.project_id=p.id AND pm.user_id=e.user_id AND pm.revoked_at IS NULL
+			 LEFT JOIN teams t ON t.id=p.team_id
+			 LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=e.user_id AND tm.revoked_at IS NULL
 			 WHERE (d.status IN ('pending', 'failed') AND d.next_attempt_at <= now())
 			    OR (d.status = 'sending' AND d.locked_at < now() - interval '5 minutes')
 			 ORDER BY d.created_at
@@ -76,14 +81,25 @@ async function claimPending(limit = 20) {
 			 LIMIT $1`,
 			[limit],
 		);
-		if (res.rows.length) {
+		const valid = [];
+		for (const row of res.rows) {
+			const referencesProject = Boolean(row.payload?.projectId);
+			const accessible = !referencesProject || (row.project_id && row.project_member_id
+				&& row.project_status === 'active' && (!row.team_id || (row.team_member_id && !row.team_archived_at)));
+			if (!accessible) {
+				await client.query("UPDATE notification_deliveries SET status='skipped',locked_at=NULL,last_error='Project access is no longer active' WHERE id=$1", [row.id]);
+				continue;
+			}
+			valid.push(row);
+		}
+		if (valid.length) {
 			await client.query(
 				`UPDATE notification_deliveries SET status = 'sending', attempts = attempts + 1, locked_at = now()
 				 WHERE id = ANY($1::text[])`,
-				[res.rows.map(row => row.id)],
+				[valid.map(row => row.id)],
 			);
 		}
-		return res.rows;
+		return valid;
 	});
 }
 

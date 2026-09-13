@@ -629,12 +629,91 @@ const STATEMENTS = [
 	'CREATE INDEX IF NOT EXISTS payment_deferrals_participant_idx ON payment_deferrals (participant_id, created_at DESC);',
 	'CREATE INDEX IF NOT EXISTS payment_deferrals_activity_idx ON payment_deferrals (activity_id, created_at DESC);',
 
+	// Teams are reusable rosters for projects. Team membership never grants
+	// project access by itself; a team project still keeps its own roster.
+	`CREATE TABLE IF NOT EXISTS teams (
+		id            TEXT PRIMARY KEY,
+		name          TEXT NOT NULL,
+		description   TEXT NOT NULL DEFAULT '',
+		color         TEXT NOT NULL DEFAULT 'indigo' CHECK (color IN ('indigo','blue','cyan','emerald','amber','rose','violet')),
+		created_by    TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		revision      INTEGER NOT NULL DEFAULT 0,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+		archived_at   TIMESTAMPTZ
+	);`,
+	'CREATE INDEX IF NOT EXISTS teams_creator_idx ON teams (created_by, archived_at);',
+
+	`CREATE TABLE IF NOT EXISTS team_memberships (
+		team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+		user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		role        TEXT NOT NULL CHECK (role IN ('owner','admin','member')),
+		joined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+		revoked_at  TIMESTAMPTZ,
+		PRIMARY KEY (team_id, user_id)
+	);`,
+	'CREATE INDEX IF NOT EXISTS team_memberships_user_idx ON team_memberships (user_id, revoked_at);',
+	`CREATE UNIQUE INDEX IF NOT EXISTS team_memberships_one_owner_key
+	 ON team_memberships (team_id) WHERE role='owner' AND revoked_at IS NULL;`,
+
+	`CREATE TABLE IF NOT EXISTS team_join_links (
+		id          TEXT PRIMARY KEY,
+		team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+		token_hash  TEXT NOT NULL UNIQUE,
+		expires_at  TIMESTAMPTZ NOT NULL,
+		revoked_at  TIMESTAMPTZ,
+		created_by  TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS team_join_links_active_key
+	 ON team_join_links (team_id) WHERE revoked_at IS NULL;`,
+
+	`CREATE TABLE IF NOT EXISTS team_join_requests (
+		id                    TEXT PRIMARY KEY,
+		team_id               TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+		user_id               TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		originating_link_id   TEXT REFERENCES team_join_links(id) ON DELETE SET NULL,
+		status                TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+		requested_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+		reviewed_at           TIMESTAMPTZ,
+		reviewed_by           TEXT REFERENCES users(id) ON DELETE RESTRICT,
+		rejection_reason      TEXT,
+		UNIQUE (team_id, user_id)
+	);`,
+	'CREATE INDEX IF NOT EXISTS team_join_requests_team_idx ON team_join_requests (team_id, status, requested_at);',
+
+	`CREATE TABLE IF NOT EXISTS team_ownership_transfers (
+		id                  TEXT PRIMARY KEY,
+		team_id             TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+		current_owner_id    TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		proposed_owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		expires_at          TIMESTAMPTZ NOT NULL,
+		accepted_at         TIMESTAMPTZ,
+		cancelled_at        TIMESTAMPTZ,
+		created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK (current_owner_id <> proposed_owner_id OR cancelled_at IS NOT NULL),
+		CHECK (accepted_at IS NULL OR cancelled_at IS NULL)
+	);`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS team_ownership_transfers_pending_key
+	 ON team_ownership_transfers (team_id) WHERE accepted_at IS NULL AND cancelled_at IS NULL;`,
+
+	`CREATE TABLE IF NOT EXISTS team_events (
+		id             TEXT PRIMARY KEY,
+		team_id        TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+		actor_user_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+		event_type     TEXT NOT NULL,
+		payload        JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	'CREATE INDEX IF NOT EXISTS team_events_team_idx ON team_events (team_id, created_at DESC, id DESC);',
+
 	// Projects are private collaboration spaces. The short code locates a
 	// project; membership, never possession of the code, grants access.
 	`CREATE TABLE IF NOT EXISTS projects (
 		id                 TEXT PRIMARY KEY,
 		code               TEXT NOT NULL UNIQUE,
 		owner_user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+		team_id            TEXT REFERENCES teams(id) ON DELETE RESTRICT,
 		title              TEXT NOT NULL,
 		description        TEXT NOT NULL DEFAULT '',
 		status             TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('planning', 'active', 'paused', 'completed', 'cancelled')),
@@ -651,6 +730,8 @@ const STATEMENTS = [
 		CHECK (starts_at IS NULL OR deadline_at IS NULL OR starts_at <= deadline_at)
 	);`,
 	'CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects (owner_user_id);',
+	'ALTER TABLE projects ADD COLUMN IF NOT EXISTS team_id TEXT REFERENCES teams(id) ON DELETE RESTRICT;',
+	'CREATE INDEX IF NOT EXISTS projects_team_idx ON projects (team_id, updated_at DESC);',
 
 	`CREATE TABLE IF NOT EXISTS project_memberships (
 		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -823,6 +904,8 @@ const STATEMENTS = [
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ,
 		UNIQUE (project_id, user_id)
 	);`,
+	'ALTER TABLE project_join_requests ADD COLUMN IF NOT EXISTS reviewed_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT;',
+	'ALTER TABLE project_join_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT;',
 	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS dm_enabled BOOLEAN NOT NULL DEFAULT true;',
 	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS reminder_48h BOOLEAN NOT NULL DEFAULT false;',
 	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS reminder_24h BOOLEAN NOT NULL DEFAULT false;',

@@ -55,7 +55,7 @@
 
 .directoryTools {
 	display: grid;
-	grid-template-columns: auto minmax(220px, 1fr) auto;
+	grid-template-columns: auto minmax(220px, 1fr) auto minmax(180px, 260px) auto;
 	align-items: center;
 	gap: .7rem;
 	padding-block: .85rem;
@@ -134,6 +134,7 @@
 .code { color: var(--faint); font-family: var(--font-mono); font-size: .72rem; }
 .rowMeta { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin-top: .38rem; color: var(--muted); font-size: .83rem; }
 .rowMeta span { display: inline-flex; align-items: center; gap: .3rem; }
+.rowMeta .scopeBadge { padding: .18rem .45rem; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .projectStanding > div:first-child { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
 .projectStanding strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .projectStanding span { color: var(--muted); font-size: .74rem; }
@@ -168,6 +169,14 @@
 .field input:focus,
 .field textarea:focus { outline: 3px solid color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); }
 .field small { color: var(--muted); font-size: .75rem; font-weight: var(--w-body); }
+.field fieldset, fieldset.field { margin: 0; border: 0; padding: 0; }
+.field legend { margin-bottom: .45rem; }
+.modeChoices { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
+.modeChoices button { display: grid; gap: .25rem; min-height: 5rem; padding: .8rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.modeChoices button span { color: var(--muted); font-size: .78rem; line-height: 1.4; }
+.modeChoices button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.modeChoices button:focus-visible { outline: 3px solid color-mix(in srgb,var(--accent) 26%,transparent); outline-offset: 2px; }
+.scopeSelect { min-width: 0; }
 .formActions { display: flex; justify-content: flex-end; gap: .6rem; }
 .formError { margin: 0; color: var(--due); font-size: .86rem; }
 
@@ -175,6 +184,7 @@
 	.directory { padding-top: 1.6rem; }
 	.directoryTools { grid-template-columns: 1fr auto; }
 	.search { grid-column: 1 / -1; grid-row: 1; }
+	.scopeSelect { grid-column: 1 / -1; }
 	.projectRow { grid-template-columns: 1fr auto; gap: .7rem; }
 	.projectStanding { grid-column: 1 / -1; }
 	.state { grid-column: 2; grid-row: 1; }
@@ -193,6 +203,7 @@
 	.fieldWide { grid-column: auto; }
 	.formActions { flex-direction: column-reverse; }
 	.formActions button { width: 100%; }
+	.modeChoices { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

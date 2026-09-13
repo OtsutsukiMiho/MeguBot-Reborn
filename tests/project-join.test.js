@@ -8,13 +8,13 @@ const projects = require('../core/projects');
 const project = { id:'p1', code:'ABC2345', status:'active', role:'owner', revision:1 };
 function setup(rows) { replies = rows; calls = []; }
 async function main() {
-	setup([[{...project,role:'lead'}]]);
+	setup([[{team_id:null}],[{...project,role:'lead'}]]);
 	await assert.rejects(projects.createJoinLink(project.code,'lead'), {code:'project_forbidden'});
-	assert.equal(calls.length,1);
-	setup([[project],[],[]]);
+	assert.equal(calls.length,2);
+	setup([[{team_id:null}],[project],[],[]]);
 	const link = await projects.createJoinLink(project.code,'owner');
 	assert.ok(link.token.length >= 32);
-	assert.notEqual(calls[2].args[2],link.token,'Only token hash is stored');
+	assert.notEqual(calls[3].args[2],link.token,'Only token hash is stored');
 	setup([[project],[{}],[],[],[{n:0}],[]]);
 	assert.deepEqual(await projects.requestProjectJoin(link.token,'person'),{status:'pending'});
 	assert.ok(!calls.some(c => /INSERT INTO project_memberships/.test(c.sql)), 'Requesting must not grant access');
@@ -22,14 +22,14 @@ async function main() {
 	assert.deepEqual(await projects.requestProjectJoin(link.token,'person'),{status:'pending'});
 	setup([[project],[]]);
 	await assert.rejects(projects.requestProjectJoin(link.token,'person'),{code:'invitation_expired'});
-	setup([[{...project,role:'lead'}]]);
+	setup([[{team_id:null}],[{...project,role:'lead'}]]);
 	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','lead',{action:'approve'}),{code:'project_forbidden'});
-	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:50}]]);
+	setup([[{team_id:null}],[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:50}]]);
 	await assert.rejects(projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve'}),{code:'member_limit'});
-	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[]]);
+	setup([[{team_id:null}],[project],[{id:'r1',user_id:'person',status:'pending'}],[]]);
 	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'reject'}),{status:'rejected'});
 	assert.ok(!calls.some(c => /INSERT INTO project_memberships/.test(c.sql)));
-	setup([[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:1}],[],[],[],[]]);
+	setup([[{team_id:null}],[project],[{id:'r1',user_id:'person',status:'pending'}],[],[{n:1}],[],[],[],[]]);
 	assert.deepEqual(await projects.reviewJoinRequest(project.code,'r1','owner',{action:'approve',role:'viewer'}),{status:'approved'});
 	assert.ok(calls.some(c => /INSERT INTO project_memberships/.test(c.sql) && c.args[2] === 'viewer'));
 	assert.equal(replies.length,0);

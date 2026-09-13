@@ -18,9 +18,10 @@ async function claimPending(limit = 20, { projectId = null } = {}) {
 	return transaction(async client => {
 		const result = await client.query(
 			`SELECT d.*, s.channel_enabled, s.guild_id AS current_guild_id, s.channel_id AS current_channel_id,
-			 p.status AS project_status
+			 p.status AS project_status,t.archived_at AS team_archived_at
 			 FROM project_channel_deliveries d
 			 JOIN projects p ON p.id=d.project_id
+			 LEFT JOIN teams t ON t.id=p.team_id
 			 LEFT JOIN project_notification_settings s ON s.project_id=d.project_id
 			 WHERE ((d.status IN ('pending','failed') AND d.next_attempt_at <= now())
 			    OR (d.status='sending' AND d.locked_at < now() - interval '5 minutes'))
@@ -30,7 +31,7 @@ async function claimPending(limit = 20, { projectId = null } = {}) {
 		);
 		const valid = [];
 		for (const row of result.rows) {
-			if (!row.channel_enabled || row.project_status !== 'active'
+			if (!row.channel_enabled || row.project_status !== 'active' || row.team_archived_at
 				|| row.guild_id !== row.current_guild_id || row.channel_id !== row.current_channel_id) {
 				await client.query("UPDATE project_channel_deliveries SET status='skipped', locked_at=NULL, last_error='Destination or project is no longer active' WHERE id=$1", [row.id]);
 				continue;

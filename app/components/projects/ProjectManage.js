@@ -6,12 +6,14 @@ import { ArrowLeft, Bell, Settings2, Shield, Trash2, Users } from 'lucide-react'
 import AuthGate from '../AuthGate';
 import ProjectAvatar from './ProjectAvatar';
 import ProjectJoinSettings from './ProjectJoinSettings';
+import ProjectTeamPicker, { ProjectTeamConversion } from './ProjectTeamPicker';
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
 import styles from './projectManage.module.css';
 
 const TABS = ['general', 'people', 'notifications', 'lifecycle'];
 const CLOSED = new Set(['completed', 'cancelled']);
+const TEAMS_ENABLED = process.env.NEXT_PUBLIC_MEGU_PROJECT_TEAMS_ENABLED !== '0';
 
 function dateLabel(value, lang, timezone) {
 	if (!value) return null;
@@ -190,13 +192,15 @@ function People({ project, members, me, p, lang, readError, onChanged, setError 
 		catch (problem) { setError(readError(problem)); }
 	};
 	return <section><h2>{p.peopleTitle}</h2><p className={styles.lede}>{p.peopleHint}</p>
+		{TEAMS_ENABLED && project.teamId && <ProjectTeamPicker project={project} projectMembers={members} me={me} p={p} readError={readError} onChanged={onChanged} />}
 		<div className={styles.members}>{members.map(member => {
 			const owner = member.role === 'owner';
 			const mayManage = canLead && !owner && !(me.role === 'lead' && member.role === 'lead');
 			const roleOptions = ['member', 'viewer', ...(me.role === 'owner' ? ['lead'] : [])].map(role => ({ value: role, label: p.role[role] }));
 			return <div className={styles.member} key={member.userId}><ProjectAvatar name={member.displayName} avatarUrl={member.avatarUrl} className={styles.avatar} /><div><strong>{member.displayName}</strong><small>{p.memberSince} {dateLabel(member.joinedAt, lang, project.timezone) || '—'}</small></div>{mayManage ? <CustomSelect className={styles.memberSelect} size="compact" searchable={false} value={member.role} onChange={role => changeRole(member, role)} ariaLabel={`${member.displayName} ${p.inviteRole}`} options={roleOptions} /> : <span className={styles.role}>{p.role[member.role]}</span>}{!owner && (mayManage || member.userId === me.userId) && <button type="button" className={styles.iconButton} onClick={() => remove(member)} aria-label={member.userId === me.userId ? p.leaveProject : `${p.removeMember} ${member.displayName}`}><Trash2 size={16} /></button>}</div>;
 		})}</div>
-		{me.role === 'owner' && <ProjectJoinSettings code={project.code} p={p} onChanged={onChanged} />}
+		{me.role === 'owner' && !project.teamId && <ProjectJoinSettings code={project.code} p={p} onChanged={onChanged} />}
+		{TEAMS_ENABLED && <ProjectTeamConversion project={project} me={me} p={p} readError={readError} onChanged={onChanged} />}
 	</section>;
 }
 

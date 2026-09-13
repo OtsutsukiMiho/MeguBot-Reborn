@@ -284,7 +284,7 @@ export default function ProjectWorkspace({ code }) {
 			<Link href="/projects" className={styles.back}><ArrowLeft size={15} />{p.title}</Link>
 			<header className={styles.projectHead}>
 				<div className={styles.projectIdentity}>
-					<div className={styles.titleLine}><h1>{project.title}</h1><span className={styles.private}><LockKeyhole size={13} />{p.private}</span><State value={project.status} p={p} /></div>
+					<div className={styles.titleLine}><h1>{project.title}</h1>{project.team && <Link href={`/teams/${project.team.id}`} className={styles.teamBadge}>{project.team.name}</Link>}<span className={styles.private}><LockKeyhole size={13} />{p.private}</span><State value={project.status} p={p} /></div>
 					{project.description && <p className={styles.description}>{project.description}</p>}
 					<div className={styles.meta}>
 						<span>{p.topicsCount(project.topicCount)}</span><span>{p.peopleCount(members.length)}</span>

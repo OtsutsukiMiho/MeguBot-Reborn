@@ -19,6 +19,7 @@
 .titleLine { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; }
 .titleLine h1 { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: clamp(1.8rem, 3.5vw, 2.45rem); letter-spacing: -.025em; }
 .private { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); font-size: .75rem; border: 1px solid var(--line); border-radius: 99px; padding: .27rem .55rem; }
+.teamBadge { display: inline-flex; align-items: center; max-width: 22ch; overflow: hidden; padding: .27rem .55rem; border: 1px solid color-mix(in srgb,var(--accent) 30%,var(--line)); border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: .75rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .description { margin: .3rem 0 0; color: var(--muted); max-width: 68ch; }
 .meta { display: flex; flex-wrap: wrap; gap: .35rem 1.1rem; margin-top: .65rem; color: var(--muted); font-size: .85rem; }
 .meta span + span::before { content: '·'; margin-right: 1.1rem; color: var(--ornament); }

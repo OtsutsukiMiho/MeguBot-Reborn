@@ -6,7 +6,7 @@ const core = require('../../core/index.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
-const { activities, projects, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
+const { activities, projects, teams, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
 
 // A slip photographed on a phone is a few hundred kilobytes once the browser
 // has shrunk it. The ceiling is generous enough that nobody meets it by
@@ -37,8 +37,8 @@ function fail(res, status, code, message) {
 }
 
 const PROJECT_NOT_FOUND = new Set(['project_not_found', 'topic_not_found', 'member_not_found', 'invitation_not_found', 'ownership_transfer_not_found', 'dependency_not_found', 'milestone_not_found']);
-const PROJECT_FORBIDDEN = new Set(['project_forbidden', 'invitation_recipient_mismatch']);
-const PROJECT_CONFLICT = new Set(['revision_conflict', 'idempotency_conflict', 'project_transition_invalid', 'topic_not_reviewable', 'topic_completed', 'topic_not_completed', 'member_exists', 'invitation_pending', 'ownership_transfer_pending', 'ownership_transfer_stale', 'dependency_exists', 'dependency_cycle']);
+const PROJECT_FORBIDDEN = new Set(['project_forbidden', 'team_forbidden', 'invitation_recipient_mismatch']);
+const PROJECT_CONFLICT = new Set(['revision_conflict', 'idempotency_conflict', 'project_transition_invalid', 'topic_not_reviewable', 'topic_completed', 'topic_not_completed', 'member_exists', 'invitation_pending', 'ownership_transfer_pending', 'ownership_transfer_stale', 'dependency_exists', 'dependency_cycle', 'team_archived', 'team_project_invite_disabled', 'project_not_team_managed', 'project_team_change_unsupported']);
 const PROJECT_UNPROCESSABLE = new Set([
 	'title_required', 'title_too_long', 'description_too_long', 'timezone_invalid',
 	'starts_at_invalid', 'deadline_at_invalid', 'date_order_invalid', 'topic_title_required',
@@ -54,6 +54,7 @@ const PROJECT_UNPROCESSABLE = new Set([
 	'topic_deadline_override_required',
 	'milestone_title_required', 'milestone_title_too_long', 'milestone_due_required', 'milestone_limit',
 	'due_at_invalid', 'milestone_state_invalid',
+	'team_id_required', 'team_members_required', 'team_member_invalid', 'team_member_not_found', 'member_user_id_required',
 	'guild_id_required', 'guild_id_too_long', 'channel_id_required', 'channel_id_too_long',
 	'channel_name_required', 'channel_name_too_long', 'project_channel_invalid', 'project_channel_unavailable',
 	'unknown_field', 'request_body_invalid', 'search_too_long',
@@ -61,6 +62,9 @@ const PROJECT_UNPROCESSABLE = new Set([
 
 function failProject(res, error) {
 	if (error.code === 'unknown_field') return res.status(422).json({ error: error.code, code: error.code, field: error.field });
+	if (error.code === 'project_team_members_unresolved') return res.status(409).json({ error: error.code, code: error.code, unresolvedMembers: error.unresolvedMembers || [] });
+	if (error.code === 'teams_disabled') return fail(res, 404, error.code);
+	if (error.code === 'team_not_found') return fail(res, 404, error.code);
 	if (PROJECT_NOT_FOUND.has(error.code)) return fail(res, 404, 'project_not_found');
 	if (PROJECT_FORBIDDEN.has(error.code)) return fail(res, 403, error.code);
 	if (PROJECT_CONFLICT.has(error.code)) return fail(res, 409, error.code);
@@ -68,6 +72,31 @@ function failProject(res, error) {
 	if (error.code === 'ownership_transfer_expired') return fail(res, 410, error.code);
 	if (error.code === 'project_not_active' || error.code === 'project_closed') return fail(res, 409, error.code);
 	if (PROJECT_UNPROCESSABLE.has(error.code)) return fail(res, 422, error.code);
+	return null;
+}
+
+const TEAM_NOT_FOUND = new Set(['team_not_found', 'team_member_not_found']);
+const TEAM_FORBIDDEN = new Set(['team_forbidden']);
+const TEAM_CONFLICT = new Set([
+	'team_archived', 'revision_conflict', 'team_owner_transfer_required',
+	'team_project_owner_transfer_required', 'ownership_transfer_pending', 'ownership_transfer_stale',
+]);
+const TEAM_UNPROCESSABLE = new Set([
+	'team_name_required', 'team_name_too_long', 'team_description_too_long', 'team_color_invalid',
+	'team_role_invalid', 'team_member_limit', 'team_join_request_limit', 'team_members_required', 'member_user_id_required',
+	'proposed_owner_id_required', 'ownership_transfer_self', 'review_action_invalid',
+	'invitation_token_required', 'invitation_token_too_long', 'request_body_invalid', 'unknown_field', 'search_too_long',
+]);
+
+function failTeam(res, error) {
+	if (error.code === 'unknown_field') return res.status(422).json({ error: error.code, code: error.code, field: error.field });
+	if (error.code === 'teams_disabled') return fail(res, 404, error.code);
+	if (TEAM_NOT_FOUND.has(error.code)) return fail(res, 404, error.code);
+	if (TEAM_FORBIDDEN.has(error.code)) return fail(res, 403, error.code);
+	if (TEAM_CONFLICT.has(error.code)) return res.status(409).json({ error: error.code, code: error.code, projectCount: error.projectCount });
+	if (['invitation_expired', 'invitation_revoked', 'invitation_used', 'ownership_transfer_expired'].includes(error.code)) return fail(res, 410, error.code);
+	if (error.code === 'invitation_not_found' || error.code === 'ownership_transfer_not_found') return fail(res, 404, error.code);
+	if (TEAM_UNPROCESSABLE.has(error.code)) return fail(res, 422, error.code);
 	return null;
 }
 
@@ -960,6 +989,96 @@ function router(deps = {}) {
 		}
 	});
 
+	// Reusable team rosters. A team membership alone never grants project
+	// access; project endpoints independently enforce the project roster too.
+	api.use('/teams', (req, res, next) => process.env.MEGU_PROJECT_TEAMS_ENABLED === '0'
+		? fail(res, 404, 'teams_disabled')
+		: next());
+	api.get('/teams', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.listTeamsForUser(req.actor.userId, { includeArchived: req.query.includeArchived === 'true' })); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams', requireAccount, async (req, res, next) => {
+		try { res.status(201).json(await teams.createTeam({ ...(req.body || {}), ownerUserId: req.actor.userId })); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/join/:token', async (req, res, next) => {
+		try { res.json(await teams.previewJoinToken(req.params.token)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/join/:token', requireAccount, async (req, res, next) => {
+		try {
+			teams.validate.assertKnownFields(req.body || {}, []);
+			res.json(await teams.requestTeamJoin(req.params.token, req.actor.userId));
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.getTeam(req.params.id, req.actor.userId)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.patch('/teams/:id', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.updateTeam(req.params.id, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/members', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.listTeamMembers(req.params.id, req.actor.userId, { search: req.query.q, limit: req.query.limit, offset: req.query.offset })); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.patch('/teams/:id/members/:userId', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.updateMemberRole(req.params.id, req.params.userId, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.delete('/teams/:id/members/:userId', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.removeTeamMember(req.params.id, req.params.userId, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/join-link', requireAccount, async (req, res, next) => {
+		try {
+			teams.validate.assertKnownFields(req.body || {}, []);
+			res.json(await teams.createJoinLink(req.params.id, req.actor.userId));
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.delete('/teams/:id/join-link', requireAccount, async (req, res, next) => {
+		try {
+			teams.validate.assertKnownFields(req.body || {}, []);
+			res.json(await teams.revokeJoinLink(req.params.id, req.actor.userId));
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/join-requests', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.listJoinRequests(req.params.id, req.actor.userId)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/join-requests/:requestId', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.reviewJoinRequest(req.params.id, req.params.requestId, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/ownership-transfer', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.proposeOwnershipTransfer(req.params.id, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/ownership-transfer/:transferId', requireAccount, async (req, res, next) => {
+		try {
+			teams.validate.assertKnownFields(req.body || {}, []);
+			res.json(await teams.acceptOwnershipTransfer(req.params.id, req.params.transferId, req.actor.userId));
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.delete('/teams/:id/ownership-transfer/:transferId', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.cancelOwnershipTransfer(req.params.id, req.params.transferId, req.actor.userId)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/archive', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.archiveTeam(req.params.id, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/restore', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.restoreTeam(req.params.id, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+
 	// Private project workspaces. Every lookup starts from the session account;
 	// the public code is a locator and never an authorization shortcut.
 	api.use('/projects', (req, res, next) => process.env.MEGU_PROJECTS_ENABLED === '0'
@@ -972,7 +1091,7 @@ function router(deps = {}) {
 				: req.query.includeClosed === 'false' ? 'active' : 'all';
 			res.json(await projects.listProjectDirectory(req.actor.userId, {
 				bucket, search: req.query.q, assignedOnly: req.query.assigned === 'true',
-				cursor: req.query.cursor, limit: req.query.limit,
+				cursor: req.query.cursor, limit: req.query.limit, teamId: req.query.teamId,
 			}));
 		}
 		catch (error) { next(error); }
@@ -980,7 +1099,7 @@ function router(deps = {}) {
 
 	api.post('/projects', requireAccount, async (req, res, next) => {
 		try {
-			const project = await projects.createProject({ ownerUserId: req.actor.userId, ...(req.body || {}) });
+			const project = await projects.createProject({ ...(req.body || {}), ownerUserId: req.actor.userId });
 			res.status(201).json({ project });
 		}
 		catch (error) {
@@ -1056,6 +1175,16 @@ function router(deps = {}) {
 		catch (error) {
 			if (!failProject(res, error)) next(error);
 		}
+	});
+
+	api.post('/projects/:code/members', requireAccount, async (req, res, next) => {
+		try { res.json(await projects.addTeamMembers(req.params.code, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failProject(res, error)) next(error); }
+	});
+
+	api.post('/projects/:code/team', requireAccount, async (req, res, next) => {
+		try { res.json(await projects.convertProjectToTeam(req.params.code, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failProject(res, error)) next(error); }
 	});
 
 	api.patch('/projects/:code/members/:memberId', requireAccount, async (req, res, next) => {
