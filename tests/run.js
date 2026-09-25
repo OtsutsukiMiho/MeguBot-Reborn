@@ -17,6 +17,7 @@ const SUITES = [
 	['audio-queue.test.js', 'the TTS queue — one clip, spoken once'],
 	['youtube-audio.test.js', 'YouTube audio — safe input, explicit selection and queue controls'],
 	['voice-announce.test.js', 'saying who arrived — once, not once per reconnect'],
+	['reminder-schedule.test.js', 'daily reminders — a missed day is caught up once, not once per day'],
 	['health-log.test.js', 'the health log — it describes an incident, it never causes one'],
 	['locales.test.js', 'the locale registry — a third language is translations, not code'],
 	['split.test.js', 'dividing an expense — exact, percentage and weighted, always reconciling'],

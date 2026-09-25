@@ -605,34 +605,52 @@ client.once(Events.ClientReady, async (readyClient) => {
 		}
 	}
 
+	// A tick can outlast the five-second interval (a slow send, a slow
+	// database), and two ticks reading the same due row would send it twice.
+	let reminderTickRunning = false;
+	const REMINDER_SEND_FAILED = Symbol('reminder_send_failed');
+	const { nextOccurrence } = require('../../core/reminder-schedule.js');
+
 	setInterval(async () => {
+		if (reminderTickRunning) return;
+		reminderTickRunning = true;
 		try {
 			// Polling the database on a timer is fine; the rule is about Discord.
-			// But the row is deleted before the message is sent, so running this
-			// while blocked would drop the reminder on the floor as well as add
-			// traffic. Skipping the whole tick leaves everything due, and it goes
-			// out on the first tick after the block clears.
+			// Skipping the whole tick while blocked leaves everything due, and it
+			// goes out on the first tick after the block clears.
 			if (discordBlock.blocked()) return;
 
 			const now = Date.now();
 			const activeReminders = await database.getActiveReminders();
 			for (const r of activeReminders) {
 				if (now >= r.reminder_time) {
+					const guild = client.guilds.cache.get(r.guild_id);
+					const channel = guild ? guild.channels.cache.get(r.channel_id) : null;
+
+					// Send first, then consume. The row used to be deleted before the
+					// send, so a refused send lost the reminder for good.
+					let sent = true;
+					if (channel) {
+						const result = await discordCall('sending a reminder', () => channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`), REMINDER_SEND_FAILED);
+						sent = result !== REMINDER_SEND_FAILED;
+					}
+
+					// Refused because we are blocked: keep it due and stop touching
+					// Discord. Any other refusal (a deleted channel, a lost
+					// permission) is consumed anyway — retrying a 403 every five
+					// seconds is the invalid-request storm DISCORD-RATE-LIMITS.md 3c
+					// warns about.
+					if (!sent && discordBlock.blocked()) return;
+
 					if (r.recurring) {
-						const nextTime = r.reminder_time + 86400000;
-						await database.updateReminderTime(r.id, nextTime);
+						// A missed day is caught up once, not once per missed day.
+						await database.updateReminderTime(r.id, nextOccurrence(r.reminder_time, now));
 					}
 					else {
 						await database.deleteReminder(r.id);
 					}
 
-					const guild = client.guilds.cache.get(r.guild_id);
 					if (!guild) continue;
-
-					const channel = guild.channels.cache.get(r.channel_id);
-					if (channel) {
-						await discordCall('sending a reminder', () => channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`));
-					}
 
 					const member = await discordCall('fetching a reminder recipient', () => guild.members.fetch(r.user_id));
 					const botMember = guild.members.me;
@@ -661,6 +679,9 @@ client.once(Events.ClientReady, async (readyClient) => {
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `Error in reminders interval: ${error.toString()}`);
+		}
+		finally {
+			reminderTickRunning = false;
 		}
 	}, 5000);
 });
