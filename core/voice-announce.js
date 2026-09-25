@@ -398,8 +398,14 @@ function createSpeakerTracker({ regroupMs = DEFAULT_REGROUP_MS } = {}) {
  * How long Megu waits after the first arrival before speaking, so a group that
  * comes in together is named in one line. Long enough to catch friends clicking
  * into a channel together, short enough that the name is still news.
+ *
+ * The window is counted from the first arrival and is never extended, so this
+ * is also the most a name is ever held. Synthesis adds its own half-second or
+ * so on top, which is why this is not three seconds: by then the person has
+ * already said hello themselves. Someone arriving just after the window gets
+ * their own line, queued behind the first, never over it.
  */
-const DEFAULT_BATCH_MS = 3 * 1000;
+const DEFAULT_BATCH_MS = 1500;
 
 /**
  * Past this many names a sentence stops being information and becomes a roll
