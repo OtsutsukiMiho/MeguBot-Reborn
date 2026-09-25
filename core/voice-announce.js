@@ -394,8 +394,141 @@ function createSpeakerTracker({ regroupMs = DEFAULT_REGROUP_MS } = {}) {
 	};
 }
 
+/**
+ * How long Megu waits after the first arrival before speaking, so a group that
+ * comes in together is named in one line. Long enough to catch friends clicking
+ * into a channel together, short enough that the name is still news.
+ */
+const DEFAULT_BATCH_MS = 3 * 1000;
+
+/**
+ * Past this many names a sentence stops being information and becomes a roll
+ * call. The rest are counted, not read.
+ */
+const DEFAULT_BATCH_MAX_NAMES = 4;
+
+/**
+ * "A, B และ C". A list is read differently in Thai and English, and TTS in the
+ * wrong language mangles the conjunction, so the join follows the voice.
+ */
+function joinNames(names, { lang = 'th', maxNames = DEFAULT_BATCH_MAX_NAMES } = {}) {
+	const list = (Array.isArray(names) ? names : []).filter(name => typeof name === 'string' && name.trim());
+	if (list.length === 0) return '';
+	const english = String(lang).toLowerCase().startsWith('en');
+	const and = english ? 'and' : 'และ';
+	const limit = Math.max(1, resolveCount(maxNames, DEFAULT_BATCH_MAX_NAMES));
+	if (list.length > limit) {
+		const shown = list.slice(0, limit);
+		const others = list.length - limit;
+		const rest = english ? `${others} ${others === 1 ? 'other' : 'others'}` : `อีก ${others} คน`;
+		return `${shown.join(', ')} ${and} ${rest}`;
+	}
+	if (list.length === 1) return list[0];
+	return `${list.slice(0, -1).join(', ')} ${and} ${list[list.length - 1]}`;
+}
+
+/**
+ * Several arrivals, one sentence.
+ *
+ * The guard above decides *whether* a name is worth saying. This decides *how*:
+ * three friends arriving together used to be three clips, one after another,
+ * over the top of whoever was talking. Dropping names would lose the thing the
+ * feature is for, so instead the names are held for a moment and read as one
+ * line — the same information at a third of the interruption.
+ *
+ * One person arriving alone is spoken exactly as before, with the server's own
+ * template, just a few seconds later.
+ *
+ * Keyed by guild, channel and event: a join and a leave are different
+ * sentences, and two rooms are two audiences.
+ */
+function createAnnounceBatcher({
+	windowMs = DEFAULT_BATCH_MS,
+	maxNames = DEFAULT_BATCH_MAX_NAMES,
+	setTimer = setTimeout,
+	clearTimer = clearTimeout,
+} = {}) {
+	const defaultWindowMs = resolveMs(windowMs, DEFAULT_BATCH_MS);
+	/** key -> { entries: [{ name, single }], render, speak, timer } */
+	const pending = new Map();
+
+	function flush(key) {
+		const batch = pending.get(key);
+		if (!batch) return;
+		pending.delete(key);
+		if (batch.timer) clearTimer(batch.timer);
+		const { entries } = batch;
+		if (entries.length === 0) return;
+		const text = entries.length === 1
+			? entries[0].single
+			: batch.render(joinNames(entries.map(entry => entry.name), { lang: batch.lang, maxNames }));
+		if (text) batch.speak(text, entries.length);
+	}
+
+	return {
+		/**
+		 * Hold one announcement.
+		 *
+		 * `single` is the finished line for this person alone; `render(names)`
+		 * builds the group line from the joined names. `speak` is the latest
+		 * caller's, so the flush goes to the room as it is now.
+		 *
+		 * A window of 0 speaks immediately, which is the old behaviour for a
+		 * server that prefers it.
+		 */
+		add({ guildId, channelId, event, userId, name, single, render, speak, lang, windowMs: overrideMs } = {}) {
+			if (!guildId || !channelId || !isEvent(event) || typeof speak !== 'function') return false;
+			if (typeof single !== 'string' || !single) return false;
+			const wait = resolveMs(overrideMs, defaultWindowMs);
+			if (wait === 0) {
+				speak(single, 1);
+				return true;
+			}
+			const key = `${guildId}:${channelId}:${event}`;
+			let batch = pending.get(key);
+			if (!batch) {
+				batch = { entries: [], timer: null };
+				pending.set(key, batch);
+				batch.timer = setTimer(() => flush(key), wait);
+				if (typeof batch.timer?.unref === 'function') batch.timer.unref();
+			}
+			// A reconnect inside the window is the same arrival, not a second name.
+			if (userId && batch.entries.some(entry => entry.userId === userId)) return true;
+			batch.entries.push({ userId, name: typeof name === 'string' && name ? name : single, single });
+			batch.render = typeof render === 'function' ? render : names => names;
+			batch.speak = speak;
+			batch.lang = lang;
+			return true;
+		},
+
+		/** Speak everything held for a guild now — Megu is about to leave. */
+		flushGuild(guildId) {
+			for (const key of [...pending.keys()]) {
+				if (key.startsWith(`${guildId}:`)) flush(key);
+			}
+		},
+
+		/** Drop what is held without speaking it — the room has emptied. */
+		forget(guildId) {
+			for (const [key, batch] of [...pending]) {
+				if (!key.startsWith(`${guildId}:`)) continue;
+				if (batch.timer) clearTimer(batch.timer);
+				pending.delete(key);
+			}
+		},
+
+		size() {
+			return pending.size;
+		},
+	};
+}
+
 module.exports = {
 	createAnnounceGuard,
+	createAnnounceBatcher,
+	joinNames,
+	DEFAULT_BATCH_MS,
+	DEFAULT_BATCH_MAX_NAMES,
 	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,

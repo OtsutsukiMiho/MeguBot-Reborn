@@ -1007,12 +1007,15 @@ const voiceStateProcessing = new Set();
 // feature gets switched off. See core/voice-announce.js.
 const {
 	createAnnounceGuard,
+	createAnnounceBatcher,
 	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,
 	cooldownMsFromSeconds,
 } = require('../../core/voice-announce.js');
 const announceGuard = createAnnounceGuard();
+// Friends arriving together are named in one line instead of one clip each.
+const announceBatcher = createAnnounceBatcher();
 const voiceGreetingGuard = createVoiceGreetingGuard();
 
 // Who spoke last in each guild, so a run of messages from one person is read as
@@ -1089,6 +1092,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		// and should be greeted, however recently they were last announced —
 		// and whoever types first is introducing themselves to a new room.
 		announceGuard.forget(guild.id);
+		announceBatcher.forget(guild.id);
 		speakerTracker.forget(guild.id);
 		voiceGreetingGuard.reset(guild.id);
 
@@ -1214,6 +1218,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		&& oldState.id !== client.user.id;
 
 	let announceLimits = {};
+	let announceBatchMs;
 	let quietTemplate = 'คนเข้าออกเยอะ ขอเงียบแป๊บนึงนะ';
 	let announceVolume;
 	if (isJoinEvent || isLeaveEvent) {
@@ -1227,6 +1232,35 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			quietMs: cooldownMsFromSeconds(await database.getGuildVar(guild.id, 'tts_vc_announce_quiet_sec')),
 		};
 		quietTemplate = (await database.getGuildVar(guild.id, 'tts_vc_announce_quiet_template')) || quietTemplate;
+		announceBatchMs = cooldownMsFromSeconds(await database.getGuildVar(guild.id, 'tts_vc_announce_batch_sec'));
+	}
+
+	/**
+	 * Hold a name for a moment so a group arriving together becomes one line.
+	 * Alone, the person's own finished line is spoken; together, the server's
+	 * template is filled with every name at once.
+	 */
+	function announce(event, userId, spokenNick, single, template) {
+		announceBatcher.add({
+			guildId: guild.id,
+			channelId: currentChannel.id,
+			event,
+			userId,
+			name: spokenNick,
+			single,
+			lang: ttsLang,
+			windowMs: announceBatchMs,
+			render: names => template
+				.replace(/{displayname}/gi, names)
+				.replace(/{nickname}/gi, names)
+				.replace(/{username}/gi, names)
+				.replace(/{tag}/gi, names)
+				.replace(/{server}/gi, guild.name),
+			speak: (text, count) => {
+				if (count > 1) BotLogs('Tts', `${COLOR.blue}VC ${event} batch of ${count} -> "${text}" ${COLOR.gray}(${guild.name})`);
+				speakLine(text, announceVolume);
+			},
+		});
 	}
 
 	/**
@@ -1283,7 +1317,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 				stamp(`VC Join Greeting spoken: "${formattedWelcome}"`),
 				guild.name
 			).catch(() => undefined);
-			speakLine(formattedWelcome, announceVolume);
+			announce('join', member.id, spokenNick, formattedWelcome, vcWelcomeTemplate);
 		}
 	}
 
@@ -1319,7 +1353,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 				stamp(`VC Leave Goodbye spoken: "${formattedLeave}"`),
 				guild.name
 			).catch(() => undefined);
-			speakLine(formattedLeave, announceVolume);
+			announce('leave', member.id, spokenNick, formattedLeave, vcLeaveTemplate);
 		}
 	}
 

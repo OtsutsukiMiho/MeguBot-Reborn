@@ -9,6 +9,8 @@
 const assert = require('node:assert');
 const {
 	createAnnounceGuard,
+	createAnnounceBatcher,
+	joinNames,
 	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,
@@ -430,6 +432,84 @@ console.log('\nthe tracker keeps servers apart');
 	assert.strictEqual(always.shouldName({ guildId: G, userId: FIG, now: t }), true);
 	assert.strictEqual(always.shouldName({ guildId: G, userId: FIG, now: t + 1 }), true);
 	ok('a regroup window of zero names every message');
+}
+
+// --- Batching: several arrivals, one sentence ------------------------------
+{
+	// A fake clock: timers fire only when the test says so.
+	let timers = [];
+	const setTimer = fn => {
+		const timer = { fn };
+		timers.push(timer);
+		return timer;
+	};
+	const clearTimer = timer => {
+		timers = timers.filter(other => other !== timer);
+	};
+	const fire = () => {
+		const due = timers;
+		timers = [];
+		due.forEach(timer => timer.fn());
+	};
+	const spoken = [];
+	const speak = (text, count) => spoken.push({ text, count });
+	const batcher = createAnnounceBatcher({ setTimer, clearTimer });
+	const render = names => `${names} เข้าดิสมา`;
+	const add = (userId, name, extra = {}) => batcher.add({ guildId: G, channelId: 'vc1', event: 'join', userId, name, single: `${name} เข้าดิสมา`, render, speak, ...extra });
+
+	add('u1', 'Jane');
+	assert.strictEqual(spoken.length, 0, 'nothing is said inside the window');
+	fire();
+	assert.deepStrictEqual(spoken, [{ text: 'Jane เข้าดิสมา', count: 1 }]);
+	ok('one arrival is spoken alone, with its own line');
+
+	spoken.length = 0;
+	add('u1', 'Jane');
+	add('u2', 'Ken');
+	add('u3', 'Mark');
+	assert.strictEqual(timers.length, 1, 'one window per room and event, not one per person');
+	fire();
+	assert.deepStrictEqual(spoken, [{ text: 'Jane, Ken และ Mark เข้าดิสมา', count: 3 }]);
+	ok('three arrivals together become one sentence');
+
+	spoken.length = 0;
+	add('u1', 'Jane');
+	add('u1', 'Jane');
+	fire();
+	assert.deepStrictEqual(spoken, [{ text: 'Jane เข้าดิสมา', count: 1 }]);
+	ok('a reconnect inside the window is not a second name');
+
+	spoken.length = 0;
+	add('u1', 'Jane');
+	batcher.add({ guildId: G, channelId: 'vc1', event: 'leave', userId: 'u9', name: 'Bo', single: 'Bo ออกไปแล้ว', render, speak });
+	batcher.add({ guildId: G, channelId: 'vc2', event: 'join', userId: 'u8', name: 'Al', single: 'Al เข้าดิสมา', render, speak });
+	fire();
+	assert.strictEqual(spoken.length, 3, 'joins, leaves and other rooms are separate sentences');
+	ok('join, leave and another room are never merged');
+
+	spoken.length = 0;
+	add('u1', 'Jane', { windowMs: 0 });
+	assert.deepStrictEqual(spoken, [{ text: 'Jane เข้าดิสมา', count: 1 }]);
+	assert.strictEqual(timers.length, 0);
+	ok('a window of zero speaks immediately, the old behaviour');
+
+	spoken.length = 0;
+	add('u1', 'Jane');
+	batcher.forget(G);
+	fire();
+	assert.strictEqual(spoken.length, 0);
+	assert.strictEqual(batcher.size(), 0);
+	ok('an emptied room drops what it was holding');
+
+	assert.strictEqual(batcher.add({ guildId: G, channelId: 'vc1', event: 'dance', single: 'x', speak }), false);
+	assert.strictEqual(batcher.add({ guildId: G, channelId: 'vc1', event: 'join', single: '', speak }), false);
+	ok('a malformed announcement is refused');
+
+	assert.strictEqual(joinNames(['A', 'B', 'C', 'D', 'E', 'F']), 'A, B, C, D และ อีก 2 คน');
+	assert.strictEqual(joinNames(['A', 'B'], { lang: 'en' }), 'A and B');
+	assert.strictEqual(joinNames(['A', 'B', 'C'], { lang: 'en-US', maxNames: 2 }), 'A, B and 1 other');
+	assert.strictEqual(joinNames([]), '');
+	ok('names are joined in the voice\'s language, and a crowd is counted');
 }
 
 console.log(`\n${n} checks passed\n`);
