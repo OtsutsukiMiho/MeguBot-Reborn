@@ -1223,6 +1223,71 @@ async function convertProjectToTeam(code, actorUserId, input = {}) {
 	});
 }
 
+/**
+ * What each workflow moment says, in both languages. Kept to the title and the
+ * decision: the reason a piece of work was returned is the one detail the
+ * person needs before they open anything.
+ */
+const WORKFLOW_NOTICES = {
+	assigned: ({ project, topic }) => ({
+		subjectEn: `New work in ${project}`, subjectTh: `งานใหม่ใน ${project}`,
+		bodyEn: `You were assigned #${topic.number} ${topic.title}.`, bodyTh: `คุณได้รับมอบหมายงาน #${topic.number} ${topic.title}`,
+	}),
+	review_requested: ({ project, topic }) => ({
+		subjectEn: `Review requested in ${project}`, subjectTh: `มีงานรอตรวจใน ${project}`,
+		bodyEn: `#${topic.number} ${topic.title} is ready for your review.`, bodyTh: `งาน #${topic.number} ${topic.title} ส่งมาให้ตรวจแล้ว`,
+	}),
+	returned: ({ project, topic, reason }) => ({
+		subjectEn: `Changes requested in ${project}`, subjectTh: `งานถูกส่งกลับให้แก้ใน ${project}`,
+		bodyEn: `#${topic.number} ${topic.title} was returned: ${reason}`, bodyTh: `งาน #${topic.number} ${topic.title} ถูกส่งกลับ: ${reason}`,
+	}),
+	approved: ({ project, topic }) => ({
+		subjectEn: `Approved in ${project}`, subjectTh: `งานผ่านแล้วใน ${project}`,
+		bodyEn: `#${topic.number} ${topic.title} was approved.`, bodyTh: `งาน #${topic.number} ${topic.title} ได้รับการอนุมัติแล้ว`,
+	}),
+};
+
+/**
+ * Work landing on somebody, or coming back to them, is the one thing they
+ * cannot be expected to go looking for. Without this a review request sat
+ * unseen until someone happened to open the project.
+ *
+ * Unlike blocker alerts this is not opt-in: it goes out unless the project has
+ * turned direct messages off, and each person's own notification preference
+ * still decides whether it arrives by Discord, email, or not at all. The actor
+ * is never told about their own action.
+ */
+async function notifyWorkflow(client, project, topic, actorUserId, userIds, kind, extra = {}) {
+	const recipients = [...new Set(userIds)].filter(userId => userId && userId !== actorUserId);
+	if (recipients.length === 0) return;
+	const setting = await client.query('SELECT dm_enabled FROM project_notification_settings WHERE project_id=$1', [project.id]);
+	if (setting.rows[0]?.dm_enabled === false) return;
+	const base = String(process.env.FRONTEND_URL || '').replace(/\/$/, '');
+	const copy = WORKFLOW_NOTICES[kind]({
+		project: notificationText(project.title),
+		topic: { number: topic.number, title: notificationText(topic.title) },
+		reason: notificationText(extra.reason || ''),
+	});
+	for (const userId of recipients) {
+		await notifications.enqueueWithClient(client, {
+			userId,
+			eventType: `project_topic_${kind}`,
+			dedupeKey: `project-${kind}:${project.id}:${topic.id}:${extra.revision ?? topic.revision}:${userId}`,
+			payload: {
+				projectId: project.id,
+				...copy,
+				ctaLabelEn: 'Open project', ctaLabelTh: 'เปิดโปรเจกต์',
+				ctaUrl: base ? `${base}/p/${project.code}?view=topics` : null,
+			},
+		});
+	}
+}
+
+async function topicAssigneeIds(client, projectId, topicId) {
+	const result = await client.query('SELECT user_id FROM project_topic_assignees WHERE project_id=$1 AND topic_id=$2', [projectId, topicId]);
+	return result.rows.map(row => row.user_id);
+}
+
 async function setTopicAssignees(code, topicId, actorUserId, input = {}) {
 	assertKnownFields(input, ['userIds', 'primaryUserId', 'expectedRevision']);
 	return transaction(async (client) => {
@@ -1248,6 +1313,7 @@ async function setTopicAssignees(code, topicId, actorUserId, input = {}) {
 		const requestedPrimary = text(input.primaryUserId);
 		if (requestedPrimary && !ids.includes(requestedPrimary)) throw codedError('assignee_invalid');
 		const primary = requestedPrimary || null;
+		const previous = new Set(await topicAssigneeIds(client, project.id, topic.id));
 		await client.query('DELETE FROM project_topic_assignees WHERE project_id=$1 AND topic_id=$2', [project.id, topic.id]);
 		for (const userId of ids) await client.query(
 			'INSERT INTO project_topic_assignees (project_id, topic_id, user_id, is_primary) VALUES ($1,$2,$3,$4)',
@@ -1256,6 +1322,7 @@ async function setTopicAssignees(code, topicId, actorUserId, input = {}) {
 		const changed = await client.query('UPDATE project_topics SET revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *', [project.id, topic.id]);
 		await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1', [project.id]);
 		await addEvent(client, project.id, topic.id, actorUserId, 'assignments_changed', { userIds: ids, primaryUserId: primary });
+		await notifyWorkflow(client, project, topic, actorUserId, ids.filter(userId => !previous.has(userId)), 'assigned', { revision: topic.revision + 1 });
 		return { topic: topicRow(changed.rows[0]), assignees: ids.map(userId => ({ userId, primary: userId === primary })) };
 	});
 }
@@ -1296,6 +1363,7 @@ async function createTopic(code, actorUserId, input = {}) {
 			topic.assignees.push({ userId, primary: index === 0 });
 		}
 		await projectReminders.rebuildForTopicWithClient(client, project.id, topic.id);
+		await notifyWorkflow(client, project, topic, actorUserId, assigneeIds, 'assigned');
 		await addEvent(client, project.id, topic.id, actorUserId, 'topic_created', { title, number: topic.number, startsAt: schedule.startsAt, deadlineAt: schedule.deadlineAt, afterProjectTarget: Boolean(schedule.deadlineAt && project.deadlineAt && new Date(schedule.deadlineAt) > new Date(project.deadlineAt)) });
 		const updated = await client.query('UPDATE projects SET revision = revision + 1, updated_at = now() WHERE id = $1 RETURNING revision', [project.id]);
 		return { topic, projectRevision: updated.rows[0].revision };
@@ -1396,6 +1464,10 @@ async function reportProgress(code, topicId, actorUserId, input = {}) {
 				});
 			}
 		}
+		if (report.workflow === 'in_review' && topic.workflow !== 'in_review') {
+			const leads = await client.query('SELECT user_id FROM project_memberships WHERE project_id=$1 AND revoked_at IS NULL AND role = ANY($2::text[])', [project.id, ['owner', 'lead']]);
+			await notifyWorkflow(client, project, topic, actorUserId, leads.rows.map(row => row.user_id), 'review_requested', { revision: topic.revision + 1 });
+		}
 		await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1', [project.id]);
 		const response = { topic: topicRow(changed.rows[0]), report: reportRow(inserted.rows[0]) };
 		await client.query(
@@ -1436,6 +1508,9 @@ async function reviewTopic(code, topicId, actorUserId, input = {}) {
 		const changed = await client.query('UPDATE project_topics SET workflow=$3, progress=$4, revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *', [project.id, topic.id, workflow, progress]);
 		await projectReminders.rebuildForTopicWithClient(client, project.id, topic.id);
 		await addEvent(client, project.id, topic.id, actorUserId, `topic_${action === 'return' ? 'returned' : action === 'reopen' ? 'reopened' : 'completed'}`, { reason, progress });
+		if (action !== 'reopen') {
+			await notifyWorkflow(client, project, topic, actorUserId, await topicAssigneeIds(client, project.id, topic.id), action === 'return' ? 'returned' : 'approved', { reason, revision: topic.revision + 1 });
+		}
 		await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1', [project.id]);
 		return { topic: topicRow(changed.rows[0]) };
 	});

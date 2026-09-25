@@ -120,13 +120,50 @@ async function main() {
 	assert.strictEqual(approved.topic.workflow, 'completed');
 	assert.strictEqual(approved.topic.progress, 100);
 
+	// Work landing on somebody, or coming back to them, is told to them — and
+	// never to whoever did it. invitedId owns the project and is assigned;
+	// ownerId, now a lead, did every step above.
+	const workflowNotices = async userId => (await core.db.query(
+		`SELECT event_type, payload FROM notification_events
+		 WHERE user_id=$1 AND payload->>'projectId'=$2 AND event_type LIKE 'project_topic_%' ORDER BY created_at`,
+		[userId, project.id],
+	)).rows;
+	assert.deepStrictEqual((await workflowNotices(invitedId)).map(row => row.event_type),
+		['project_topic_assigned', 'project_topic_review_requested', 'project_topic_approved']);
+	assert.deepStrictEqual(await workflowNotices(ownerId), [], 'nobody is notified about their own action');
+
+	const reopenedTopic = await core.projects.reviewTopic(project.code, firstTopic.topic.id, ownerId, {
+		action: 'reopen', reason: 'Mobile menu overlaps the logo.', progress: 80, expectedRevision: approved.topic.revision,
+	});
+	const resubmitted = await core.projects.reportProgress(project.code, firstTopic.topic.id, invitedId, {
+		progress: 95, summary: 'Menu fixed.', requestReview: true,
+		expectedRevision: reopenedTopic.topic.revision, idempotencyKey: 'report-3',
+	});
+	const returned = await core.projects.reviewTopic(project.code, firstTopic.topic.id, ownerId, {
+		action: 'return', reason: 'Still overlaps on small phones.', expectedRevision: resubmitted.topic.revision,
+	});
+	assert.strictEqual(returned.topic.workflow, 'in_progress');
+	const afterReturn = await workflowNotices(invitedId);
+	assert.strictEqual(afterReturn.length, 4, 'a reopen is not announced; the return is');
+	assert.strictEqual(afterReturn[3].event_type, 'project_topic_returned');
+	assert.match(afterReturn[3].payload.bodyEn, /Still overlaps on small phones\./, 'the reason travels with the return');
+	assert.deepStrictEqual((await workflowNotices(ownerId)).map(row => row.event_type), ['project_topic_review_requested'],
+		'a lead hears about a review someone else asked for');
+	const finalReview = await core.projects.reportProgress(project.code, firstTopic.topic.id, invitedId, {
+		progress: 99, summary: 'Checked on a small phone.', requestReview: true,
+		expectedRevision: returned.topic.revision, idempotencyKey: 'report-4',
+	});
+	const reapproved = await core.projects.reviewTopic(project.code, firstTopic.topic.id, ownerId, {
+		action: 'approve', expectedRevision: finalReview.topic.revision,
+	});
+
 	const detail = await core.projects.getProjectByCode(project.code, ownerId);
 	assert.strictEqual(detail.project.progress, 100);
 	assert.strictEqual(detail.project.topicCount, 1);
 	assert.strictEqual(detail.me.userId, ownerId);
-	assert.strictEqual(detail.topics[0].latestReport.summary, 'Ready for review.');
+	assert.strictEqual(detail.topics[0].latestReport.summary, 'Checked on a small phone.');
 	assert.ok(detail.events.some(event => event.type === 'topic_completed'));
-	await core.projects.updateTopic(project.code, firstTopic.topic.id, ownerId, { archived: true, expectedRevision: approved.topic.revision });
+	await core.projects.updateTopic(project.code, firstTopic.topic.id, ownerId, { archived: true, expectedRevision: reapproved.topic.revision });
 	const withoutTopics = await core.projects.getProjectByCode(project.code, ownerId);
 	assert.strictEqual(withoutTopics.project.topicCount, 0);
 	assert.strictEqual(withoutTopics.project.progress, 0, 'archiving removes a topic from the rollup denominator');
