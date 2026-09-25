@@ -18,6 +18,7 @@ const { createDispatcher } = require('../../adapters/notifications/dispatcher.js
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createProjectDeadlineSweep } = require('../../adapters/notifications/project-deadlines.js');
 const { createProjectChannelDispatcher } = require('../../adapters/notifications/project-channel-dispatcher.js');
+const { botInviteUrl } = require('../../adapters/discord/invite.js');
 const { createBlockGuard, INVALID_REQUEST_STOP_THRESHOLD } = require('../../adapters/discord/rate-limit.js');
 const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
 const healthLog = require('../../adapters/health/health-log.js');
@@ -1307,7 +1308,7 @@ app.get('/api/guilds', async (req, res) => {
 		}
 
 		const botInfo = guildInfoMap[gid] || {};
-		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${gid}`;
+		const inviteUrl = botInviteUrl(clientId, gid);
 
 		const isOwner = Boolean((adminGuild && adminGuild.owner) || g.owner);
 		let role = 'member';
@@ -1335,7 +1336,7 @@ app.get('/api/guilds', async (req, res) => {
 
 		const botInfo = guildInfoMap[gid] || {};
 		const isBotInGuild = botOnline ? !!presenceMap[gid] : null;
-		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${gid}`;
+		const inviteUrl = botInviteUrl(clientId, gid);
 
 		enrichedGuilds.push({
 			...ag,
