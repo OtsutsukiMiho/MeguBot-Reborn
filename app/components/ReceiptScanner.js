@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { useCopy } from '../copy';
 import { drawToCanvas } from '../lib/scan';
 import { readReceipt, releaseReceiptReader } from '../lib/receipt';
+import { planReceipt } from '../../core/receipt-split.js';
 
 /**
  * Photograph the bill, and get the bill.
@@ -41,6 +42,14 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 	const [paidBy, setPaidBy] = useState(defaultPaidBy || participants[0]?.id || '');
 	const [problem, setProblem] = useState('');
 	const [saving, setSaving] = useState(false);
+	// Which line's "who shared this" picker is open. One at a time, because on
+	// a phone eleven names under every dish is a wall.
+	const [picking, setPicking] = useState(null);
+
+	// Everyone this bill can be split between. A line that names nobody is
+	// shared by all of them, which is also what every line starts as.
+	const everyone = participants.filter(p => shareParticipantIds.includes(p.id));
+	const nameOf = id => participants.find(p => p.id === id)?.displayName || '';
 
 	function reset() {
 		setReading(null);
@@ -70,6 +79,8 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 				include: true,
 				label: item.quantity && item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label,
 				baht: (item.amountSatang / 100).toFixed(2),
+				kind: 'dish',
+				sharers: [],
 			})));
 
 			// A picture that produced nothing is not an error — it is a bad
@@ -88,8 +99,33 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 		setRows(list => list.map(row => (row.id === id ? { ...row, ...patch } : row)));
 	}
 
+	function toggleSharer(row, personId) {
+		const current = row.sharers || [];
+		edit(row.id, { sharers: current.includes(personId) ? current.filter(id => id !== personId) : [...current, personId] });
+	}
+
+	function sharedByLabel(row) {
+		if (row.kind === 'charge') return t.receipt.byWhatTheyOrdered;
+		const named = (row.sharers || []).filter(id => everyone.some(p => p.id === id));
+		if (named.length === 0 || named.length === everyone.length) return t.receipt.sharedByEveryone;
+		return named.map(nameOf).join(', ');
+	}
+
 	const chosen = rows.filter(row => row.include && Number(row.baht) > 0);
 	const chosenSatang = chosen.reduce((sum, row) => sum + Math.round(Number(row.baht) * 100), 0);
+
+	// The same planner, and the same rounding, the server will use: what this
+	// shows per person is what gets recorded.
+	let plan = null;
+	try {
+		plan = everyone.length ? planReceipt({
+			everyone: everyone.map(p => p.id),
+			lines: chosen.map(row => ({ label: row.label.trim() || t.receipt.untitled, amountSatang: Math.round(Number(row.baht) * 100), kind: row.kind, sharers: row.sharers })),
+		}) : null;
+	}
+	catch {
+		plan = null;
+	}
 
 	// Against the number the restaurant printed, not against what this read.
 	const printed = reading?.totalSatang ?? null;
@@ -105,18 +141,19 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 	 * ledger in a state nobody can reason about.
 	 */
 	async function addAll() {
-		if (chosen.length === 0) return;
+		if (!plan || plan.expenses.length === 0) return;
 		setSaving(true);
 		setProblem('');
 
 		let added = 0;
 		try {
-			for (const row of chosen) {
+			for (const expense of plan.expenses) {
 				await call('POST', '/expenses', {
-					label: row.label.trim() || t.receipt.untitled,
-					amountBaht: Number(row.baht),
+					label: expense.label,
+					amountSatang: expense.amountSatang,
 					paidBy,
-					shareParticipantIds,
+					shareParticipantIds: expense.shareParticipantIds,
+					split: expense.split,
 					periodId: periodId || undefined,
 				});
 				added++;
@@ -124,7 +161,7 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 			reset();
 		}
 		catch {
-			setProblem(added > 0 ? t.receipt.partial(added, chosen.length) : t.receipt.failed);
+			setProblem(added > 0 ? t.receipt.partial(added, plan.expenses.length) : t.receipt.failed);
 		}
 		finally {
 			setSaving(false);
@@ -198,6 +235,32 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 									onChange={e => edit(row.id, { baht: e.target.value })}
 									aria-label={t.expenses.amountField}
 								/>
+								{everyone.length > 1 && (
+									<button
+										type="button"
+										className="link-btn receipt-sharers"
+										disabled={row.kind === 'charge'}
+										aria-expanded={picking === row.id}
+										onClick={() => setPicking(open => (open === row.id ? null : row.id))}
+									>
+										{sharedByLabel(row)}
+									</button>
+								)}
+								{picking === row.id && row.kind !== 'charge' && (
+									<div className="receipt-people" role="group" aria-label={t.receipt.whoShared(row.label)}>
+										{everyone.map(person => (
+											<label key={person.id} className="receipt-person">
+												<input
+													type="checkbox"
+													checked={(row.sharers || []).includes(person.id)}
+													onChange={() => toggleSharer(row, person.id)}
+												/>
+												{person.displayName}
+											</label>
+										))}
+										<small className="quiet-note">{t.receipt.noneMeansEveryone}</small>
+									</div>
+								)}
 							</li>
 						))}
 					</ul>
@@ -221,15 +284,29 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 					{(reading.serviceSatang != null || reading.taxSatang != null) && (
 						<div className="receipt-extras">
 							{reading.serviceSatang != null && (
-								<button type="button" className="link-btn" onClick={() => setRows(list => [...list, { id: `svc-${list.length}`, include: true, label: t.receipt.serviceLine, baht: (reading.serviceSatang / 100).toFixed(2) }])}>
+								<button type="button" className="link-btn" onClick={() => setRows(list => [...list, { id: `svc-${list.length}`, include: true, label: t.receipt.serviceLine, baht: (reading.serviceSatang / 100).toFixed(2), kind: 'charge', sharers: [] }])}>
 									{t.receipt.addService(fmt.money(reading.serviceSatang))}
 								</button>
 							)}
 							{reading.taxSatang != null && (
-								<button type="button" className="link-btn" onClick={() => setRows(list => [...list, { id: `vat-${list.length}`, include: true, label: t.receipt.taxLine, baht: (reading.taxSatang / 100).toFixed(2) }])}>
+								<button type="button" className="link-btn" onClick={() => setRows(list => [...list, { id: `vat-${list.length}`, include: true, label: t.receipt.taxLine, baht: (reading.taxSatang / 100).toFixed(2), kind: 'charge', sharers: [] }])}>
 									{t.receipt.addTax(fmt.money(reading.taxSatang))}
 								</button>
 							)}
+						</div>
+					)}
+
+					{plan && everyone.length > 1 && (
+						<div className="receipt-per-person">
+							<span className="field-label" style={{ margin: 0 }}>{t.receipt.eachPays}</span>
+							<ul>
+								{everyone.map(person => (
+									<li key={person.id}>
+										<span>{person.displayName}</span>
+										<strong>{fmt.money(plan.perPerson[person.id] || 0)}</strong>
+									</li>
+								))}
+							</ul>
 						</div>
 					)}
 
@@ -248,7 +325,7 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 						<button
 							type="button"
 							className="btn btn-primary btn-block"
-							disabled={busy || saving || chosen.length === 0}
+							disabled={busy || saving || !plan || plan.expenses.length === 0}
 							onClick={addAll}
 						>
 							{saving ? t.common.saving : t.receipt.addAll(chosen.length, fmt.money(chosenSatang))}
@@ -262,7 +339,7 @@ export default function ReceiptScanner({ participants, defaultPaidBy, shareParti
 								type="button"
 								className="link-btn"
 								disabled={busy || saving}
-								onClick={() => setRows([{ id: 'whole', include: true, label: t.receipt.wholeBill, baht: (printed / 100).toFixed(2) }])}
+								onClick={() => setRows([{ id: 'whole', include: true, label: t.receipt.wholeBill, baht: (printed / 100).toFixed(2), kind: 'dish', sharers: [] }])}
 							>
 								{t.receipt.asOneLine(fmt.money(printed))}
 							</button>

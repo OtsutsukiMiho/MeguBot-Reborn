@@ -1862,6 +1862,11 @@ const en = {
 		failed: 'Could not read that picture',
 		partial: (added, total) => `Added ${added} of ${total} and then stopped — the rest are not in`,
 		unavailable: 'The reader is not installed on this server yet',
+		sharedByEveryone: 'Everyone',
+		byWhatTheyOrdered: 'By what each person ordered',
+		whoShared: label => `Who shared ${label}`,
+		noneMeansEveryone: 'Tick nobody and it is shared by everyone.',
+		eachPays: 'Each person pays',
 	},
 };
 

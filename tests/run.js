@@ -83,6 +83,7 @@ const SUITES = [
 	['health-log.test.js', 'the health log — it describes an incident, it never causes one'],
 	['locales.test.js', 'the locale registry — a third language is translations, not code'],
 	['split.test.js', 'dividing an expense — exact, percentage and weighted, always reconciling'],
+	['receipt-split.test.js', 'who ate what — dishes by sharer, charges by what each person ordered'],
 	['core.test.js', 'pure logic — money, permissions, tokens, the two axes'],
 	['obligations.test.js', 'who owes whom — several payers, late joiners, money sent to the wrong person'],
 	['promptpay.test.js', 'the PromptPay payload — checksum, accounts, amounts'],

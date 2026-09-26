@@ -1695,6 +1695,11 @@ const th = {
 		failed: 'อ่านรูปนี้ไม่ได้',
 		partial: (added, total) => `เพิ่มไปแล้ว ${added} จาก ${total} รายการ แล้วติดขัด — ที่เหลือยังไม่ได้เพิ่ม`,
 		unavailable: 'เซิร์ฟเวอร์นี้ยังไม่ได้ติดตั้งตัวอ่านใบเสร็จ',
+		sharedByEveryone: 'ทุกคน',
+		byWhatTheyOrdered: 'หารตามที่แต่ละคนสั่ง',
+		whoShared: label => `ใครกิน ${label} บ้าง`,
+		noneMeansEveryone: 'ไม่ติ๊กใครเลย = หารทุกคน',
+		eachPays: 'แต่ละคนจ่าย',
 	},
 };
 

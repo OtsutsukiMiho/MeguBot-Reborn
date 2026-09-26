@@ -3664,6 +3664,67 @@ textarea.form-control {
 	background: var(--due-soft);
 }
 
+/* Who shared this line. It sits under the dish, full width, because it is
+   read as part of the line — "Steak · Jane" — not as a fourth column. */
+.receipt-sharers {
+	grid-column: 2 / -1;
+	justify-self: start;
+	font-size: .82rem;
+	min-height: 32px;
+	text-align: left;
+}
+
+.receipt-sharers:disabled {
+	color: var(--muted);
+	text-decoration: none;
+	cursor: default;
+}
+
+.receipt-people {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35rem .6rem;
+	padding: .5rem .6rem;
+	border-radius: var(--r-sm);
+	background: var(--surface-2, var(--line));
+}
+
+/* 44px tall: this is tapped with a thumb, at a table, for every dish. */
+.receipt-person {
+	display: inline-flex;
+	align-items: center;
+	gap: .35rem;
+	min-height: 44px;
+	font-size: .9rem;
+}
+
+.receipt-people .quiet-note {
+	flex-basis: 100%;
+	margin: 0;
+}
+
+/* The answer to the only question anyone at the table is asking. */
+.receipt-per-person ul {
+	list-style: none;
+	margin: .35rem 0 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: .2rem;
+}
+
+.receipt-per-person li {
+	display: flex;
+	justify-content: space-between;
+	gap: .6rem;
+	font-size: .9rem;
+}
+
+.receipt-per-person strong {
+	font-variant-numeric: tabular-nums;
+}
+
 .receipt-extras {
 	display: flex;
 	flex-wrap: wrap;
