@@ -7,6 +7,7 @@ const roleMappings = require('../../core/server-role-mappings');
 const automaticRoles = require('../../core/server-role-automatic');
 const roleTeamCreation = require('../../core/server-role-team-creation');
 const roleTitles = require('../../core/server-role-titles');
+const billSummary = require('../../core/bill-summary.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
@@ -599,6 +600,9 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		paymentDueAt: activity.paymentDueAt,
 		createdAt: activity.createdAt,
 		role,
+		// Whether the organiser can post the summary back to Discord. A yes/no
+		// only: the guild and channel ids are not the page's business.
+		postsToDiscord: role === 'owner' && Boolean(activity.guildId && activity.channelId),
 		me: me ? { id: me.id, displayName: me.displayName, rsvp: me.rsvp } : null,
 		mine: mine.map(p => ({
 			id: p.id,
@@ -882,6 +886,8 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
  *        Sends private Discord notices through the separately-running bot.
  * @param {(destination: {guildId: string, channelId: string}) => Promise<object>} [deps.validateProjectChannel]
  *        Rechecks that the bot can view and send to an owner-selected channel.
+ * @param {(notice: {guildId: string, channelId: string, message: string, cta: object}) => Promise<{delivered: boolean}>} [deps.postChannelNotice]
+ *        Posts one message in the activity's Discord channel through the bot.
  */
 function router(deps = {}) {
 	const api = express.Router();
@@ -2425,6 +2431,49 @@ function router(deps = {}) {
 			if (['payment_option_invalid', 'payment_link_invalid', 'payment_destination_required'].includes(error.code || error.message)) {
 				return fail(res, 400, error.code || error.message);
 			}
+			next(error);
+		}
+	});
+
+	// One summary a minute per bill. A second click is a mistake, and every
+	// post is a Discord request (DISCORD-RATE-LIMITS.md rule 1).
+	const summaryPostedAt = new Map();
+	const SUMMARY_COOLDOWN_MS = 60 * 1000;
+
+	api.post('/a/:code/summary/discord', requireAccount, async (req, res, next) => {
+		try {
+			const activity = await ownerOnly(req, res);
+			if (!activity) return;
+			if (!activity.guildId || !activity.channelId) return fail(res, 409, 'summary_no_channel');
+			if (!deps.postChannelNotice) return fail(res, 503, 'summary_unavailable');
+			const last = summaryPostedAt.get(activity.id) || 0;
+			if (Date.now() - last < SUMMARY_COOLDOWN_MS) return fail(res, 429, 'summary_too_soon');
+
+			const period = activity.kind === 'recurring'
+				? (activity.periods.find(p => p.id === req.body?.periodId) || activities.currentPeriod(activity))
+				: null;
+			const lang = req.body?.lang === 'en' ? 'en' : 'th';
+			const { message, ctaLabel } = billSummary.billSummaryMessage({
+				title: activity.title,
+				settlement: activities.settlement(activity, period ? period.id : null),
+				lang,
+				currency: activity.currency,
+			});
+			const origin = req.actor.shareOrigin || String(process.env.FRONTEND_URL || '').replace(/\/$/, '');
+			summaryPostedAt.set(activity.id, Date.now());
+			const result = await deps.postChannelNotice({
+				guildId: activity.guildId,
+				channelId: activity.channelId,
+				message,
+				cta: origin ? { label: ctaLabel, url: `${origin}/a/${encodeURIComponent(activity.code)}` } : null,
+			});
+			if (!result?.delivered) {
+				summaryPostedAt.delete(activity.id);
+				return fail(res, 502, 'summary_not_delivered');
+			}
+			res.json({ posted: true });
+		}
+		catch (error) {
 			next(error);
 		}
 	});

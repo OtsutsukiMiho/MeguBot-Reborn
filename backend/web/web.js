@@ -421,6 +421,12 @@ app.use('/api/megu', meguApi.router({
 		const response = await sendIpcRequest({ type: 'get_team_role_sync_capabilities' }, 8000);
 		return response?.success ? response.capability : { available: false, reason: 'capability_verification_unavailable' };
 	},
+	// The bot's channel notice already checks the channel, the block guard and
+	// mentions; a bill summary is one more message of the same shape.
+	postChannelNotice: async ({ guildId, channelId, message, cta }) => {
+		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta }, 10_000);
+		return { delivered: response?.delivered === true };
+	},
 }));
 
 const notificationDispatcher = createDispatcher({

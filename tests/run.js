@@ -127,6 +127,7 @@ const SUITES = [
 	['api.test.js', 'HTTP layer — roles, redaction, claim and payment flow'],
 	['pay-routing.test.js', 'where the money is sent — two creditors, one roster, and whose QR is printed'],
 	['receipt-access.test.js', 'one payment in detail — the payer, the creditor and the organizer, and nobody else'],
+	['bill-summary.test.js', 'the bill posted back to Discord — organiser only, once a minute, nobody pinged'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
 

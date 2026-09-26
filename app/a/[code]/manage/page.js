@@ -72,6 +72,7 @@ function useTab(preferred) {
 export default function ManageScreen() {
 	const { code, activity, busy, problem, call, lang, reload, requestAction } = useActivity();
 	const { t, fmt } = useCopy(activity.currency);
+	const [summaryPosted, setSummaryPosted] = useState(false);
 	const waiting = activity.payments.some(p => p.status === 'pending');
 	const [tab, setTab] = useTab(waiting ? 'payments' : 'people');
 	// Two panels, two buttons, two states. They shared one before, so pressing
@@ -241,6 +242,25 @@ export default function ManageScreen() {
 										<span className="amount">{fmt.money(totals.total)}</span>
 									</div>
 								</div>
+							</section>
+						)}
+
+						{/* The split is done here; the paying happens where people
+						    read things, which is the channel. One click, one post. */}
+						{expenses.length > 0 && activity.postsToDiscord && (
+							<section className="panel">
+								<p className="quiet-note" style={{ marginTop: 0 }}>{t.owner.shareSummaryHint}</p>
+								<button
+									type="button"
+									className="btn btn-secondary"
+									disabled={busy || summaryPosted}
+									onClick={async () => {
+										const result = await call('POST', '/summary/discord', { lang, periodId: activity.period?.id });
+										if (result?.posted) setSummaryPosted(true);
+									}}
+								>
+									{summaryPosted ? t.owner.summaryPosted : t.owner.shareSummary}
+								</button>
 							</section>
 						)}
 					</>
