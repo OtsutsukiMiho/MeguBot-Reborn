@@ -699,6 +699,15 @@ function noticeComponents(cta, defer) {
 			.setURL(String(cta.url))
 			.setLabel(String(cta.label || 'Pay').slice(0, 80)));
 	}
+	// Paying without leaving the DM: this opens a modal that takes the slip,
+	// handled by /event's component router. First, because it is the answer
+	// the reminder is hoping for.
+	if (defer?.code && /^[A-Za-z0-9_-]{1,40}$/.test(String(defer.code))) {
+		buttons.unshift(new ButtonBuilder()
+			.setStyle(ButtonStyle.Primary)
+			.setCustomId(`evt:pay:${defer.code}`)
+			.setLabel(String(defer.payLabel || 'แนบสลิป').slice(0, 80)));
+	}
 	if (defer?.participantId) {
 		buttons.push(new ButtonBuilder()
 			.setStyle(ButtonStyle.Secondary)
@@ -880,6 +889,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 		}
+	}
+
+	// /event: the bill card's buttons and modals, and the "send slip" button on
+	// a due-date DM, all carry the `evt:` prefix and belong to the command that
+	// drew them.
+	else if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu())
+		&& interaction.customId.startsWith('evt:')) {
+		const eventCommand = interaction.client.commands.get('event');
+		if (eventCommand?.handleComponent) await eventCommand.handleComponent(interaction);
 	}
 
 	else if (interaction.isButton() && interaction.customId.startsWith(`${DEFER_BUTTON}:`)) {

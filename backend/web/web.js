@@ -940,7 +940,7 @@ async function finishDiscordOAuth(req, res) {
 		}
 		else {
 			account = (await core.users.loginWithIdentity(identityProfile)).user;
-			await core.users.claimParticipants(account.id);
+			await core.users.claimParticipants(account.id, { deviceToken: deviceTokenFrom(req) });
 		}
 
 		if (tokenData.refresh_token) {
@@ -1213,6 +1213,11 @@ function toBooleanSetting(value, defaultValue = true) {
 	if (value === false || value === 'false' || value === 0 || value === '0') return false;
 	if (value === true || value === 'true' || value === 1 || value === '1') return true;
 	return Boolean(value);
+}
+
+/** The guest cookie from /a/<code>, if this browser has one and it is ours. */
+function deviceTokenFrom(req) {
+	return core.tokens.verifyDeviceToken(req.cookies?.[meguApi.DEVICE_COOKIE]);
 }
 
 function safeInternalReturn(value) {

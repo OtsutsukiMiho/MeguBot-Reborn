@@ -1674,6 +1674,13 @@ const en = {
 		copyFailed: 'Automatic copy was blocked. The link is selected—long-press it or press Ctrl+C to copy.',
 	},
 
+	remind: {
+		title: 'Want Megu to remind you on Discord?',
+		body: 'Connect Discord and Megu will DM you when this is due — and you can send the slip right from the message. Without it, this page works just the same.',
+		cta: 'Connect Discord',
+		dismiss: 'No thanks',
+	},
+
 	// ── paying ──────────────────────────────────────────────────────────────
 	//
 	// The one screen where a wrong word costs real money, so it says the

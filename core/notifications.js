@@ -250,6 +250,8 @@ function render(delivery) {
 		secondaryLabel,
 		secondaryUrl,
 		defer: p.defer || null,
+		// Discord only: the button that opens the slip upload inside the DM.
+		payLabel: p.defer?.code ? (th ? 'แนบสลิป' : 'Send slip') : null,
 	};
 }
 

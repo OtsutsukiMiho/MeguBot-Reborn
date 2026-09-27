@@ -338,7 +338,7 @@ async function ensureAccount(req) {
 
 	req.session.meguUserId = user.id;
 	req.actor.userId = user.id;
-	await users.claimParticipants(user.id);
+	await users.claimParticipants(user.id, { deviceToken: req.actor?.deviceToken || null });
 	return user;
 }
 
@@ -603,7 +603,16 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		// Whether the organiser can post the summary back to Discord. A yes/no
 		// only: the guild and channel ids are not the page's business.
 		postsToDiscord: role === 'owner' && Boolean(activity.guildId && activity.channelId),
-		me: me ? { id: me.id, displayName: me.displayName, rsvp: me.rsvp } : null,
+		me: me ? {
+			id: me.id,
+			displayName: me.displayName,
+			rsvp: me.rsvp,
+			// Whether Megu can DM this person. A name tapped on a shared link is
+			// matched only by the browser cookie, and the page offers — never
+			// forces — a Discord sign-in so the reminder has somewhere to go.
+			remindable: Boolean(me.discordUid || actor?.discordUid),
+		} : null,
+		signedIn: Boolean(actor?.userId),
 		mine: mine.map(p => ({
 			id: p.id,
 			displayName: p.displayName,

@@ -49,7 +49,7 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, log = () => u
 							recipients: [notice.discordUid],
 							message: core.reminders.composeDueNotice(notice, { locale: 'th' }),
 							cta: { label: 'จ่ายเงิน', url: notice.payUrl },
-							defer: { participantId: notice.participantId, periodId: notice.periodId, label: 'ยังไม่จ่ายตอนนี้' },
+							defer: { participantId: notice.participantId, periodId: notice.periodId, code: notice.code, label: 'ยังไม่จ่ายตอนนี้', payLabel: 'แนบสลิป' },
 						}));
 						dmed++;
 					}

@@ -4612,6 +4612,16 @@ textarea.form-control {
 	padding: 1.15rem 1.3rem 1.25rem;
 }
 
+.remind-offer .quiet-note {
+	margin: .4rem 0 .8rem;
+}
+
+.remind-offer-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .5rem;
+}
+
 .ledger-head {
 	display: flex;
 	align-items: baseline;
