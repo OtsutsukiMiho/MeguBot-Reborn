@@ -41,6 +41,7 @@ const T = {
 		alreadyIn: 'คุณอยู่ในบิลนี้แล้ว',
 		whoAreYou: 'คุณคือใครในรายชื่อนี้? ถ้าไม่มี เลือก "เพิ่มฉันเข้าไป"',
 		addMe: 'ไม่มีชื่อฉัน — เพิ่มฉันเข้าไป',
+		pickName: 'เลือกชื่อของคุณ',
 		joined: 'เพิ่มคุณเข้าบิลแล้ว',
 		claimed: name => `ผูกชื่อ **${name}** กับ Discord ของคุณแล้ว Megu จะทักเตือนให้เมื่อถึงกำหนด`,
 		claimTaken: 'ชื่อนี้มีคนเลือกไปแล้ว',
@@ -82,6 +83,7 @@ const T = {
 		alreadyIn: 'You are already on this bill.',
 		whoAreYou: 'Which of these is you? If none, choose "Add me".',
 		addMe: 'Not listed — add me',
+		pickName: 'Pick your name',
 		joined: 'You are on the bill.',
 		claimed: name => `**${name}** is now linked to your Discord. Megu will remind you when it is due.`,
 		claimTaken: 'Somebody already picked that name.',
@@ -364,6 +366,7 @@ async function onJoin(interaction, core, code) {
 	if (unclaimed.length > 0) {
 		const menu = new StringSelectMenuBuilder()
 			.setCustomId(`${PREFIX}:claim:${code}:${interaction.message.id}`)
+			.setPlaceholder(t.pickName)
 			.addOptions(
 				...unclaimed.slice(0, 24).map(p => ({ label: p.displayName.slice(0, 100), value: p.id })),
 				{ label: t.addMe, value: 'new' },

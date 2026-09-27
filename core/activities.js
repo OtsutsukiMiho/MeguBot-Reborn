@@ -135,7 +135,10 @@ function periodDueAt(key, dueDay) {
 	const [year, month] = key.split('-').map(Number);
 	const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
 	const day = Math.min(dueDay || 1, lastDay);
-	return new Date(Date.UTC(year, month - 1, day, 17, 0, 0));
+	// The last second of the due day in Bangkok, the same convention as a
+	// one-off bill's paymentDueAt. It used to be 17:00Z — midnight *after* the
+	// due day — so "due on the 5th" was announced and printed as the 6th.
+	return new Date(Date.UTC(year, month - 1, day, 16, 59, 59));
 }
 
 const SPLIT_MODES = new Set(['even', 'exact', 'percent', 'shares']);

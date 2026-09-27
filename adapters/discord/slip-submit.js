@@ -12,6 +12,25 @@ const { readDiscordSlip, stampWhen } = require('./payment-evidence.js');
 // counts as paid.
 
 const MAX_SLIP_BYTES = 2 * 1024 * 1024;
+
+// Why a slip was held for the organiser, in the same words the web's payment
+// screen uses (app/copy/th.js → held). The organiser reads this in a DM and
+// has to decide what to check; "receiver_unreadable" tells them nothing.
+const HELD = {
+	reference_missing: 'ไม่พบเลขอ้างอิงธนาคารในรูป อาจไม่ใช่สลิปโอนเงิน',
+	amount_unreadable: 'อ่านยอดเงินจากรูปไม่ออก',
+	amount_mismatch: 'ยอดในสลิปไม่ตรงกับยอดที่เรียกเก็บ',
+	receiver_not_configured: 'ยังไม่ได้ตั้งช่องทางรับเงิน เลยไม่มีชื่อให้เทียบว่าโอนถูกคนไหม',
+	receiver_unreadable: 'อ่านไม่ออกว่าโอนเข้าบัญชีใคร',
+	receiver_mismatch: 'ชื่อผู้รับในสลิปไม่ตรงกับบัญชีที่ตั้งไว้',
+	time_unreadable: 'อ่านวันเวลาจากรูปไม่ออก',
+	time_in_future: 'สลิปลงวันที่ล่วงหน้า',
+	uploaded_late: 'ส่งมาหลังวันที่บนสลิปเกินหนึ่งเดือน',
+};
+
+function heldReasons(reasons = []) {
+	return reasons.map(code => `• ${HELD[code] || code}`).join('\n');
+}
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function money(satang) {
@@ -109,7 +128,7 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	if (notifyOwner && candidate.ownerDiscordUid && candidate.ownerDiscordUid !== String(senderDiscordUid)) {
 		const detail = result.autoConfirmed
 			? 'Megu จับคู่สลิปและลงยอดให้อัตโนมัติแล้ว หากเงินไม่เข้าจริงให้เปิดเว็บแล้วย้อนผลพร้อมใส่เหตุผล'
-			: `ยังไม่ลงว่าได้รับเงิน: ${result.reasons.join(', ') || 'ต้องตรวจด้วยตนเอง'}`;
+			: `ยังไม่ลงว่าได้รับเงิน เปิดลิงก์เพื่อดูสลิปแล้วกดยืนยันเอง เพราะ:\n${heldReasons(result.reasons) || '• ต้องตรวจด้วยตนเอง'}`;
 		// The payment is already recorded; a closed DM must not turn that into
 		// an error for the payer. A refusal still reaches the block guard —
 		// guardRestClient() records it below every call — so this is not the
@@ -128,4 +147,4 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	return `${status}\n${link}`;
 }
 
-module.exports = { submitDiscordSlip, parseBaht, money, siteUrl, MAX_SLIP_BYTES };
+module.exports = { submitDiscordSlip, heldReasons, parseBaht, money, siteUrl, MAX_SLIP_BYTES };
