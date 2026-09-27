@@ -2659,7 +2659,7 @@ process.on('message', async (msg) => {
 			let error = null;
 			if (valid && !discordBlock.blocked()) {
 				const content = String(msg.message || '').slice(0, 1900);
-				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, null), allowedMentions: { parse: [] } }).then(() => true), false));
+				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, msg.defer?.code ? { code: msg.defer.code, payLabel: msg.defer.payLabel } : null), allowedMentions: { parse: [] } }).then(() => true), false));
 			}
 			if (!valid) error = 'The configured channel is unavailable or Megu cannot send there';
 			else if (discordBlock.blocked()) error = 'Discord is temporarily blocking this server';

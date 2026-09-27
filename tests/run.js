@@ -131,6 +131,7 @@ const SUITES = [
 	['receipt-access.test.js', 'one payment in detail — the payer, the creditor and the organizer, and nobody else'],
 	['bill-summary.test.js', 'the bill posted back to Discord — organiser only, once a minute, nobody pinged'],
 	['event-command.test.js', '/event — a bill from one modal, claimed and joined from Discord, paid from a button'],
+	['sub-command.test.js', '/sub — a monthly bill from one modal, rolled into next month, announced once on its due day'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
 

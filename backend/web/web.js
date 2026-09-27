@@ -472,6 +472,13 @@ async function sendDiscordNotice({ recipients, message, cta = null, defer = null
 const paymentDueSweep = createPaymentDueSweep({
 	baseUrl: process.env.FRONTEND_URL || '',
 	sendDiscord: sendDiscordNotice,
+	// A monthly bill started with /sub posts its due-day summary back in the
+	// channel it came from, through the same guarded channel notice.
+	postChannel: async ({ guildId, channelId, message, cta, defer }) => {
+		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, defer }, 10_000);
+		if (!response) return { delivered: false, blocked: true, error: 'The bot process did not answer' };
+		return { delivered: Boolean(response.delivered), blocked: /block/i.test(String(response.error || '')), error: response.error || null };
+	},
 	log: message => BotLogs('Megu', message),
 });
 const stopPaymentDueSweep = paymentDueSweep.start({

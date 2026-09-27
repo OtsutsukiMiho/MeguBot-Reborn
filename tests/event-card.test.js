@@ -99,4 +99,50 @@ function ok(name) {
 	ok('the organiser is told who Megu can remind, who needs the link, and about PromptPay');
 }
 
+{
+	assert.equal(card.parseDueDay('5'), 5);
+	assert.equal(card.parseDueDay('วันที่ 25'), 25);
+	assert.equal(card.parseDueDay('1st'), 1);
+	assert.equal(card.parseDueDay('31'), null, 'not every month has a 31st');
+	assert.equal(card.parseDueDay('0'), null);
+	assert.equal(card.parseDueDay('soon'), null);
+	ok('the due day is 1–28, however it is written');
+
+	const activity = {
+		title: 'Netflix', kind: 'recurring', dueDay: 5, currency: 'THB', ownerUserId: 'u1',
+		participants: [
+			{ id: 'p1', displayName: 'ฟิก', discordUid: '100', userId: 'u1' },
+			{ id: 'p2', displayName: 'โอม', discordUid: '200', userId: null },
+			{ id: 'p3', displayName: 'แม่', discordUid: null, userId: null },
+		],
+	};
+	const settlement = {
+		total: 42000, state: 'open',
+		rows: [
+			{ participantId: 'p1', owes: 14000, outstanding: -28000, pending: 0 },
+			{ participantId: 'p2', owes: 14000, outstanding: 14000, pending: 0 },
+			{ participantId: 'p3', owes: 14000, outstanding: 14000, pending: 0 },
+		],
+	};
+	const th = card.eventCardMessage({ activity, settlement, payee: { participantId: 'p1' }, period: { key: '2026-10' }, locale: 'th' });
+	assert.equal(th.content.split('\n')[0], '🔁 **Netflix** · ฿420.00/เดือน หารเท่า 3 คน · ตุลาคม 2569 · ทุกวันที่ 5');
+	assert.match(th.content, /Megu จะเตือนทุกเดือน/);
+	const en = card.eventCardMessage({ activity, settlement, payee: { participantId: 'p1' }, period: { key: '2026-10' }, locale: 'en' });
+	assert.match(en.content, /฿420\.00\/month split evenly by 3 · October 2026 · the 5th of every month/);
+	ok('a monthly card names the month, the amount per month and the due day');
+
+	const note = card.organizerNote({ activity, payeeHasPromptPay: true, shareUrl: 'u', period: { key: '2026-10' }, locale: 'th' });
+	assert.equal(note.split('\n')[1], 'Megu จะเปิดรอบใหม่ให้ทุกเดือน และเตือนคนที่ยังไม่จ่าย ทุกวันที่ 5 (รอบแรก: ตุลาคม 2569)');
+
+	const due = card.dueChannelMessage({
+		title: 'Netflix', periodKey: '2026-10', locale: 'th',
+		lines: [{ displayName: 'โอม', discordUid: '200', amountSatang: 14000 }, { displayName: '@here แม่', discordUid: null, amountSatang: 14000 }],
+	});
+	assert.equal(due.split('\n')[0], '⏰ **Netflix** · ตุลาคม 2569 ครบกำหนดวันนี้');
+	assert.equal(due.split('\n')[1], '• <@200> ยังค้าง ฿140.00');
+	assert.ok(!due.includes('@here'), 'a typed name cannot ping the channel');
+	assert.match(due, /กด \*\*แนบสลิป\*\*/);
+	ok('the organiser is told when Megu will remind, and the due-day post lists who still owes');
+}
+
 console.log(`\n${n} checks passed`);

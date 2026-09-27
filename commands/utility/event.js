@@ -56,6 +56,14 @@ const T = {
 		ppSaved: 'บันทึกพร้อมเพย์แล้ว ทุกคนแนบสลิปได้เลย',
 		ppInvalid: 'เลขนี้ไม่ใช่พร้อมเพย์ที่รู้จัก ใช้เบอร์มือถือ 10 หลัก หรือเลขบัตร 13 หลัก',
 		failed: 'ทำรายการไม่สำเร็จ ลองใหม่อีกทีนะ',
+		subModalTitle: 'บิลรายเดือนใหม่',
+		service: 'ชื่อบริการ', serviceHint: 'เช่น Netflix, Spotify Family',
+		monthlyAmount: 'ยอดต่อเดือน (บาท)', monthlyAmountHint: 'เช่น 419',
+		dueDay: 'ครบกำหนดทุกวันที่', dueDayHint: '1–28',
+		peopleSub: 'ใครหารด้วย (คนในดิส)',
+		needAmount: raw => `อ่านยอด "${raw}" ไม่ออก ใส่เป็นตัวเลข เช่น 419 แล้วลองใหม่นะ`,
+		badDueDay: raw => `วันที่ "${raw}" ใช้ไม่ได้ ใส่ 1–28 (ทุกเดือนมีวันนั้นแน่นอน)`,
+		joinSub: 'ขอหารด้วย',
 	},
 	en: {
 		guildOnly: 'Use /event in the server your group talks in.',
@@ -89,6 +97,14 @@ const T = {
 		ppSaved: 'PromptPay saved. Everyone can send slips now.',
 		ppInvalid: 'That is not a PromptPay number Megu recognises. Use a 10-digit mobile or 13-digit ID.',
 		failed: 'That did not work. Please try again.',
+		subModalTitle: 'New monthly bill',
+		service: 'Service', serviceHint: 'e.g. Netflix, Spotify Family',
+		monthlyAmount: 'Amount per month (THB)', monthlyAmountHint: 'e.g. 419',
+		dueDay: 'Due every month on day', dueDayHint: '1–28',
+		peopleSub: 'Who shares it (on Discord)',
+		needAmount: raw => `Could not read "${raw}" as an amount. Enter a number such as 419 and try again.`,
+		badDueDay: raw => `"${raw}" is not a usable day. Use 1–28, which every month has.`,
+		joinSub: 'Count me in',
 	},
 };
 
@@ -117,20 +133,28 @@ async function ensureOrganizer(core, user) {
 	return created;
 }
 
-function cardButtons(code, t) {
+function cardButtons(code, t, monthly = false) {
 	return [new ActionRowBuilder().addComponents(
 		new ButtonBuilder().setCustomId(`${PREFIX}:pay:${code}`).setStyle(ButtonStyle.Primary).setLabel(t.pay),
-		new ButtonBuilder().setCustomId(`${PREFIX}:join:${code}`).setStyle(ButtonStyle.Secondary).setLabel(t.join),
+		new ButtonBuilder().setCustomId(`${PREFIX}:join:${code}`).setStyle(ButtonStyle.Secondary).setLabel(monthly ? t.joinSub : t.join),
 		new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(shareUrl(code)).setLabel(t.open),
 	)];
 }
 
 async function renderCard(core, code, locale) {
-	const activity = await core.activities.getActivityByCode(code);
+	let activity = await core.activities.getActivityByCode(code);
 	if (!activity) return null;
-	const settlement = core.activities.settlement(activity);
-	const built = card.eventCardMessage({ activity, settlement, payee: activity.payee, locale });
-	return { activity, settlement, ...built };
+	// A monthly bill is shown for this month. Opening it here is the same
+	// rollover every other read does: the new month copies the last one.
+	let period = null;
+	if (activity.kind === 'recurring') {
+		await core.activities.ensurePeriod(activity.id, new Date(), { rollover: true });
+		activity = await core.activities.getActivityByCode(code);
+		period = core.activities.currentPeriod(activity);
+	}
+	const settlement = core.activities.settlement(activity, period?.id ?? null);
+	const built = card.eventCardMessage({ activity, settlement, payee: activity.payee, period, locale });
+	return { activity, settlement, period, monthly: activity.kind === 'recurring', ...built };
 }
 
 function isMine(activity, discordUid, userId) {
@@ -145,10 +169,15 @@ function isMine(activity, discordUid, userId) {
  * what somebody already paid against, which is a decision for the organiser.
  */
 async function resplitForNewcomer(core, activity, newcomerId) {
-	if (activity.expenses.length === 0) return 'none';
-	const hasMoney = activity.payments.some(p => ['confirmed', 'pending'].includes(p.status));
-	if (activity.expenses.length !== 1 || hasMoney) return 'skipped';
-	const expense = activity.expenses[0];
+	// A monthly bill is re-divided for the current month only; later months
+	// copy it, so the newcomer is in those too. Earlier months are history.
+	const period = activity.kind === 'recurring' ? core.activities.currentPeriod(activity) : null;
+	const expenses = activity.expenses.filter(e => !period || e.periodId === period.id);
+	if (expenses.length === 0) return 'none';
+	const standing = core.activities.settlement(activity, period?.id ?? null);
+	const hasMoney = standing.rows.some(row => row.settled > 0 || row.pending > 0);
+	if (expenses.length !== 1 || hasMoney) return 'skipped';
+	const expense = expenses[0];
 	if ((expense.splitMode || 'even') !== 'even') return 'skipped';
 	const sharers = activity.shares.filter(s => s.expenseId === expense.id).map(s => s.participantId);
 	await core.activities.updateExpense(expense.id, { shareParticipantIds: [...new Set([...sharers, newcomerId])] });
@@ -159,7 +188,7 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 async function refreshCard(core, interaction, code, messageId = null) {
 	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
 	if (!rendered) return;
-	const payload = { content: rendered.content, components: cardButtons(code, T[card.langOf(interaction.guildLocale || interaction.locale)]), allowedMentions: NO_PINGS };
+	const payload = { content: rendered.content, components: cardButtons(code, T[card.langOf(interaction.guildLocale || interaction.locale)], rendered.monthly), allowedMentions: NO_PINGS };
 	try {
 		if (messageId && interaction.channel) await interaction.channel.messages.edit(messageId, payload);
 		else if (interaction.message?.editable) await interaction.message.edit(payload);
@@ -198,19 +227,48 @@ function createModal(t, title) {
 		);
 }
 
-async function onCreate(interaction, core) {
+function subModal(t, title) {
+	return new ModalBuilder()
+		.setCustomId(`${PREFIX}:subcreate`)
+		.setTitle(t.subModalTitle)
+		.addLabelComponents(
+			new LabelBuilder().setLabel(t.service).setTextInputComponent(new TextInputBuilder()
+				.setCustomId('title').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+				.setPlaceholder(t.serviceHint).setValue(String(title || '').slice(0, 100))),
+			new LabelBuilder().setLabel(t.peopleSub).setDescription(t.peopleHint).setUserSelectMenuComponent(new UserSelectMenuBuilder()
+				.setCustomId('people').setMinValues(0).setMaxValues(24).setRequired(false)),
+			new LabelBuilder().setLabel(t.guests).setTextInputComponent(new TextInputBuilder()
+				.setCustomId('guests').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false)
+				.setPlaceholder(t.guestsHint)),
+			new LabelBuilder().setLabel(t.monthlyAmount).setTextInputComponent(new TextInputBuilder()
+				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true)
+				.setPlaceholder(t.monthlyAmountHint)),
+			new LabelBuilder().setLabel(t.dueDay).setTextInputComponent(new TextInputBuilder()
+				.setCustomId('dueDay').setStyle(TextInputStyle.Short).setMaxLength(8).setRequired(true)
+				.setPlaceholder(t.dueDayHint)),
+		);
+}
+
+async function onCreate(interaction, core, { monthly = false } = {}) {
 	const t = copyFor(interaction);
 	const title = interaction.fields.getTextInputValue('title').trim();
 	const users = interaction.fields.getSelectedUsers('people') || new Map();
 	const members = interaction.fields.getSelectedMembers('people') || new Map();
 	const guests = card.parseGuestNames(interaction.fields.getTextInputValue('guests'));
 	const rawAmount = interaction.fields.getTextInputValue('amount').trim();
-	const splitMode = interaction.fields.getStringSelectValues('split')[0] || 'with_me';
+	// A subscription is shared by everyone on it; an uneven one is set on the web.
+	const splitMode = monthly ? 'with_me' : (interaction.fields.getStringSelectValues('split')[0] || 'with_me');
+	const rawDueDay = monthly ? interaction.fields.getTextInputValue('dueDay').trim() : '';
 
 	const picked = [...users.values()].filter(u => !u.bot && u.id !== interaction.user.id);
 	if (picked.length === 0 && guests.length === 0) {
 		return interaction.reply({ content: t.nobody, flags: EPHEMERAL });
 	}
+	// A monthly bill without an amount or a day bills nobody, ever — refuse it
+	// here rather than create something that silently does nothing.
+	const dueDay = monthly ? card.parseDueDay(rawDueDay) : null;
+	if (monthly && !parseBaht(rawAmount)) return interaction.reply({ content: t.needAmount(rawAmount), flags: EPHEMERAL });
+	if (monthly && !dueDay) return interaction.reply({ content: t.badDueDay(rawDueDay), flags: EPHEMERAL });
 
 	// Public: the card is the reply. Everything after this is an edit.
 	await interaction.deferReply();
@@ -239,19 +297,28 @@ async function onCreate(interaction, core) {
 	const created = await core.activities.createActivity({
 		ownerUserId: organizer.id,
 		title,
-		kind: 'event',
+		kind: monthly ? 'recurring' : 'event',
+		recurrence: monthly ? 'monthly' : null,
+		dueDay,
 		guildId: interaction.guildId,
 		channelId: interaction.channelId,
 		participants: plan.participants,
 	});
 	let activity = await core.activities.getActivity(created.id);
-	for (const p of activity.participants) await core.activities.setRsvp(p.id, 'yes');
+	if (!monthly) for (const p of activity.participants) await core.activities.setRsvp(p.id, 'yes');
 
 	const notes = [];
 	const amountSatang = rawAmount ? parseBaht(rawAmount) : null;
 	if (rawAmount && !amountSatang) notes.push(t.badAmount(rawAmount));
 	if (plan.dropped > 0) notes.push(t.dropped(plan.dropped));
-	if (amountSatang) {
+	if (amountSatang && monthly) {
+		// This month opens with its bill in one transaction; every later month
+		// copies the one before it (the rollover in core/activities.js).
+		await core.activities.ensurePeriod(activity.id, new Date(), {
+			expense: { label: title, amountSatang, paidBy: activity.participants[0].id },
+		});
+	}
+	else if (amountSatang) {
 		await core.activities.addExpense(activity.id, {
 			label: title,
 			amountSatang,
@@ -264,12 +331,12 @@ async function onCreate(interaction, core) {
 	activity = rendered.activity;
 	await interaction.editReply({
 		content: rendered.content,
-		components: cardButtons(activity.code, T[card.langOf(interaction.guildLocale || interaction.locale)]),
+		components: cardButtons(activity.code, T[card.langOf(interaction.guildLocale || interaction.locale)], monthly),
 		allowedMentions: { parse: [], users: rendered.mentionUids },
 	});
 
 	const payeeHasPromptPay = Boolean(activity.payee?.promptpayId);
-	const note = card.organizerNote({ activity, payeeHasPromptPay, shareUrl: shareUrl(activity.code), locale: interaction.locale });
+	const note = card.organizerNote({ activity, payeeHasPromptPay, shareUrl: shareUrl(activity.code), period: rendered.period, locale: interaction.locale });
 	await interaction.followUp({
 		content: [note, ...notes].join('\n'),
 		flags: EPHEMERAL,
@@ -444,6 +511,7 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 	try {
 		if (interaction.isModalSubmit()) {
 			if (action === 'create') return await onCreate(interaction, core);
+			if (action === 'subcreate') return await onCreate(interaction, core, { monthly: true });
 			if (action === 'slip') return await onSlip(interaction, core, code);
 			if (action === 'ppsave') return await onPromptPaySave(interaction, core);
 		}
@@ -476,6 +544,8 @@ module.exports = {
 			.setDescriptionLocalizations({ th: 'ชื่อกิจกรรม เช่น ตีแบด' })
 			.setMaxLength(100)),
 	PREFIX,
+	copyFor,
+	subModal,
 	handleComponent,
 	resplitForNewcomer,
 

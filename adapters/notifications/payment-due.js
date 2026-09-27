@@ -1,5 +1,6 @@
 const core = require('../../core/index.js');
 const { assertDelivered } = require('./discord-delivery');
+const { dueChannelMessage } = require('../../core/event-card.js');
 
 // The deadline sweep.
 //
@@ -18,17 +19,18 @@ const { assertDelivered } = require('./discord-delivery');
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 
-function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, log = () => undefined } = {}) {
+function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel = null, log = () => undefined } = {}) {
 	let running = false;
 
 	async function runOnce({ now = new Date() } = {}) {
 		if (running) return { queued: 0, dmed: 0, digests: 0, skipped: true };
 		running = true;
 		try {
-			const { notices, hostDigests } = await core.reminders.paymentDueNow({ now, baseUrl });
+			const { notices, hostDigests, channelNotices = [] } = await core.reminders.paymentDueNow({ now, baseUrl });
 			let queued = 0;
 			let dmed = 0;
 			let digests = 0;
+			let posted = 0;
 
 			for (const notice of notices) {
 				try {
@@ -100,10 +102,35 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, log = () => u
 				}
 			}
 
-			if (queued + dmed + digests > 0) {
-				log(`Payment due: ${queued} queued, ${dmed} DMed directly, ${digests} organizer digests`);
+			for (const notice of channelNotices) {
+				if (!postChannel) break;
+				try {
+					const result = await postChannel({
+						guildId: notice.guildId,
+						channelId: notice.channelId,
+						message: dueChannelMessage({ title: notice.title, periodKey: notice.periodKey, lines: notice.lines, currency: notice.currency }),
+						cta: notice.shareUrl ? { label: 'เปิดบิล', url: notice.shareUrl } : null,
+						// Drawn as the "send slip" button; no participant, so no "not now".
+						defer: { code: notice.code, payLabel: 'แนบสลิป' },
+					});
+					// A block leaves it due for the next sweep after the ban.
+					// Anything else — a deleted channel, a lost permission — is
+					// recorded as done: retrying a refusal every five minutes for
+					// three days is the invalid-request storm rule 3c is about.
+					if (result?.blocked) continue;
+					await core.reminders.markChannelPosted(notice, { sentAt: now });
+					if (result?.delivered) posted++;
+					else log(`Due-day channel post for ${notice.title} was not delivered: ${result?.error || 'unknown'}`);
+				}
+				catch (error) {
+					log(`Due-day channel post for ${notice.title} failed: ${error.message}`);
+				}
 			}
-			return { queued, dmed, digests };
+
+			if (queued + dmed + digests + posted > 0) {
+				log(`Payment due: ${queued} queued, ${dmed} DMed directly, ${digests} organizer digests, ${posted} channel posts`);
+			}
+			return { queued, dmed, digests, posted };
 		}
 		finally {
 			running = false;

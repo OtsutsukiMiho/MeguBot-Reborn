@@ -10,7 +10,7 @@
 // the modal returned and what the ledger says, and gets back plain values —
 // so the rules can be tested against literals.
 
-const { formatMoney } = require('./format.js');
+const { formatMoney, formatPeriod, formatDueDay } = require('./format.js');
 
 const MAX_PEOPLE = 25;
 const MAX_NAME = 60;
@@ -30,6 +30,12 @@ const COPY = {
 		noAmount: 'คนจัดใส่ยอดได้ที่ลิงก์ เมื่อรู้ยอดแล้ว',
 		settled: '✅ ทุกคนจ่ายครบแล้ว',
 		more: count => `…และอีก ${count} คน`,
+		monthly: (title, total, count, period, due) => `🔁 **${title}** · ${total}/เดือน หารเท่า ${count} คน · ${period} · ${due}`,
+		monthlyHowTo: 'โอนแล้วกด **แนบสลิป** ได้เลย · Megu จะเตือนทุกเดือนเมื่อถึงกำหนด',
+		dueHeading: (title, period) => `⏰ **${title}** · ${period} ครบกำหนดวันนี้`,
+		dueLine: (name, amount) => `• ${name} ยังค้าง ${amount}`,
+		dueHowTo: 'โอนแล้วกด **แนบสลิป** ด้านล่าง',
+		monthlyNote: (due, period) => `Megu จะเปิดรอบใหม่ให้ทุกเดือน และเตือนคนที่ยังไม่จ่าย ${due} (รอบแรก: ${period})`,
 	},
 	en: {
 		heading: (title, total, count) => (total
@@ -44,6 +50,12 @@ const COPY = {
 		noAmount: 'The organiser can add the amount at the link once it is known',
 		settled: '✅ Everyone has paid',
 		more: count => `…and ${count} more`,
+		monthly: (title, total, count, period, due) => `🔁 **${title}** · ${total}/month split evenly by ${count} · ${period} · ${due}`,
+		monthlyHowTo: 'Paid? Press **Send slip**. Megu reminds everyone each month when it is due',
+		dueHeading: (title, period) => `⏰ **${title}** · ${period} is due today`,
+		dueLine: (name, amount) => `• ${name} still owes ${amount}`,
+		dueHowTo: 'Paid? Press **Send slip** below',
+		monthlyNote: (due, period) => `Megu opens a new month automatically and reminds whoever has not paid on ${due} (first month: ${period})`,
 	},
 };
 
@@ -136,11 +148,12 @@ function planRoster({ organizer, picked = [], guests = [], splitMode = 'with_me'
  * @param {object} input.activity     from activities.getActivity
  * @param {object} input.settlement   from activities.settlement
  * @param {object|null} input.payee   from activities.resolvePayee
+ * @param {{ key: string }|null} [input.period]  the month shown, for a monthly bill
  * @param {string} [input.locale]
  * @param {number} [input.maxLines]
  * @returns {{ content: string, mentionUids: string[] }}
  */
-function eventCardMessage({ activity, settlement, payee = null, locale = 'th', maxLines = 20 }) {
+function eventCardMessage({ activity, settlement, payee = null, period = null, locale = 'th', maxLines = 20 }) {
 	const lang = langOf(locale);
 	const copy = COPY[lang];
 	const money = satang => formatMoney(satang, activity.currency || 'THB', lang);
@@ -148,9 +161,12 @@ function eventCardMessage({ activity, settlement, payee = null, locale = 'th', m
 	const total = settlement?.total || 0;
 	const sharers = activity.participants.filter(p => (rowsById.get(p.id)?.owes || 0) > 0);
 	const payeeId = payee?.participantId || null;
+	const monthly = activity.kind === 'recurring' && total > 0;
 
 	const label = p => (p.discordUid ? `<@${p.discordUid}>` : inert(p.displayName));
-	const lines = [copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.length)];
+	const lines = [monthly
+		? copy.monthly(inert(activity.title), money(total), sharers.length, formatPeriod(period?.key, lang), formatDueDay(activity.dueDay, lang))
+		: copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.length)];
 
 	const shown = activity.participants.slice(0, maxLines);
 	for (const p of shown) {
@@ -179,7 +195,7 @@ function eventCardMessage({ activity, settlement, payee = null, locale = 'th', m
 	else {
 		const payeeRow = activity.participants.find(p => p.id === payeeId);
 		if (payeeRow) lines.push(copy.payee(label(payeeRow)));
-		lines.push(copy.howTo);
+		lines.push(monthly ? copy.monthlyHowTo : copy.howTo);
 	}
 
 	// Pinged once, on the post that tells them they owe something. The
@@ -194,8 +210,11 @@ function eventCardMessage({ activity, settlement, payee = null, locale = 'th', m
  * What the organiser is told privately after posting: who Megu can chase for
  * them, and who they will have to send the link to themselves.
  */
-function organizerNote({ activity, payeeHasPromptPay, shareUrl, locale = 'th' }) {
+function organizerNote({ activity, payeeHasPromptPay, shareUrl, period = null, locale = 'th' }) {
 	const lang = langOf(locale);
+	const monthlyLine = activity.kind === 'recurring'
+		? COPY[lang].monthlyNote(formatDueDay(activity.dueDay, lang), formatPeriod(period?.key, lang))
+		: null;
 	const others = activity.participants.filter(p => p.userId !== activity.ownerUserId);
 	const reachable = others.filter(p => p.discordUid);
 	const unlinked = others.filter(p => !p.discordUid && !p.userId);
@@ -216,7 +235,37 @@ function organizerNote({ activity, payeeHasPromptPay, shareUrl, locale = 'th' })
 		lines.push(shareUrl);
 		if (!payeeHasPromptPay) lines.push('⚠️ You have no PromptPay yet, so nobody can send a slip. Press **Set PromptPay** below.');
 	}
+	if (monthlyLine) lines.splice(1, 0, monthlyLine);
 	return lines.join('\n');
 }
 
-module.exports = { parseGuestNames, planRoster, eventCardMessage, organizerNote, langOf, inert, MAX_PEOPLE, SPLIT_MODES };
+/** "5", "วันที่ 5", "5th" → 5. Months are kept to 1–28 so every month has it. */
+function parseDueDay(value) {
+	const match = String(value ?? '').match(/\d{1,2}/);
+	const day = match ? Number(match[0]) : NaN;
+	return Number.isInteger(day) && day >= 1 && day <= 28 ? day : null;
+}
+
+/**
+ * The monthly bill's due-day post in its channel: who still owes this month.
+ *
+ * Posted once per deadline by the payment-due sweep. Names are shown as
+ * mentions so people recognise themselves, but the message is sent with
+ * mentions disabled — the DM already did the tapping on the shoulder, and a
+ * channel ping on top of it is the kind of noise that gets a bot muted.
+ */
+function dueChannelMessage({ title, periodKey, lines, currency = 'THB', locale = 'th', maxLines = 20 }) {
+	const lang = langOf(locale);
+	const copy = COPY[lang];
+	const money = satang => formatMoney(satang, currency, lang);
+	const out = [copy.dueHeading(inert(title), formatPeriod(periodKey, lang) || '')];
+	for (const line of lines.slice(0, maxLines)) {
+		const who = line.discordUid ? `<@${line.discordUid}>` : inert(line.displayName);
+		out.push(copy.dueLine(who, money(line.amountSatang)));
+	}
+	if (lines.length > maxLines) out.push(copy.more(lines.length - maxLines));
+	out.push('', copy.dueHowTo);
+	return out.join('\n').slice(0, 1900);
+}
+
+module.exports = { parseGuestNames, planRoster, eventCardMessage, organizerNote, parseDueDay, dueChannelMessage, langOf, inert, MAX_PEOPLE, SPLIT_MODES };
