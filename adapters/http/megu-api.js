@@ -160,6 +160,57 @@ function requestSplit(split) {
 	};
 }
 
+function requestError(code, message = code) {
+	const error = new Error(message);
+	error.code = code;
+	return error;
+}
+
+/**
+ * Convert the wizard's position-based expenses into the integer units core
+ * stores. Positions stay positions here; `createActivity` validates them
+ * against the final owner-first roster and maps them to participant ids inside
+ * its transaction.
+ */
+function requestInitialExpenses(value) {
+	if (!Array.isArray(value) || value.length > 50) throw requestError('initial_expenses_invalid');
+	return value.map((expense) => {
+		if (!expense || typeof expense !== 'object' || Array.isArray(expense)) {
+			throw requestError('initial_expenses_invalid');
+		}
+		const label = String(expense.label ?? '').trim();
+		if (!label) throw requestError('initial_expense_label_required');
+		let amountSatang;
+		try { amountSatang = requestAmountMinor(expense); }
+		catch { throw requestError('initial_expense_amount_invalid'); }
+		if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0) {
+			throw requestError('initial_expense_amount_invalid');
+		}
+		if (!Number.isSafeInteger(expense.paidByPosition)) {
+			throw requestError('initial_expense_paid_by_position_invalid');
+		}
+		if (!Array.isArray(expense.sharePositions) || expense.sharePositions.length === 0
+			|| expense.sharePositions.some(position => !Number.isSafeInteger(position))
+			|| new Set(expense.sharePositions).size !== expense.sharePositions.length) {
+			throw requestError('initial_expense_share_positions_invalid');
+		}
+		let split;
+		try {
+			split = requestSplit(expense.split);
+		}
+		catch {
+			throw requestError('initial_expense_split_invalid');
+		}
+		return {
+			label,
+			amountSatang,
+			paidByPosition: expense.paidByPosition,
+			sharePositions: expense.sharePositions,
+			split,
+		};
+	});
+}
+
 const DEVICE_COOKIE = 'megu_pt';
 const DEVICE_MAX_AGE = 365 * 24 * 60 * 60 * 1000;
 
@@ -1716,6 +1767,7 @@ function router(deps = {}) {
 	});
 
 	api.get('/activities', requireAccount, async (req, res) => {
+		await activities.ensureCurrentPeriodsForOwner(req.actor.userId);
 		const list = await activities.listActivitiesForOwner(req.actor.userId, {
 			includeClosed: req.query.includeClosed !== 'false',
 		});
@@ -1724,11 +1776,12 @@ function router(deps = {}) {
 
 	api.post('/activities', requireAccount, async (req, res, next) => {
 		try {
+			const body = req.body || {};
 			const {
 				title, kind = 'event', location, startsAt, paymentDueAt, guildId, channelId, participants,
 				ownerParticipation = true, ownerDisplayName, saveOwnerDisplayName = false,
-				currency = 'THB', initialPayerPosition = 0,
-			} = req.body || {};
+				currency = 'THB', initialPayerPosition = 0, creationMode,
+			} = body;
 			if (!title || !String(title).trim()) {
 				return fail(res, 400, 'title_required');
 			}
@@ -1743,12 +1796,17 @@ function router(deps = {}) {
 			if (joins) {
 				const chosenName = ownerDisplayName || suppliedOwner?.displayName || owner?.displayName;
 				roster.unshift({ displayName: chosenName, userId: req.actor.userId });
-				if (saveOwnerDisplayName) await users.setDisplayName(req.actor.userId, chosenName);
 			}
 			if (roster.length === 0) return fail(res, 400, 'participant_required');
 
 			const recurring = kind === 'recurring';
-			const activity = await activities.createActivity({
+			const hasInitialExpenses = Object.prototype.hasOwnProperty.call(body, 'initialExpenses');
+			const initialExpenses = hasInitialExpenses ? requestInitialExpenses(body.initialExpenses) : null;
+			if (saveOwnerDisplayName && joins) {
+				await users.setDisplayName(req.actor.userId, roster[0].displayName);
+			}
+
+			const activityInput = {
 				ownerUserId: req.actor.userId,
 				title,
 				kind,
@@ -1767,34 +1825,47 @@ function router(deps = {}) {
 				// the same question per month through `dueDay` instead.
 				paymentDueAt: recurring ? null : (paymentDueAt || null),
 				participants: roster,
-			});
+				creationMode: creationMode || null,
+				requestId: body.requestId ?? req.get('Idempotency-Key') ?? null,
+			};
+			if (hasInitialExpenses) activityInput.initialExpenses = initialExpenses;
+
+			const activity = await activities.createActivity(activityInput);
 
 			// A monthly agreement starts billing immediately: open this month and,
 			// when an amount was given, split it straight away.
-			if (recurring) {
-				const { period } = await activities.ensurePeriod(activity.id);
-				const amountMinor = requestAmountMinor(req.body);
+			if (recurring && !hasInitialExpenses) {
+				const amountMinor = requestAmountMinor(body);
 				if (amountMinor > 0) {
 					const full = await activities.getActivity(activity.id);
 					const position = Number(initialPayerPosition);
 					const payer = full.participants[Number.isInteger(position) ? position : 0] || full.participants[0];
-					await activities.addExpense(activity.id, {
+					await activities.ensurePeriod(activity.id, new Date(), { expense: {
 						label: title,
 						amountSatang: amountMinor,
 						paidBy: payer.id,
-						periodId: period.id,
-					});
+					} });
 					await activities.setPayee(activity.id, payer.id);
-				}
+				} else await activities.ensurePeriod(activity.id);
 			}
 
 			const full = await activities.getActivity(activity.id);
-			res.status(201).json({ activity: serializeActivity(full, req.actor) });
+			res.status(activity.idempotent ? 200 : 201).json({
+				activity: serializeActivity(full, req.actor),
+				idempotent: Boolean(activity.idempotent),
+			});
 		}
 		catch (error) {
-			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid', 'starts_at_invalid'].includes(error.code || error.message)) {
-				return fail(res, 400, error.code || error.message);
-			}
+			const code = error.code || error.message;
+			if (code === 'request_id_conflict') return fail(res, 409, code);
+			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid', 'starts_at_invalid',
+				'request_id_invalid', 'creation_mode_invalid', 'plan_state_invalid', 'participant_required', 'participants_too_many',
+				'participant_invalid', 'period_date_invalid', 'period_create_failed', 'initial_expenses_invalid',
+				'initial_expense_label_required', 'initial_expense_amount_invalid', 'initial_expense_paid_by_position_invalid',
+				'initial_expense_share_positions_invalid', 'initial_expense_position_invalid', 'initial_expense_split_invalid',
+				'split_people_required', 'split_person_not_sharing', 'split_person_missing', 'split_amount_invalid',
+				'split_does_not_sum', 'split_percent_invalid', 'split_percent_does_not_total', 'split_weight_invalid',
+			].includes(code)) return fail(res, 400, code);
 			next(error);
 		}
 	});
@@ -1828,8 +1899,12 @@ function router(deps = {}) {
 
 	api.get('/a/:code', async (req, res, next) => {
 		try {
-			const activity = await activities.getActivityByCode(req.params.code);
+			let activity = await activities.getActivityByCode(req.params.code);
 			if (!activity) return fail(res, 404, 'notFound');
+			if (activity.kind === 'recurring' && activity.planState !== 'cancelled' && access.can(access.activityRole(req.actor, activity), 'viewAmounts')) {
+				await activities.ensurePeriod(activity.id, new Date(), { rollover: true });
+				activity = await activities.getActivity(activity.id);
+			}
 			res.json({
 				activity: serializeActivity(activity, req.actor, {
 					periodId: req.query.period,
@@ -2737,18 +2812,12 @@ function router(deps = {}) {
 				return fail(res, 400, 'recurring_only');
 			}
 
-			const { period, created } = await activities.ensurePeriod(activity.id, req.body?.date ? new Date(req.body.date) : new Date());
-
 			const amountMinor = requestAmountMinor(req.body);
-			if (created && amountMinor > 0) {
-				const payer = activity.participants.find(p => p.userId === req.actor.userId) || activity.participants[0];
-				await activities.addExpense(activity.id, {
-					label: activity.title,
-					amountSatang: amountMinor,
-					paidBy: payer.id,
-					periodId: period.id,
-				});
-			}
+			const payer = activity.participants.find(p => p.userId === req.actor.userId) || activity.participants[0];
+			const { period } = await activities.ensurePeriod(activity.id, req.body?.date ? new Date(req.body.date) : new Date(), {
+				rollover: !(amountMinor > 0),
+				expense: amountMinor > 0 ? { label: activity.title, amountSatang: amountMinor, paidBy: payer?.id } : null,
+			});
 
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: period.id }) });

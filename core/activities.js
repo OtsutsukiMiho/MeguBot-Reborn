@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const { query, transaction } = require('./db.js');
 const { newId, newActivityCode } = require('./ids.js');
 const { resolveSplit } = require('./split.js');
@@ -32,6 +33,11 @@ const RSVP = ['pending', 'yes', 'no'];
 const SLOT_ANSWERS = ['yes', 'maybe', 'no'];
 const SUPPORTED_CURRENCIES = ['THB', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'CAD'];
 const PAYMENT_OPTION_TYPES = ['bank_transfer', 'payment_link', 'cash', 'custom'];
+const CREATION_MODES = {
+	planning: 'open',
+	scheduled: 'confirmed',
+	settle: 'done',
+};
 
 // A single "no" sinks a slot faster than a "yes" lifts it: the point of the
 // poll is to find a time nobody is blocked on, not the most popular one.
@@ -117,8 +123,7 @@ const THAI_MONTHS = [
 ];
 
 function periodKeyFor(date) {
-	const d = new Date(date);
-	return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+	return require('./format.js').periodKeyFor(new Date(date));
 }
 
 function periodLabelFor(key) {
@@ -131,6 +136,190 @@ function periodDueAt(key, dueDay) {
 	const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
 	const day = Math.min(dueDay || 1, lastDay);
 	return new Date(Date.UTC(year, month - 1, day, 17, 0, 0));
+}
+
+const SPLIT_MODES = new Set(['even', 'exact', 'percent', 'shares']);
+
+function stableValue(value) {
+	if (value === undefined) return null;
+	if (value instanceof Date) return value.toISOString();
+	if (Array.isArray(value)) return value.map(stableValue);
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+	}
+	return value;
+}
+
+function creationFingerprint(input) {
+	const copy = { ...input };
+	delete copy.requestId;
+	delete copy.idempotencyKey;
+	return crypto.createHash('sha256')
+		.update(JSON.stringify(stableValue(copy)))
+		.digest('hex');
+}
+
+function normaliseRequestId(value) {
+	if (value === undefined || value === null || value === '') return null;
+	if (typeof value !== 'string') throw codedError('request_id_invalid');
+	const requestId = value.trim();
+	if (!requestId || requestId.length > 200) throw codedError('request_id_invalid');
+	return requestId;
+}
+
+function markIdempotent(activity, idempotent) {
+	Object.defineProperty(activity, 'idempotent', {
+		value: Boolean(idempotent),
+		enumerable: false,
+		configurable: true,
+	});
+	return activity;
+}
+
+function initialExpenseError(code, message = code) {
+	return codedError(code, message);
+}
+
+function positionValue(value, participantCount, code) {
+	if (!Number.isSafeInteger(value) || value < 0 || value >= participantCount) {
+		throw initialExpenseError(code);
+	}
+	return value;
+}
+
+/**
+ * The creation wizard names people by their roster position because it has no
+ * database ids until the activity is saved. Keep that representation through
+ * validation, then map it to participant ids immediately before addExpense.
+ */
+function normaliseInitialSplit(split, sharePositions, participantCount) {
+	if (split === undefined || split === null) return null;
+	if (!split || typeof split !== 'object' || Array.isArray(split)) {
+		throw initialExpenseError('initial_expense_split_invalid');
+	}
+	const mode = String(split.mode || '');
+	if (!SPLIT_MODES.has(mode)) throw initialExpenseError('initial_expense_split_invalid');
+	if (mode === 'even') return { mode: 'even', values: null };
+
+	const raw = split.values;
+	if (!raw || (typeof raw !== 'object' && !Array.isArray(raw))) {
+		throw initialExpenseError('initial_expense_split_invalid');
+	}
+	const values = {};
+	if (Array.isArray(raw)) {
+		if (raw.length === sharePositions.length) {
+			sharePositions.forEach((position, index) => { values[position] = raw[index]; });
+		}
+		else if (raw.length === participantCount) {
+			sharePositions.forEach(position => { values[position] = raw[position]; });
+		}
+		else throw initialExpenseError('initial_expense_split_invalid');
+	}
+	else {
+		for (const [key, value] of Object.entries(raw)) {
+			if (!/^\d+$/.test(key)) throw initialExpenseError('initial_expense_split_invalid');
+			const position = Number(key);
+			if (!sharePositions.includes(position)) throw initialExpenseError('initial_expense_split_invalid');
+			values[position] = value;
+		}
+	}
+
+	for (const position of sharePositions) {
+		if (!Object.prototype.hasOwnProperty.call(values, position)) {
+			throw initialExpenseError('initial_expense_split_invalid');
+		}
+	}
+	if (mode === 'exact') {
+		for (const value of Object.values(values)) {
+			const amount = Number(value);
+			if (!Number.isSafeInteger(amount) || amount < 0) {
+				throw initialExpenseError('initial_expense_split_invalid');
+			}
+		}
+	}
+	if (mode === 'shares') {
+		for (const value of Object.values(values)) {
+			const weight = Number(value);
+			if (!Number.isSafeInteger(weight) || weight < 0) {
+				throw initialExpenseError('initial_expense_split_invalid');
+			}
+		}
+	}
+	return { mode, values };
+}
+
+function normaliseInitialExpenses(rawExpenses, participants) {
+	if (!Array.isArray(rawExpenses) || rawExpenses.length > 50) {
+		throw initialExpenseError('initial_expenses_invalid');
+	}
+	return rawExpenses.map((expense) => {
+		if (!expense || typeof expense !== 'object' || Array.isArray(expense)) {
+			throw initialExpenseError('initial_expenses_invalid');
+		}
+		const label = String(expense.label ?? '').trim();
+		if (!label) throw initialExpenseError('initial_expense_label_required');
+
+		let amountSatang = expense.amountSatang;
+		if (amountSatang === undefined && expense.amountBaht !== undefined) {
+			const amountBaht = Number(expense.amountBaht);
+			amountSatang = Number.isFinite(amountBaht) ? Math.round(amountBaht * 100) : amountBaht;
+		}
+		if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0) {
+			throw initialExpenseError('initial_expense_amount_invalid');
+		}
+
+		const paidByPosition = positionValue(
+			expense.paidByPosition,
+			participants.length,
+			'initial_expense_paid_by_position_invalid',
+		);
+		if (!Array.isArray(expense.sharePositions) || expense.sharePositions.length === 0) {
+			throw initialExpenseError('initial_expense_share_positions_invalid');
+		}
+		const sharePositions = expense.sharePositions.map(position => positionValue(
+			position,
+			participants.length,
+			'initial_expense_position_invalid',
+		));
+		if (new Set(sharePositions).size !== sharePositions.length) {
+			throw initialExpenseError('initial_expense_share_positions_invalid');
+		}
+
+		const split = normaliseInitialSplit(expense.split, sharePositions, participants.length);
+		// Resolve once against the position names before opening the transaction.
+		// This catches an unbalanced exact/percent/weighted split before the first
+		// activity row is written, while the real write below resolves it again
+		// against the newly-created participant ids.
+		if (split) {
+			resolveSplit(
+				amountSatang,
+				sharePositions.map(String),
+				{
+					mode: split.mode,
+					values: split.values && Object.fromEntries(
+						Object.entries(split.values).map(([position, value]) => [String(position), value]),
+					),
+				},
+			);
+		}
+
+		return {
+			label,
+			amountSatang,
+			paidByPosition,
+			sharePositions,
+			split,
+		};
+	});
+}
+
+function mapInitialSplit(split, sharePositions, participantIds) {
+	if (!split) return null;
+	if (split.mode === 'even') return { mode: 'even' };
+	return {
+		mode: split.mode,
+		values: Object.fromEntries(sharePositions.map(position => [participantIds[position], split.values[position]])),
+	};
 }
 
 // ── create and read ─────────────────────────────────────────────────────────
@@ -150,19 +339,101 @@ async function createActivity(input) {
 		currency = 'THB',
 		paymentOptions = [],
 		participants = [],
+		creationMode = null,
+		planState = null,
+		requestId = null,
+		periodAt = null,
 	} = input;
 
 	if (!ownerUserId) throw new Error('ownerUserId is required');
-	if (!title || !title.trim()) throw new Error('title is required');
+	if (typeof title !== 'string' || !title.trim()) throw new Error('title is required');
 	if (!KINDS.includes(kind)) throw new Error(`unknown activity kind: ${kind}`);
 	if (kind === 'recurring' && recurrence !== 'monthly') {
 		throw new Error('recurring activities currently support monthly only');
 	}
+	if (!Array.isArray(participants) || participants.length === 0) {
+		throw codedError('participant_required');
+	}
+	if (participants.length > 50) throw codedError('participants_too_many');
+	const cleanParticipants = participants.map((participant) => {
+		if (!participant || typeof participant !== 'object' || Array.isArray(participant)) {
+			throw codedError('participant_invalid');
+		}
+		return {
+			displayName: cleanDisplayName(participant.displayName),
+			userId: participant.userId || null,
+			discordUid: participant.discordUid ? String(participant.discordUid) : null,
+		};
+	});
+	if (creationMode !== null && creationMode !== undefined && !Object.prototype.hasOwnProperty.call(CREATION_MODES, creationMode)) {
+		throw codedError('creation_mode_invalid');
+	}
+	if (kind === 'recurring' && creationMode) {
+		throw codedError('creation_mode_invalid');
+	}
+	const storedPlanState = creationMode
+		? CREATION_MODES[creationMode]
+		: (planState || (kind === 'recurring' ? 'confirmed' : 'open'));
+	if (!['open', 'confirmed', 'done'].includes(storedPlanState)) {
+		throw codedError('plan_state_invalid');
+	}
+	const hasInitialExpenses = Object.prototype.hasOwnProperty.call(input, 'initialExpenses');
+	const initialExpenses = hasInitialExpenses
+		? normaliseInitialExpenses(input.initialExpenses, cleanParticipants)
+		: [];
+	const storedRequestId = normaliseRequestId(requestId);
+	const requestHash = storedRequestId
+		? crypto.createHash('sha256').update(`${ownerUserId}\0${storedRequestId}`).digest('hex').slice(0, 40)
+		: null;
+	const bodyHash = storedRequestId ? creationFingerprint({
+		ownerUserId,
+		title: title.trim(),
+		kind,
+		location,
+		startsAt,
+		guildId,
+		channelId,
+		recurrence,
+		dueDay,
+		paymentDueAt,
+		currency,
+		paymentOptions,
+		participants: cleanParticipants,
+		creationMode,
+		planState: storedPlanState,
+		hasInitialExpenses,
+		initialExpenses,
+	}).slice(0, 40) : null;
+	const deterministicActivityId = requestHash && bodyHash
+		? `act_req_${requestHash}_${bodyHash}`
+		: null;
 	const storedCurrency = cleanCurrency(currency);
 	const storedPaymentOptions = normalisePaymentOptions(paymentOptions);
 
 	return transaction(async (client) => {
-		const activityId = newId('act');
+		if (storedRequestId) {
+			// The lock makes two simultaneous first attempts converge before either
+			// one checks the durable activity key. It is database-scoped and lives
+			// only for this transaction; no process-local cache is involved.
+			await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`activity-create:${ownerUserId}:${storedRequestId}`]);
+			const previous = await client.query(
+				`SELECT id, code, owner_user_id, title, kind, plan_state, location,
+				        starts_at, currency, payment_options, recurrence, due_day,
+				        payment_due_at, payee_participant_id, guild_id, channel_id,
+				        created_at, updated_at, closed_at
+				 FROM activities
+				 WHERE owner_user_id = $1 AND id LIKE $2
+				 ORDER BY created_at DESC`,
+				[ownerUserId, `act_req_${requestHash}_%`],
+			);
+			if (previous.rows.length > 0) {
+				const existing = previous.rows.find(row => row.id === deterministicActivityId);
+				if (!existing) throw codedError('request_id_conflict');
+				return markIdempotent(rowToActivity(existing), true);
+			}
+		}
+
+		const activityId = deterministicActivityId || newId('act');
 		const res = await client.query(
 			`INSERT INTO activities
 			   (id, code, owner_user_id, title, kind, location, starts_at, currency, guild_id, channel_id, recurrence, due_day, payment_due_at, plan_state, payment_options)
@@ -174,16 +445,18 @@ async function createActivity(input) {
 				// month through `dueDay` → `periods.due_at`. Giving it a second,
 				// activity-wide deadline would be two answers to one question.
 				kind === 'recurring' ? null : cleanPaymentDueAt(paymentDueAt),
-				// A monthly agreement has nothing to agree on — it just runs.
-				kind === 'recurring' ? 'confirmed' : 'open',
+				// A monthly agreement has nothing to agree on — it just runs unless
+				// a wizard explicitly supplied a plan state for a one-off activity.
+				storedPlanState,
 				JSON.stringify(storedPaymentOptions),
 			],
 		);
 
-		for (const [index, p] of participants.entries()) {
-			await client.query(
+		const participantIds = [];
+		for (const [index, p] of cleanParticipants.entries()) {
+			const participant = await client.query(
 				`INSERT INTO participants (id, activity_id, display_name, user_id, discord_uid, rsvp, position)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 				[
 					newId('par'),
 					activityId,
@@ -194,9 +467,39 @@ async function createActivity(input) {
 					index,
 				],
 			);
+			participantIds.push(participant.rows[0].id);
 		}
 
-		return rowToActivity(res.rows[0]);
+		let periodId = null;
+		// A wizard-created recurring activity owns its first period from the
+		// beginning. Legacy callers without `initialExpenses` keep the previous
+		// deferred ensurePeriod behavior, which is used by the monthly suites.
+		if (kind === 'recurring' && hasInitialExpenses) {
+			const at = periodAt == null ? new Date() : new Date(periodAt);
+			if (Number.isNaN(at.getTime())) throw codedError('period_date_invalid');
+			const key = periodKeyFor(at);
+			const period = await client.query(
+				`INSERT INTO periods (id, activity_id, period_key, label, due_at)
+				 VALUES ($1, $2, $3, $4, $5)
+				 ON CONFLICT (activity_id, period_key) DO NOTHING RETURNING *`,
+				[newId('per'), activityId, key, periodLabelFor(key), periodDueAt(key, dueDay)],
+			);
+			periodId = period.rows[0]?.id || null;
+			if (!periodId) throw codedError('period_create_failed');
+		}
+
+		for (const expense of initialExpenses) {
+			await addExpense(activityId, {
+				label: expense.label,
+				amountSatang: expense.amountSatang,
+				paidBy: participantIds[expense.paidByPosition],
+				shareParticipantIds: expense.sharePositions.map(position => participantIds[position]),
+				periodId,
+				split: mapInitialSplit(expense.split, expense.sharePositions, participantIds),
+			}, client);
+		}
+
+		return markIdempotent(rowToActivity(res.rows[0]), false);
 	});
 }
 
@@ -472,6 +775,21 @@ async function listActivitiesForOwner(ownerUserId, { includeClosed = true, at = 
 		...rowToActivity(row),
 		summary: byActivity[row.id],
 	}));
+}
+
+/**
+ * Open the current month for every recurring activity owned by a user.
+ * Creating a period is idempotent, so this is safe to run when a dashboard
+ * or reminder sweep crosses a month boundary.
+ */
+async function ensureCurrentPeriodsForOwner(ownerUserId, at = new Date()) {
+	const rows = await query(
+		`SELECT id FROM activities WHERE owner_user_id = $1 AND kind = 'recurring' AND plan_state <> 'cancelled'`,
+		[ownerUserId],
+	);
+	const results = [];
+	for (const row of rows.rows) results.push(await ensurePeriod(row.id, at, { rollover: true }));
+	return results;
 }
 
 function cleanDisplayName(value) {
@@ -960,7 +1278,7 @@ async function lockBestSlot(activityId) {
  * Make sure the period covering `date` exists, and bill it if it is new.
  * Called when a monthly agreement rolls over.
  */
-async function ensurePeriod(activityId, date = new Date()) {
+async function ensurePeriod(activityId, date = new Date(), { rollover = false, expense = null } = {}) {
 	const activity = await getActivity(activityId);
 	if (!activity) throw new Error('activity not found');
 	if (activity.kind !== 'recurring') throw new Error('only recurring activities have periods');
@@ -970,6 +1288,9 @@ async function ensurePeriod(activityId, date = new Date()) {
 	if (existing) return { period: existing, created: false };
 
 	const period = await transaction(async (client) => {
+		const locked = await client.query('SELECT plan_state FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw new Error('activity not found');
+		if (rollover && locked.rows[0].plan_state === 'cancelled') throw codedError('activity_cancelled');
 		const res = await client.query(
 			`INSERT INTO periods (id, activity_id, period_key, label, due_at)
 			 VALUES ($1, $2, $3, $4, $5)
@@ -978,6 +1299,8 @@ async function ensurePeriod(activityId, date = new Date()) {
 			[newId('per'), activityId, key, periodLabelFor(key), periodDueAt(key, activity.dueDay)],
 		);
 		if (res.rows.length === 0) return null;
+		if (expense) await addExpense(activityId, { ...expense, periodId: res.rows[0].id }, client);
+		else if (rollover) await copyPreviousPeriod(client, activityId, key, res.rows[0].id);
 		return rowToPeriod(res.rows[0]);
 	});
 
@@ -988,16 +1311,43 @@ async function ensurePeriod(activityId, date = new Date()) {
 	return { period, created: true };
 }
 
+// Only a newly inserted period inherits the prior month's ledger. Payments
+// remain attached to their original periods. The caller owns the transaction.
+async function copyPreviousPeriod(client, activityId, key, periodId) {
+	const previous = await client.query(
+		'SELECT id FROM periods WHERE activity_id = $1 AND period_key < $2 ORDER BY period_key DESC LIMIT 1',
+		[activityId, key],
+	);
+	if (!previous.rows.length) return;
+	const expenses = await client.query('SELECT * FROM expenses WHERE activity_id = $1 AND period_id = $2 ORDER BY id FOR SHARE', [activityId, previous.rows[0].id]);
+	for (const expense of expenses.rows) {
+		const shares = await client.query('SELECT participant_id, amount_satang FROM shares WHERE expense_id = $1', [expense.id]);
+		if (shares.rows.reduce((sum, share) => sum + BigInt(share.amount_satang), 0n) !== BigInt(expense.amount_satang)) {
+			throw codedError('recurring_split_invalid');
+		}
+		const expenseId = newId('exp');
+		await client.query(
+			`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by, split_mode, split_values)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+			[expenseId, activityId, periodId, expense.label, expense.amount_satang, expense.paid_by, expense.split_mode, expense.split_values == null ? null : JSON.stringify(expense.split_values)],
+		);
+		for (const share of shares.rows) {
+			await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expenseId, share.participant_id, share.amount_satang]);
+		}
+	}
+}
+
 // ── money axis ──────────────────────────────────────────────────────────────
 
-async function addExpense(activityId, input) {
+async function addExpense(activityId, input, transactionClient = null) {
 	const { label, amountSatang, paidBy, shareParticipantIds = null, periodId = null, split: splitSpec = null } = input;
 
 	if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
 		throw codedError('amount_invalid');
 	}
 
-	return transaction(async (client) => {
+	const run = transactionClient ? operation => operation(transactionClient) : transaction;
+	return run(async (client) => {
 		const roster = await client.query(
 			`SELECT id, rsvp,
 			        (SELECT kind FROM activities WHERE id = $1) AS activity_kind
@@ -1811,6 +2161,7 @@ module.exports = {
 	getActivityByCode,
 	getActivityByParticipant,
 	listActivitiesForOwner,
+	ensureCurrentPeriodsForOwner,
 	addParticipant,
 	claimParticipant,
 	renameParticipant,

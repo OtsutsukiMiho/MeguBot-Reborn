@@ -449,6 +449,24 @@ async function main() {
 	assert.strictEqual(monthly.period.label, undefined);
 	assert.ok(monthly.periods.every(p => p.label === undefined));
 	pass('periods travel as a key, so a month can be read in either language');
+	const [currentYear, currentMonth] = monthly.period.key.split('-').map(Number);
+	const monthlyId = (await core.activities.getActivityByCode(monthly.code)).id;
+	const priorKey = core.activities.periodKeyFor(new Date(Date.UTC(currentYear, currentMonth - 2, 15)));
+	await core.db.query('UPDATE periods SET period_key = $2 WHERE id = $1', [monthly.period.id, priorKey]);
+	whoAmI = 'anon';
+	await stranger('GET', `/api/megu/a/${monthly.code}`);
+	let periodRows = await core.db.query('SELECT id FROM periods WHERE activity_id = $1', [monthlyId]);
+	assert.strictEqual(periodRows.rows.length, 1, 'public link previews must not create financial periods');
+	whoAmI = 'owner';
+	r = await owner('GET', `/api/megu/a/${monthly.code}`);
+	assert.strictEqual(r.body.activity.period.key, monthly.period.key);
+	let rolled = await core.activities.getActivity(monthlyId);
+	const rolledPeriod = rolled.periods.find(item => item.key === monthly.period.key);
+	assert.strictEqual(core.activities.settlement(rolled, rolledPeriod.id).total, 18000);
+	await owner('GET', '/api/megu/activities');
+	rolled = await core.activities.getActivity(monthlyId);
+	assert.strictEqual(rolled.expenses.filter(item => item.periodId === rolledPeriod.id).length, 1);
+	pass('authorized page opens this month with its bill once; anonymous previews do not mutate it');
 
 	// ── Megu answers in the language she was asked in ──────────────────────
 

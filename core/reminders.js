@@ -56,8 +56,12 @@ async function outstandingByPerson({ now = new Date() } = {}) {
 	const people = new Map();
 
 	for (const { id } of withMoney.rows) {
-		const activity = await activities.getActivity(id);
+		let activity = await activities.getActivity(id);
 		if (!activity) continue;
+		if (activity.kind === 'recurring') {
+			await activities.ensurePeriod(activity.id, now, { rollover: true });
+			activity = await activities.getActivity(id);
+		}
 
 		for (const scope of scopesOf(activity)) {
 			const sum = activities.settlement(activity, scope.periodId);
@@ -218,16 +222,22 @@ async function paymentDueNow({ now = new Date(), baseUrl = '', windowHours = DUE
 		JOIN expenses e ON e.activity_id = a.id
 		LEFT JOIN periods p ON p.activity_id = a.id
 		WHERE a.plan_state <> 'cancelled'
-		  AND ((a.payment_due_at IS NOT NULL AND a.payment_due_at <= $1 AND a.payment_due_at > $2)
+		  AND (a.kind = 'recurring'
+		    OR ((a.payment_due_at IS NOT NULL AND a.payment_due_at <= $1 AND a.payment_due_at > $2)
 		    OR (p.due_at IS NOT NULL AND p.due_at <= $1 AND p.due_at > $2))
+		  )
 	`, [now, windowStart]);
 
 	const notices = [];
 	const hostDigests = [];
 
 	for (const { id } of candidates.rows) {
-		const activity = await activities.getActivity(id);
+		let activity = await activities.getActivity(id);
 		if (!activity) continue;
+		if (activity.kind === 'recurring') {
+			await activities.ensurePeriod(activity.id, now, { rollover: true });
+			activity = await activities.getActivity(id);
+		}
 
 		for (const scope of scopesOf(activity)) {
 			if (!scope.dueAt) continue;
