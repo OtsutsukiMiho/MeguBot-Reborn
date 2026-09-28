@@ -119,16 +119,22 @@ async function main() {
 	});
 	assert.strictEqual(approved.topic.workflow, 'completed');
 	assert.strictEqual(approved.topic.progress, 100);
+	assert.ok(approved.topic.completedAt, 'Review approval records an actual completion instant');
+	assert.strictEqual(approved.topic.completionTimezone, project.timezone);
+	assert.strictEqual(new Date(approved.topic.completionDeadlineAt).getTime(), new Date(approved.topic.deadlineAt).getTime());
 
 	const detail = await core.projects.getProjectByCode(project.code, ownerId);
 	assert.strictEqual(detail.project.progress, 100);
 	assert.strictEqual(detail.project.topicCount, 1);
+	assert.strictEqual(detail.insights.reportedProgress, 100);
+	assert.strictEqual(detail.insights.onTime.unknownCompletionCount, 0);
 	assert.strictEqual(detail.me.userId, ownerId);
 	assert.strictEqual(detail.topics[0].latestReport.summary, 'Ready for review.');
 	assert.ok(detail.events.some(event => event.type === 'topic_completed'));
 	await core.projects.updateTopic(project.code, firstTopic.topic.id, ownerId, { archived: true, expectedRevision: approved.topic.revision });
 	const withoutTopics = await core.projects.getProjectByCode(project.code, ownerId);
 	assert.strictEqual(withoutTopics.project.topicCount, 0);
+	assert.strictEqual(withoutTopics.insights.reportedProgress, null, 'An empty project has no measured progress');
 	assert.strictEqual(withoutTopics.project.progress, 0, 'archiving removes a topic from the rollup denominator');
 	assert.ok(withoutTopics.events.some(event => event.type === 'topic_archived'));
 	const replacement = await core.projects.createTopic(project.code, ownerId, {
@@ -322,6 +328,25 @@ async function main() {
 	]);
 	assert.strictEqual(concurrentReports.filter(result => result.status === 'fulfilled').length, 1);
 	assert.strictEqual(concurrentReports.filter(result => result.status === 'rejected' && result.reason?.code === 'revision_conflict').length, 1, 'simultaneous reports cannot silently overwrite one another');
+
+	const ownershipAlertProject = await core.projects.createProject({ ownerUserId: ownerId, title: 'Join request handoff', timezone: 'Asia/Bangkok' });
+	createdProjects.push(ownershipAlertProject.id);
+	await core.db.query("INSERT INTO project_memberships (project_id,user_id,role) VALUES ($1,$2,'lead')", [ownershipAlertProject.id, invitedId]);
+	const ownershipAlertLink = await core.projects.createJoinLink(ownershipAlertProject.code, ownerId);
+	await core.projects.requestProjectJoin(ownershipAlertLink.token, memberId);
+	const firstOwnerAlert = await core.db.query("SELECT e.id,e.payload,d.id AS delivery_id,d.status FROM notification_events e JOIN notification_deliveries d ON d.event_id=e.id WHERE e.event_type='project_join_requested' AND e.user_id=$1 AND e.payload->>'projectId'=$2", [ownerId, ownershipAlertProject.id]);
+	assert.strictEqual(firstOwnerAlert.rows.length, 1, 'a planning-project request queues one owner notification');
+	assert.strictEqual(Number(firstOwnerAlert.rows[0].payload.requestCycle), 1);
+	const alertTransfer = await core.projects.proposeOwnershipTransfer(ownershipAlertProject.code, ownerId, { proposedOwnerId: invitedId, expectedRevision: 0 });
+	await core.projects.acceptOwnershipTransfer(ownershipAlertProject.code, alertTransfer.transfer.id, invitedId);
+	const transferredAlerts = await core.db.query("SELECT e.user_id,d.id AS delivery_id,d.status FROM notification_events e JOIN notification_deliveries d ON d.event_id=e.id WHERE e.event_type='project_join_requested' AND e.payload->>'projectId'=$1 ORDER BY e.created_at", [ownershipAlertProject.id]);
+	assert.ok(transferredAlerts.rows.filter(row => row.user_id === ownerId).every(row => row.status === 'skipped'), 'old project-owner deliveries are suppressed after transfer');
+	const newOwnerAlert = transferredAlerts.rows.find(row => row.user_id === invitedId);
+	assert.ok(newOwnerAlert, 'the current project owner receives a fresh pending-request alert');
+	await core.db.query("UPDATE notification_deliveries SET status='sending',locked_at=now() WHERE id=$1", [newOwnerAlert.delivery_id]);
+	const pendingAlertRequests = await core.projects.listJoinRequests(ownershipAlertProject.code, invitedId);
+	await core.projects.reviewJoinRequest(ownershipAlertProject.code, pendingAlertRequests.requests[0].id, invitedId, { action: 'approve' });
+	assert.strictEqual(await core.notifications.recheckClaimed(newOwnerAlert.delivery_id), false, 'approval immediately before dispatch skips the obsolete alert');
 
 	console.log('projects passed — private access, ownership, reporting, reminders, dependencies and milestones hold together');
 }

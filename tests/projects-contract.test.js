@@ -82,7 +82,7 @@ for (const styles of [workspaceStyles, manageStyles, invitationStyles, directory
 	assert.match(styles, /max-width:\s*1568px/);
 }
 assert.match(manage, /manageTabs/);
-assert.match(manage, /beforeunload/);
+assert.match(manage, /useDraftGuard\(dirty\)/);
 assert.match(manage, /unsavedWarning/);
 assert.match(manage, /reminder48h/);
 assert.match(manage, /reminder24h/);

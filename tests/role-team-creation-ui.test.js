@@ -1,0 +1,44 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const React = require('react');
+const { renderToStaticMarkup } = require('react-dom/server');
+const babel = require('next/dist/compiled/babel/core');
+const filename = path.join(__dirname, '../app/components/teams/CreateTeamsFromRoles.js');
+const first = babel.transformSync(fs.readFileSync(filename, 'utf8'), { filename, configFile: false, babelrc: false, presets: ['next/babel'] });
+const { code } = babel.transformSync(first.code, { filename, configFile: false, babelrc: false, plugins: ['next/dist/compiled/babel/plugin-transform-modules-commonjs'] });
+for (const lang of ['en', 'th']) {
+	const t = require(`../app/copy/${lang}`), c = t.roleTeamCreation;
+	let stateIndex = 0, overrides = {};
+	let resourceError = null;
+	const module = { exports: {} };
+	vm.runInThisContext(`(function(require,module,exports){${code}\n})`, { filename })(id => {
+		if (id === 'react') return { ...React, useEffect() {}, useRef: initial => ({ current: initial }), useState: initial => { const index = stateIndex++; return [Object.hasOwn(overrides, index) ? overrides[index] : initial, () => {}]; } };
+		if(id.includes('useDraftGuard')) return {default:()=>()=>{},requestDraftNavigation:()=>true,__esModule:true};
+		if (id === '../../copy') return { useCopy: () => ({ t }) };
+		if (id.endsWith('.css')) return {};
+		if (id === 'next/link') return { default: props => React.createElement('a', props), __esModule: true };
+		if (id === 'next/navigation') return { useRouter: () => ({ push() {} }) };
+		if (id.includes('AuthGate')) return { default: () => React.createElement('p', null, 'Sign in required'), __esModule: true };
+		if (id.includes('ProjectAvatar')) return { default: () => React.createElement('img', { alt: '' }), __esModule: true };
+		if (id.includes('discord-guild-icon')) return { guildIconUrl: () => null };
+		if (id.includes('useWorkspaceResource')) return { default: url => ({ loading: false, error: resourceError, data: resourceError ? null : url.endsWith('/roles') ? { roles: [{ id: '123456789012345679', name: 'Department' }] } : { guild: { id: '123456789012345678', name: 'Server' }, candidates: [] } }), __esModule: true };
+		if (id.includes('CustomSelect')) return { default: props => React.createElement('button', { 'aria-label': props.ariaLabel, disabled: props.disabled }, props.placeholder), __esModule: true };
+		return require(id.startsWith('@babel/runtime/') ? `next/dist/compiled/${id}` : id);
+	}, module, module.exports);
+	const render = () => { stateIndex = 0; return renderToStaticMarkup(React.createElement(module.exports.default, { guildId: '123456789012345678' })); };
+	let html = render();
+	for (const text of [c.title, c.safety, c.empty, c.noOwners, c.partial]) assert.ok(html.includes(text), `${lang}: missing ${text}`);
+	assert.match(html, /class="btn btn-primary" disabled=""/, 'Empty batch cannot be previewed');
+	overrides = { 2: [{ roleId: '123456789012345679', roleName: 'Department', name: 'Edited team', owner: null }] };
+	html = render(); assert.ok(html.includes('Edited team')); assert.match(html, /class="btn btn-primary" disabled=""/, 'Owner selection is required');
+	overrides[3] = { teams: [{ roleId: '123456789012345679', name: 'Edited team', roleName: 'Department', ownerName: 'Owner' }] };
+	overrides[4] = true;
+	html = render(); assert.ok(html.includes(c.consent)); assert.ok(!html.includes(`>${c.edit}</button>`), 'Uncertain submitted preview cannot be edited');
+	overrides = {}; resourceError = { status: 403 };
+	assert.ok(render().includes(c.forbidden));
+	resourceError = { status: 401 }; assert.ok(render().includes('Sign in required'));
+}
+console.log('Role team creation UI passed: EN/TH empty, owner requirement, uncertain retry, permissions and sign-in states');

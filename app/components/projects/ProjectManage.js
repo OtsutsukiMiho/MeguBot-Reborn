@@ -8,6 +8,7 @@ import ProjectAvatar from './ProjectAvatar';
 import ProjectJoinSettings from './ProjectJoinSettings';
 import ProjectTeamPicker, { ProjectTeamConversion } from './ProjectTeamPicker';
 import CustomSelect from '../CustomSelect';
+import useDraftGuard from '../useDraftGuard';
 import { useCopy } from '../../copy';
 import styles from './projectManage.module.css';
 
@@ -40,6 +41,7 @@ export default function ProjectManage({ code }) {
 	const [tab, setTab] = useState('general');
 	const [dirty, setDirty] = useState(false);
 	const [pendingNavigation, setPendingNavigation] = useState(null);
+	const [lifecycleFeedback, setLifecycleFeedback] = useState('');
 
 	const readError = useCallback(problem => p.errors[problem?.code] || p.errors.failed, [p.errors]);
 	const load = useCallback(async () => {
@@ -57,11 +59,10 @@ export default function ProjectManage({ code }) {
 
 	useEffect(() => { load(); }, [load]);
 	useEffect(() => {
-		if (!dirty) return undefined;
-		const warn = event => { event.preventDefault(); event.returnValue = ''; };
-		window.addEventListener('beforeunload', warn);
-		return () => window.removeEventListener('beforeunload', warn);
-	}, [dirty]);
+		const requested = new URLSearchParams(window.location.search).get('tab');
+		if (requested && TABS.includes(requested)) setTab(requested);
+	}, []);
+	useDraftGuard(dirty);
 	const requestNavigation = destination => {
 		if (!dirty) {
 			if (destination.href) window.location.assign(destination.href); else setTab(destination.tab);
@@ -81,9 +82,9 @@ export default function ProjectManage({ code }) {
 
 	const { project, members, me } = data;
 	return <main className={styles.shell}>
-		<Link href={`/p/${project.code}`} className={styles.back} onClick={event => { if (dirty) { event.preventDefault(); requestNavigation({ href: `/p/${project.code}` }); } }}><ArrowLeft size={15} />{p.backToProject}</Link>
+		<Link data-draft-navigation href={`/p/${project.code}`} className={styles.back} onClick={event => { if (dirty) { event.preventDefault(); requestNavigation({ href: `/p/${project.code}` }); } }}><ArrowLeft size={15} />{p.backToProject}</Link>
 		<header className={styles.header}><div><h1>{p.manage}</h1><p>{project.title} · {p.manageLede}</p></div><span className={styles.code}>{project.code}</span></header>
-		{error && <p className={styles.alert} role="alert">{error}</p>}
+		{error && <p className={styles.alert} role="alert">{error}</p>}{lifecycleFeedback && <p role="status">{lifecycleFeedback}</p>}
 		{pendingNavigation && <div className={styles.unsavedWarning} role="alertdialog" aria-labelledby="project-unsaved-title" aria-describedby="project-unsaved-detail"><div><strong id="project-unsaved-title">{p.unsavedTitle}</strong><p id="project-unsaved-detail">{p.unsavedDetail}</p></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setPendingNavigation(null)}>{p.keepEditing}</button><button type="button" className="btn btn-primary btn-sm" onClick={discardAndContinue}>{p.discardChanges}</button></div>}
 		<div className={styles.layout}>
 			<nav className={styles.nav} aria-label={p.manage}>
@@ -93,7 +94,7 @@ export default function ProjectManage({ code }) {
 				{tab === 'general' && <General project={project} me={me} p={p} lang={lang} readError={readError} onChanged={load} onDirtyChange={setDirty} />}
 				{tab === 'people' && <People project={project} members={members} me={me} p={p} lang={lang} readError={readError} onChanged={load} setError={setError} />}
 				{tab === 'notifications' && <NotificationSettings project={project} me={me} initial={data.notificationSettings} p={p} readError={readError} onChanged={load} onDirtyChange={setDirty} />}
-				{tab === 'lifecycle' && <Lifecycle project={project} members={members} transfer={data.ownershipTransfer} me={me} p={p} readError={readError} onChanged={load} />}
+				{tab === 'lifecycle' && <Lifecycle project={project} members={members} transfer={data.ownershipTransfer} me={me} p={p} readError={readError} onChanged={async message=>{await load();setLifecycleFeedback(message || '');}} />}
 			</section>
 		</div>
 	</main>;
@@ -210,23 +211,28 @@ function Lifecycle({ project, members, transfer, me, p, readError, onChanged }) 
 	const [error, setError] = useState('');
 	const [proposedOwnerId, setProposedOwnerId] = useState('');
 	const [pendingState, setPendingState] = useState(null);
+	const [transferReview, setTransferReview] = useState(null);
 	const available = project.status === 'planning' ? ['active', 'cancelled'] : project.status === 'active' ? ['paused', 'completed', 'cancelled'] : project.status === 'paused' ? ['active', 'completed', 'cancelled'] : ['active'];
 	const allowed = me.role === 'owner' ? available : me.role === 'lead' ? available.filter(value => ['active', 'paused'].includes(value) && !CLOSED.has(project.status)) : [];
 	const change = async status => {
+		if (busy || transferReview) return;
 		setBusy(status); setError('');
 		try { const response = await fetch(`/api/megu/projects/${project.code}/state`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, reason, expectedRevision: project.revision }) }); const body = await response.json(); if (!response.ok) throw body; setReason(''); setPendingState(null); await onChanged(); }
 		catch (problem) { setError(readError(problem)); }
 		finally { setBusy(''); }
 	};
-	const transferAction = async action => {
+	const transferAction = async (action, reviewed = null) => {
+		if (busy) return;
 		setBusy(action); setError('');
 		try {
-			const path = action === 'propose' ? `/api/megu/projects/${project.code}/ownership-transfer` : `/api/megu/projects/${project.code}/ownership-transfer/${transfer.id}${action === 'accept' ? '/accept' : ''}`;
-			const response = await fetch(path, { method: action === 'cancel' ? 'DELETE' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: action === 'propose' ? JSON.stringify({ proposedOwnerId, expectedRevision: project.revision }) : undefined });
-			const body = await response.json(); if (!response.ok) throw body; await onChanged();
+			const path = action === 'propose' ? `/api/megu/projects/${project.code}/ownership-transfer` : `/api/megu/projects/${project.code}/ownership-transfer/${reviewed?.transferId ?? transfer.id}${action === 'accept' ? '/accept' : ''}`;
+			const response = await fetch(path, { method: action === 'cancel' ? 'DELETE' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: action === 'propose' ? JSON.stringify({ proposedOwnerId: reviewed?.ownerId ?? proposedOwnerId, expectedRevision: reviewed?.revision ?? project.revision }) : undefined });
+			const body = await response.json(); if (!response.ok) throw body; setTransferReview(null); await onChanged(p.ux.transferSaved);
 		}
-		catch (problem) { setError(readError(problem)); setBusy(''); }
+		catch (problem) { setError(readError(problem)); }
+		finally { setBusy(''); }
 	};
+	const reviewTransfer = kind => { if (busy) return; setPendingState(null); setError(''); setTransferReview({kind, ownerId:proposedOwnerId, ownerName:members.find(member=>member.userId===proposedOwnerId)?.displayName, revision:project.revision, transferId:transfer?.id}); };
 	const candidates = members.filter(member => member.userId !== me.userId);
-	return <section><h2>{p.lifecycleTitle}</h2><p className={styles.lede}>{p.lifecycleHint}</p><div className={styles.currentState}><span>{p.status}</span><strong>{p.state[project.status]}</strong></div><label className={styles.reason}><span>{p.stateReason}</span><textarea rows={3} required={Boolean(pendingState)} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></label>{pendingState && <div className={styles.stateConfirm} role="alert"><strong>{p.confirmStateTitle(p.state[pendingState])}</strong><p>{p.confirmStateHint}</p><div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setPendingState(null)}>{p.keep}</button><button type="button" className={pendingState === 'cancelled' ? 'btn btn-danger btn-sm' : 'btn btn-primary btn-sm'} disabled={!reason.trim() || Boolean(busy)} onClick={() => change(pendingState)}>{busy ? p.changingState : p.stateActions[pendingState]}</button></div></div>}{error && <p className={styles.alert} role="alert">{error}</p>}<div className={styles.stateButtons}>{allowed.map(status => <button key={status} type="button" className={status === 'cancelled' ? 'btn btn-danger' : 'btn btn-secondary'} disabled={Boolean(busy)} onClick={() => ['completed', 'cancelled'].includes(status) ? setPendingState(status) : change(status)}>{busy === status ? p.changingState : p.stateActions[status]}</button>)}</div>{(me.role === 'owner' || transfer?.proposedOwnerId === me.userId) && <div className={styles.transfer}><h3>{p.transferTitle}</h3><p>{p.transferHint}</p>{transfer ? <div className={styles.transferPending}><span>{p.transferPending(transfer.proposedOwnerName || members.find(member => member.userId === transfer.proposedOwnerId)?.displayName || p.role.member)}</span>{me.role === 'owner' ? <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(busy)} onClick={() => transferAction('cancel')}>{p.cancelTransfer}</button> : <button type="button" className="btn btn-primary btn-sm" disabled={Boolean(busy)} onClick={() => transferAction('accept')}>{p.acceptTransfer}</button>}</div> : me.role === 'owner' && candidates.length > 0 ? <div className={styles.transferForm}><label><span>{p.newOwner}</span><CustomSelect type="member" ariaLabel={p.newOwner} value={proposedOwnerId} onChange={setProposedOwnerId} options={candidates.map(member => ({ value: member.userId, label: member.displayName, subtitle: p.role[member.role], avatar: member.avatarUrl }))} searchable={candidates.length > 5} /></label><button type="button" className="btn btn-secondary" disabled={!proposedOwnerId || Boolean(busy)} onClick={() => transferAction('propose')}>{p.proposeTransfer}</button></div> : null}</div>}</section>;
+	return <section><h2>{p.lifecycleTitle}</h2><p className={styles.lede}>{p.lifecycleHint}</p><div className={styles.currentState}><span>{p.status}</span><strong>{p.state[project.status]}</strong></div><label className={styles.reason}><span>{p.stateReason}</span><textarea rows={3} required={Boolean(pendingState)} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></label>{pendingState && <div className={styles.stateConfirm} role="alert"><strong>{p.confirmStateTitle(p.state[pendingState])}</strong><p>{p.confirmStateHint}</p><div><button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(busy)} onClick={() => setPendingState(null)}>{p.keep}</button><button type="button" className={pendingState === 'cancelled' ? 'btn btn-danger btn-sm' : 'btn btn-primary btn-sm'} disabled={!reason.trim() || Boolean(busy) || Boolean(transferReview)} onClick={() => change(pendingState)}>{busy ? p.changingState : p.stateActions[pendingState]}</button></div></div>}{error && <p className={styles.alert} role="alert">{error}</p>}<div className={styles.stateButtons}>{allowed.map(status => <button key={status} type="button" className={status === 'cancelled' ? 'btn btn-danger' : 'btn btn-secondary'} disabled={Boolean(busy) || Boolean(transferReview)} onClick={() => ['completed', 'cancelled'].includes(status) ? setPendingState(status) : change(status)}>{busy === status ? p.changingState : p.stateActions[status]}</button>)}</div>{(me.role === 'owner' || transfer?.proposedOwnerId === me.userId) && <div className={styles.transfer}><h3>{p.transferTitle}</h3><p>{p.transferHint}</p>{transfer ? <div className={styles.transferPending}><span>{p.transferPending(transfer.proposedOwnerName || members.find(member => member.userId === transfer.proposedOwnerId)?.displayName || p.role.member)}</span>{me.role === 'owner' ? <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(busy) || Boolean(transferReview)} onClick={() => transferAction('cancel')}>{p.cancelTransfer}</button> : <button type="button" className="btn btn-primary btn-sm" disabled={Boolean(busy) || Boolean(transferReview)} onClick={() => reviewTransfer('accept')}>{p.acceptTransfer}</button>}</div> : me.role === 'owner' && candidates.length > 0 ? <div className={styles.transferForm}><label><span>{p.newOwner}</span><CustomSelect type="member" ariaLabel={p.newOwner} value={proposedOwnerId} disabled={Boolean(busy) || Boolean(transferReview)} onChange={setProposedOwnerId} options={candidates.map(member => ({ value: member.userId, label: member.displayName, subtitle: p.role[member.role], avatar: member.avatarUrl }))} searchable={candidates.length > 5} /></label><button type="button" className="btn btn-secondary" disabled={!proposedOwnerId || Boolean(busy) || Boolean(transferReview)} onClick={() => reviewTransfer('propose')}>{p.proposeTransfer}</button></div> : null}</div>}{transferReview && <div className={`${styles.stateConfirm} ${styles.transferReview}`} role="group" aria-labelledby="project-transfer-review"><h3 id="project-transfer-review">{p.ux.reviewTransfer}</h3><p>{p.ux.transferSummary(project.title,transferReview.kind==='accept' ? transfer?.proposedOwnerName || p.role.owner : transferReview.ownerName || p.role.member)}</p><p>{p.transferHint}</p><div><button type="button" className="btn btn-secondary" disabled={Boolean(busy)} onClick={()=>setTransferReview(null)}>{p.ux.keepTransfer}</button><button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>transferAction(transferReview.kind,transferReview)}>{busy ? p.changingState : p.ux.confirmTransfer}</button></div></div>}</section>;
 }

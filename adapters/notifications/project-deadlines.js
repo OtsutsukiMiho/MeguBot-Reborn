@@ -9,6 +9,10 @@ function createProjectDeadlineSweep({ baseUrl = '', log = () => undefined } = {}
 		running = true;
 		try {
 			const result = await core.projectReminders.queueDue({ now, baseUrl });
+			if (process.env.MEGU_TEAM_GOALS_ENABLED === '1') {
+				const goals = await require('../../core/team-goal-notifications').queueDue({ now, baseUrl });
+				if (goals.queued) log(`Goal periods: ${goals.queued} private reminders queued`);
+			}
 			if (result.queued || result.skipped) log(`Project deadlines: ${result.queued} queued, ${result.skipped} skipped as obsolete`);
 			return result;
 		}

@@ -9,6 +9,7 @@ import {
 import AuthGate from '../AuthGate';
 import ProjectAvatar from './ProjectAvatar';
 import ProjectTopicFilters from './ProjectTopicFilters';
+import ProjectInsights from './ProjectInsights';
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
 import { deriveProjectTopicFilters, deriveReportableTopics, normalizeTopicQuery, parseProjectFilterParams, writeProjectFilterParams } from './projectFilters.mjs';
@@ -16,7 +17,7 @@ import styles from './projectWorkspace.module.css';
 
 const DAY = 86_400_000;
 const LEADS = new Set(['owner', 'lead']);
-const TABS = ['timeline', 'topics', 'updates'];
+const TABS = ['timeline', 'topics', 'updates', 'insights'];
 const EVENT_HUES = {
 	project_created: 158, project_state_changed: 45, project_updated: 215,
 	topic_created: 175, topic_updated: 205, topic_archived: 25, topic_restored: 150,
@@ -281,7 +282,7 @@ export default function ProjectWorkspace({ code }) {
 
 	return (
 		<div className={styles.workspace}>
-			<Link href="/projects" className={styles.back}><ArrowLeft size={15} />{p.title}</Link>
+			<nav className="workspace-context" aria-label={t.teams.ux.context}><Link href="/projects" className={styles.back}><ArrowLeft size={15} aria-hidden="true" />{p.title}</Link>{project.team && <Link href={`/teams/${encodeURIComponent(project.team.id)}/projects`}>{project.team.name}</Link>}<span aria-current="page">{project.title}</span></nav>
 			<header className={styles.projectHead}>
 				<div className={styles.projectIdentity}>
 					<div className={styles.titleLine}><h1>{project.title}</h1>{project.team && <Link href={`/teams/${project.team.id}`} className={styles.teamBadge}>{project.team.name}</Link>}<span className={styles.private}><LockKeyhole size={13} />{p.private}</span><State value={project.status} p={p} /></div>
@@ -297,7 +298,7 @@ export default function ProjectWorkspace({ code }) {
 					{project.status === 'planning' && canLead ? <button type="button" className="btn btn-primary" disabled={busyState || topics.length === 0} onClick={activate}>{busyState ? p.starting : p.startProject}</button> :
 						reportableTopics.length > 0 && <button type="button" className="btn btn-primary" onClick={() => reportableTopics.length === 1 ? startReport(reportableTopics[0].id) : setChoosingReport(true)}>{p.reportProgress}</button>}
 				</div>
-				<div className={styles.projectProgress} role="progressbar" aria-label={p.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow={project.progress}><span className={styles.projectProgressTrack} aria-hidden="true"><i style={{ width: `${project.progress}%` }} /></span><span className={styles.projectProgressValue}><strong>{project.progress}%</strong><em>{p.progress}</em></span></div>
+				{topics.length === 0 ? <p className={styles.description}>{p.insights.empty}</p> : <div className={styles.projectProgress} role="progressbar" aria-label={p.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow={project.progress}><span className={styles.projectProgressTrack} aria-hidden="true"><i style={{ width: `${project.progress}%` }} /></span><span className={styles.projectProgressValue}><strong>{project.progress}%</strong><em>{p.progress}</em></span></div>}
 			</header>
 
 			{error && <div className={styles.errorBanner} role="alert"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => load({ quiet: true })}>{p.retry}</button><button type="button" onClick={() => setError('')} aria-label={p.cancel}><X size={16} /></button></div>}
@@ -312,7 +313,7 @@ export default function ProjectWorkspace({ code }) {
 
 			{adding && <AddTopic project={project} members={members} me={me} p={p} readError={readError} onCancel={() => setAdding(false)} onSaved={async result => { setAdding(false); await load({ quiet: true }); selectTopic(result.topic.id); }} />}
 
-			<div className={`${styles.workArea}${selected ? ` ${styles.hasDetail}` : ''}`}>
+			<div className={`${styles.workArea}${selected && tab !== 'insights' ? ` ${styles.hasDetail}` : ''}`}>
 				<div className={styles.mainArea}>
 					<div className={styles.toolRow}>
 						<div className={styles.tabs} role="tablist" aria-label={project.title}>
@@ -320,17 +321,17 @@ export default function ProjectWorkspace({ code }) {
 						</div>
 						<div className={styles.toolActions}>{canLead && <button type="button" className="btn btn-primary btn-sm" onClick={() => setAdding(true)}><Plus size={15} />{p.addTopic}</button>}</div>
 					</div>
-					{tab !== 'updates' && topics.length > 0 && <ProjectTopicFilters attention={attention} assignedToMe={assignedToMe} query={topicQuery} counts={topicFilterResult.counts} visibleCount={topicFilterResult.visibleCount} totalCount={topicFilterResult.totalCount} refreshing={refreshing} p={p} onAttentionChange={setAttention} onAssignedChange={setAssignedFilter} onQueryChange={value => setTopicQuery(normalizeTopicQuery(value))} onClear={clearTopicFilters} />}
+					{(tab === 'timeline' || tab === 'topics') && topics.length > 0 && <ProjectTopicFilters attention={attention} assignedToMe={assignedToMe} query={topicQuery} counts={topicFilterResult.counts} visibleCount={topicFilterResult.visibleCount} totalCount={topicFilterResult.totalCount} refreshing={refreshing} p={p} onAttentionChange={setAttention} onAssignedChange={setAssignedFilter} onQueryChange={value => setTopicQuery(normalizeTopicQuery(value))} onClear={clearTopicFilters} />}
 
 					<div role="tabpanel" id={`project-panel-${tab}`} aria-labelledby={`project-tab-${tab}`} className={styles.tabPanel}>
-						{topics.length === 0 && tab !== 'topics' ? <NoTopics canLead={canLead} p={p} onAdd={() => setAdding(true)} /> : tab === 'timeline' ?
+						{tab === 'insights' ? <ProjectInsights insights={data.insights} topics={topics} copy={p.insights} lang={lang} timezone={project.timezone} refreshing={refreshing} onRefresh={() => load({ quiet: true })} onSelect={id => { clearTopicFilters(); selectTopic(id); setTab('topics'); }} /> : topics.length === 0 && tab !== 'topics' ? <NoTopics canLead={canLead} p={p} onAdd={() => setAdding(true)} /> : tab === 'timeline' ?
 							<Timeline topics={topics} visibleTopics={topicFilterResult.visibleTopics} filtersActive={topicFilterResult.isActive} onClearFilters={clearTopicFilters} milestones={data.milestones || []} dependencies={data.dependencies || []} project={project} canLead={canLead} readError={readError} onChanged={() => load({ quiet: true })} selectedId={selectedId} onSelect={selectTopic} p={p} lang={lang} timezone={project.timezone} /> :
 							tab === 'topics' ? <TopicList topics={topicFilterResult.visibleTopics} archivedTopics={archivedTopics} project={project} canLead={canLead} filtersActive={topicFilterResult.isActive} onClearFilters={clearTopicFilters} onAdd={() => setAdding(true)} selectedId={selectedId} onSelect={selectTopic} onChanged={() => load({ quiet: true })} readError={readError} p={p} lang={lang} timezone={project.timezone} /> :
 							<Updates events={events} topics={topics} members={members} code={project.code} p={p} lang={lang} />}
 					</div>
 				</div>
 
-				{selected && <TopicDetail key={selected.id} topic={selected} project={project} members={members} notificationSettings={data.notificationSettings} p={p} lang={lang} canLead={canLead} canReport={canReportSelected} reporting={reporting} setReporting={setReporting} readError={readError} shouldFocus={focusDetail} outsideFilters={selectedOutsideFilters} onClearFilters={clearTopicFilters} onClose={closeTopic} onReportSaved={async () => { setReporting(false); await load({ quiet: true }); setReportAnnouncement(p.reportSaved); }} onChanged={() => load({ quiet: true })} />}
+				{selected && tab !== 'insights' && <TopicDetail key={selected.id} topic={selected} project={project} members={members} notificationSettings={data.notificationSettings} p={p} lang={lang} canLead={canLead} canReport={canReportSelected} reporting={reporting} setReporting={setReporting} readError={readError} shouldFocus={focusDetail} outsideFilters={selectedOutsideFilters} onClearFilters={clearTopicFilters} onClose={closeTopic} onReportSaved={async () => { setReporting(false); await load({ quiet: true }); setReportAnnouncement(p.reportSaved); }} onChanged={() => load({ quiet: true })} />}
 			</div>
 		</div>
 	);

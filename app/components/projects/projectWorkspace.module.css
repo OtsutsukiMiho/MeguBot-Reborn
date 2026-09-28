@@ -471,7 +471,7 @@
 	.listProgress { grid-column: 3; grid-row: 1; }
 	.listToolbar { justify-content: stretch; }
 	.listToolbar label, .listToolbar label > div { width: 100%; }
-	.detail { position: fixed; inset: 0; z-index: 30; overflow-y: auto; border: 0; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1.4rem, env(safe-area-inset-bottom)); background: var(--paper); }
+	.detail { position: fixed; inset: var(--nav-h) 0 0; z-index: 30; overflow-y: auto; border: 0; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1.4rem, env(safe-area-inset-bottom)); background: var(--paper); }
 	.updateFilters { align-items: stretch; flex-direction: column; }
 	.updateFilters label { justify-content: space-between; max-width: none; }
 	.updateFilters label > div { width: min(68%, 24rem); }

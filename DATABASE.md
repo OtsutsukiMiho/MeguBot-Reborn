@@ -68,8 +68,41 @@ DATABASE_URL=postgresql://postgres:...@db.PROJECT-REF.supabase.co:5432/postgres
 database. It exists so development and tests can run against a local container
 without ever touching production — see [Development](#development).
 
-TLS is handled for you. `core/db.js` detects a non-local host and enables SSL;
-you do not need `?sslmode=require` in the URL.
+Remote TLS authenticates both the certificate chain and server hostname. Core,
+retained legacy data, application health logging and supported operator connections
+use `core/postgres-connection.js` with
+`rejectUnauthorized: true`; only the documented loopback/container hosts use
+plaintext local connections. Core still uses `MEGU_DATABASE_URL || DATABASE_URL`,
+while legacy and health logging still use `DATABASE_URL`. Their routing is unchanged.
+
+Without `MEGU_PG_CA_FILE`, remote connections use Node's configured trust store.
+If the provider's certificate chain is not trusted there, obtain its trusted root
+CA from the provider's authenticated deployment documentation/dashboard and set
+`MEGU_PG_CA_FILE` to a readable PEM CA bundle mounted in every application process.
+For example, a deployment may mount it at `/run/secrets/postgres-root-ca.pem`.
+No provider CA is bundled or assumed. Do not put private keys or credentials in
+the repository. Empty, unreadable, malformed or non-CA files fail configuration
+instead of disabling verification; unset the variable to use platform trust.
+Local development does not require the remote CA file.
+
+The `bot:health` and `bot:instances` tools, authorized Company inventory,
+Company rehearsal and cloud setup's connection check use the same policy.
+Mount the trusted CA bundle in operator processes too. Their existing read-only,
+authorization and local-test guards still apply; TLS URL options do not create
+an operator exemption. Use canonical provider hostnames for identity checks.
+
+You do not need `?sslmode=require`. URL TLS switches (`ssl`, `sslmode`,
+`sslrootcert`, `sslcert`, `sslkey`, `uselibpqcompat`) are removed before `pg`
+parses the URL so they cannot override the shared policy. Configure the trusted
+CA with `MEGU_PG_CA_FILE`, rather than URL certificate flags. Do not disable
+certificate validation to work around a deployment error. Remote legacy
+initialization failures now stop initialization instead of silently switching
+retained writes to unrelated local JSON; the existing local JSON fallback remains.
+
+Before release, verify the deployed provider chain and hostname, CA mount/read
+permissions in all processes, and a successful connection for both database URLs
+if they differ. Local regression tests use ephemeral certificates and a disposable
+database; they do not certify the production provider connection.
 
 ## 3. Record what is there before you start
 
@@ -206,15 +239,20 @@ pool that is **forty connections**, and a web process stuck in a crash-loop
 would keep opening more until the database refused everyone — the exact failure
 people are afraid of when they hear "shared database".
 
-Each pool is now capped:
+Each primary pool is now capped conservatively:
 
 ```
-max                       5      up to 20 connections in total, from 40
+max                       1      up to 4 primary connections in total
 idleTimeoutMillis     10 000     idle connections are handed back, not held
 connectionTimeoutMillis 8 000    an unreachable database errors instead of queueing
 ```
 
-Override with `PG_POOL_MAX` if you ever need to; it applies to both pools.
+There is also one health-log pool in each of the supervisor, web, and bot
+processes. With the default, the complete configured ceiling is therefore
+seven connections. One retained old bot during restart raises that estimate to
+ten, below a 15-client session-pool limit. Override `PG_POOL_MAX` only after
+counting all processes and leaving restart and external-client headroom; it
+applies to both primary pools.
 
 If your plan's connection limit is tight, use the **6543** pooler URL from
 step 1 and you can leave the cap where it is.
@@ -275,9 +313,10 @@ ports work here: **5432** is session mode and behaves like an ordinary
 connection, **6543** is transaction mode and is the safer pick if you are near
 your plan's connection limit.
 
-**Set `PG_POOL_MAX` if the host runs more than one instance.** The cap is per
-pool and `index.js` opens two per process, so one instance is up to twenty
-connections. Two instances is forty. See [Connections](#connections).
+**Budget `PG_POOL_MAX` across every running instance.** The cap is per primary
+pool, and each complete instance has web and bot core/legacy pools plus three
+single-client health pools. A second deployment doubles that demand. See
+[Connections](#connections).
 
 **The first boot on Supabase is the one that migrates.** If that project still
 has `megu_*` tables, the rename described above happens the first time the bot

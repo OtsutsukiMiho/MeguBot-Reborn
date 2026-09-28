@@ -633,6 +633,32 @@
 	background: var(--surface);
 }
 
+.memberToolNav {
+	display: flex;
+	gap: .45rem;
+	margin-bottom: 1rem;
+	padding-bottom: .85rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.memberToolNav button {
+	display: inline-flex;
+	align-items: center;
+	gap: .45rem;
+	min-height: 2.35rem;
+	padding: .5rem .75rem;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.memberToolNav button:hover { color: var(--text-primary); background: var(--surface); }
+.memberToolNav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.memberToolNav .activeMemberTool { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 38%, var(--border)); background: var(--accent-soft); }
+
 .toolPanelHeader {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;

@@ -16,12 +16,14 @@ async function enqueueWithClient(client, { projectId, eventType, guildId, channe
 
 async function claimPending(limit = 20, { projectId = null } = {}) {
 	return transaction(async client => {
+		const legacy = await require('./company-access').hasLegacyCompanySchema(client);
 		const result = await client.query(
 			`SELECT d.*, s.channel_enabled, s.guild_id AS current_guild_id, s.channel_id AS current_channel_id,
-			 p.status AS project_status,t.archived_at AS team_archived_at
+			 p.status AS project_status,t.archived_at AS team_archived_at,${legacy ? 'c.archived_at' : 'NULL'} AS company_archived_at
 			 FROM project_channel_deliveries d
 			 JOIN projects p ON p.id=d.project_id
 			 LEFT JOIN teams t ON t.id=p.team_id
+			 ${legacy ? 'LEFT JOIN companies c ON c.id=t.company_id' : ''}
 			 LEFT JOIN project_notification_settings s ON s.project_id=d.project_id
 			 WHERE ((d.status IN ('pending','failed') AND d.next_attempt_at <= now())
 			    OR (d.status='sending' AND d.locked_at < now() - interval '5 minutes'))
@@ -31,7 +33,7 @@ async function claimPending(limit = 20, { projectId = null } = {}) {
 		);
 		const valid = [];
 		for (const row of result.rows) {
-			if (!row.channel_enabled || row.project_status !== 'active' || row.team_archived_at
+			if (!row.channel_enabled || row.project_status !== 'active' || row.team_archived_at || row.company_archived_at
 				|| row.guild_id !== row.current_guild_id || row.channel_id !== row.current_channel_id) {
 				await client.query("UPDATE project_channel_deliveries SET status='skipped', locked_at=NULL, last_error='Destination or project is no longer active' WHERE id=$1", [row.id]);
 				continue;
@@ -47,6 +49,25 @@ async function markSent(id) {
 	await query("UPDATE project_channel_deliveries SET status='sent', sent_at=now(), locked_at=NULL, last_error=NULL WHERE id=$1", [id]);
 }
 
+async function recheckClaimed(id) {
+	return transaction(async client => {
+		const legacy = await require('./company-access').hasLegacyCompanySchema(client);
+		const result = await client.query(`SELECT d.status,s.channel_enabled,p.status AS project_status,
+		 t.archived_at AS team_archived_at,${legacy ? 'c.archived_at' : 'NULL'} AS company_archived_at,
+		 d.guild_id,d.channel_id,s.guild_id AS current_guild_id,s.channel_id AS current_channel_id
+		 FROM project_channel_deliveries d JOIN projects p ON p.id=d.project_id
+		 LEFT JOIN teams t ON t.id=p.team_id ${legacy ? 'LEFT JOIN companies c ON c.id=t.company_id' : ''}
+		 LEFT JOIN project_notification_settings s ON s.project_id=p.id
+		 WHERE d.id=$1 FOR UPDATE OF d`,[id]);
+		const row = result.rows[0];
+		if (!row || row.status !== 'sending') return false;
+		const valid = Boolean(row.channel_enabled && row.project_status==='active' && !row.team_archived_at && !row.company_archived_at
+		 && row.guild_id===row.current_guild_id && row.channel_id===row.current_channel_id);
+		if (!valid) await client.query("UPDATE project_channel_deliveries SET status='skipped',locked_at=NULL,last_error='Destination or project became ineligible before dispatch' WHERE id=$1",[id]);
+		return valid;
+	});
+}
+
 async function markFailed(id, error, attempts) {
 	const terminal = Number(attempts) + 1 >= 8;
 	await query(
@@ -57,4 +78,4 @@ async function markFailed(id, error, attempts) {
 	);
 }
 
-module.exports = { enqueueWithClient, claimPending, markSent, markFailed };
+module.exports = { enqueueWithClient, claimPending, recheckClaimed, markSent, markFailed };

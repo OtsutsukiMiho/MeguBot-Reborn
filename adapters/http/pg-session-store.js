@@ -28,6 +28,13 @@ const CREATE_TABLE = `
 	)
 `;
 const CREATE_INDEX = 'CREATE INDEX IF NOT EXISTS web_sessions_expires_at_idx ON web_sessions (expires_at)';
+// Separate from session JSON: a stale request's set() must never restore a
+// consumed OAuth request. Keep claims until that request can no longer be valid.
+const CREATE_OAUTH_CLAIMS = `CREATE TABLE IF NOT EXISTS web_oauth_consumptions (
+	sid TEXT NOT NULL, state TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (sid, state)
+)`;
+const CREATE_OAUTH_INDEX = 'CREATE INDEX IF NOT EXISTS web_oauth_consumptions_expires_at_idx ON web_oauth_consumptions (expires_at)';
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
@@ -52,6 +59,8 @@ function createSessionStore(session, { ttlMs = DEFAULT_TTL_MS, log = () => undef
 			ready = (async () => {
 				await core.db.query(CREATE_TABLE);
 				await core.db.query(CREATE_INDEX);
+				await core.db.query(CREATE_OAUTH_CLAIMS);
+				await core.db.query(CREATE_OAUTH_INDEX);
 			})().catch((error) => {
 				ready = null;
 				throw error;
@@ -61,6 +70,26 @@ function createSessionStore(session, { ttlMs = DEFAULT_TTL_MS, log = () => undef
 	}
 
 	class PostgresSessionStore extends session.Store {
+		async consumeOAuthRequest(sid, request) {
+			const now = Date.now();
+			if (!sid || !request || request.provider !== 'discord'
+				|| !['login', 'link'].includes(request.intent) || typeof request.state !== 'string' || !request.state
+				|| !Number.isFinite(request.createdAt) || request.createdAt > now
+				|| now - request.createdAt >= 10 * 60 * 1000) return false;
+			await ensureTable();
+			const result = await core.db.query(
+				`INSERT INTO web_oauth_consumptions (sid, state, expires_at)
+				 SELECT sid, $3, $4 FROM web_sessions
+				 WHERE sid = $1 AND expires_at > now() AND $4 > now()
+				 AND data->'oauth2Request' = $2::jsonb
+				 AND ($2::jsonb->>'intent' <> 'link'
+				      OR data->>'meguUserId' = $2::jsonb->>'linkingUserId')
+				 ON CONFLICT (sid, state) DO NOTHING RETURNING sid`,
+				[sid, request, request.state, new Date(request.createdAt + 10 * 60 * 1000)],
+			);
+			return result.rowCount === 1;
+		}
+
 		get(sid, callback) {
 			ensureTable()
 				.then(() => core.db.query('SELECT data FROM web_sessions WHERE sid = $1 AND expires_at > now()', [sid]))
@@ -115,6 +144,7 @@ function createSessionStore(session, { ttlMs = DEFAULT_TTL_MS, log = () => undef
 	const prune = setInterval(() => {
 		ensureTable()
 			.then(() => core.db.query('DELETE FROM web_sessions WHERE expires_at <= now()'))
+			.then(() => core.db.query('DELETE FROM web_oauth_consumptions WHERE expires_at <= now()'))
 			.catch(() => undefined);
 	}, PRUNE_INTERVAL_MS);
 	prune.unref();

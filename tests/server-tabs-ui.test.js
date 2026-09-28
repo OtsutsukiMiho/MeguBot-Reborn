@@ -16,6 +16,7 @@ const expectedTabs = [
 	'MemberManagerTab.js',
 	'NicknameManagerTab.js',
 	'PersonalSettingsTab.js',
+	'ProjectsTeamsTab.js',
 	'ReactionRolesTab.js',
 	'RoleManagerTab.js',
 	'VoiceTtsTab.js',

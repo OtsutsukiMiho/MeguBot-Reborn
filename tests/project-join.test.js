@@ -2,10 +2,13 @@
 const assert = require('node:assert/strict');
 const dbPath = require.resolve('../core/db');
 let replies = []; let calls = [];
-const query = async (sql, args) => { calls.push({ sql, args }); assert.ok(replies.length, 'Unexpected database call: '+sql); return { rows: replies.shift() }; };
+const query = async (sql, args) => {
+	if (sql.includes("to_regclass('companies')")) return { rows:[{table_name:null,company_column:false}],rowCount:1 };
+	calls.push({ sql, args }); assert.ok(replies.length, 'Unexpected database call: '+sql); return { rows: replies.shift() };
+};
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query, transaction: fn => fn({ query }) } };
 const projects = require('../core/projects');
-const project = { id:'p1', code:'ABC2345', status:'active', role:'owner', revision:1 };
+const project = { id:'p1', code:'ABC2345', title:'Project one', status:'active', role:'owner', revision:1, owner_user_id:'owner', join_link_id:'link1' };
 function setup(rows) { replies = rows; calls = []; }
 async function main() {
 	setup([[{team_id:null}],[{...project,role:'lead'}]]);
@@ -15,9 +18,10 @@ async function main() {
 	const link = await projects.createJoinLink(project.code,'owner');
 	assert.ok(link.token.length >= 32);
 	assert.notEqual(calls[3].args[2],link.token,'Only token hash is stored');
-	setup([[project],[{}],[],[],[{n:0}],[]]);
+	setup([[project],[{}],[],[],[{n:0}],[{id:'request1',user_id:'person',request_cycle:1}],[{display_name:'Person'}],[],[{mode:'off'}],[{id:'event-join',inserted:true}]]);
 	assert.deepEqual(await projects.requestProjectJoin(link.token,'person'),{status:'pending'});
 	assert.ok(!calls.some(c => /INSERT INTO project_memberships/.test(c.sql)), 'Requesting must not grant access');
+	assert.ok(calls.some(c => /INSERT INTO notification_events/.test(c.sql) && c.args[2] === 'project_join_requested'), 'A new request queues one semantic owner alert');
 	setup([[project],[{}],[],[{status:'pending'}]]);
 	assert.deepEqual(await projects.requestProjectJoin(link.token,'person'),{status:'pending'});
 	setup([[project],[]]);

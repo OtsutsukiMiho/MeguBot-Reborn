@@ -1,9 +1,12 @@
 const crypto = require('node:crypto');
+const { creationKey, withCreationReceipt } = require('./workspace-creation');
+const { projectInsights, reportedProgress } = require('./project-insights');
 const { query, transaction } = require('./db.js');
 const { newId, newProjectCode } = require('./ids.js');
 const notifications = require('./notifications.js');
 const projectReminders = require('./project-reminders.js');
 const projectChannelNotifications = require('./project-channel-notifications.js');
+const { companyEligibilitySql, requireTeamCompanyAccess } = require('./company-access.js');
 
 const PROJECT_STATES = ['planning', 'active', 'paused', 'completed', 'cancelled'];
 const PROJECT_TRANSITIONS = {
@@ -50,6 +53,32 @@ function assertKnownFields(input, allowed) {
 
 function notificationText(value) {
 	return text(value).replace(/[\r\n]+/g, ' ').replaceAll('@', '@\u200b').slice(0, 180);
+}
+
+function applicationRoot() {
+	return String(process.env.FRONTEND_URL || '').replace(/\/$/, '');
+}
+
+async function enqueueProjectJoinNotification(client, { project, request, ownerUserId }) {
+	const requester = await client.query('SELECT display_name FROM users WHERE id=$1', [request.user_id]);
+	const name = notificationText(requester.rows[0]?.display_name || 'A Megu user');
+	const root = applicationRoot();
+	return notifications.enqueueWithClient(client, {
+		userId: ownerUserId,
+		eventType: 'project_join_requested',
+		dedupeKey: `project-join-requested:${request.id}:${request.request_cycle}:${ownerUserId}`,
+		payload: {
+			projectId: project.id,
+			projectRequestId: request.id,
+			requestCycle: Number(request.request_cycle),
+			subjectEn: `Join request for ${notificationText(project.title)}`,
+			subjectTh: `คำขอเข้าร่วม ${notificationText(project.title)}`,
+			bodyEn: `${name} requested to join ${notificationText(project.title)}. Review the request in project settings.`,
+			bodyTh: `${name} ขอเข้าร่วม ${notificationText(project.title)} ตรวจสอบคำขอได้ในการตั้งค่าโปรเจกต์`,
+			ctaLabelEn: 'Review request', ctaLabelTh: 'ตรวจสอบคำขอ',
+			ctaUrl: root ? `${root}/p/${project.code}/manage?tab=people#join-requests` : null,
+		},
+	});
 }
 
 function requiredText(value, field, max) {
@@ -163,7 +192,7 @@ function projectRow(row) {
 		deadlineAt: row.deadline_at, deadlinePrecision: row.deadline_precision,
 		closeReason: row.close_reason, revision: row.revision,
 		createdAt: row.created_at, updatedAt: row.updated_at, closedAt: row.closed_at,
-		role: row.role, progress: Number(row.progress || 0), topicCount: Number(row.topic_count || 0),
+		role: row.role, progress: 'progress_sum' in row ? reportedProgress(row.progress_sum, row.topic_count) ?? 0 : Number(row.progress || 0), topicCount: Number(row.topic_count || 0),
 		lastUpdatedAt: row.last_updated_at || row.updated_at, nextDueAt: row.next_due_at || null,
 		assignedCount: Number(row.assigned_count || 0),
 	};
@@ -177,6 +206,8 @@ function topicRow(row) {
 		startsAt: row.starts_at, startsPrecision: row.starts_precision,
 		deadlineAt: row.deadline_at, deadlinePrecision: row.deadline_precision,
 		weight: Number(row.weight || 1), position: row.position, revision: row.revision,
+		completedAt: row.completed_at || null, completionDeadlineAt: row.completion_deadline_at || null,
+		completionDeadlinePrecision: row.completion_deadline_precision || null, completionTimezone: row.completion_timezone || null,
 		scheduleRevision: row.schedule_revision || 0, archivedAt: row.archived_at,
 		createdAt: row.created_at, updatedAt: row.updated_at, assignees: [], latestReport: null,
 	};
@@ -296,19 +327,24 @@ function dependencyRow(row) {
 	};
 }
 
-async function createProject(input = {}) {
-	assertKnownFields(input, ['ownerUserId', 'teamId', 'title', 'description', 'timezone', 'startsAt', 'startsPrecision', 'deadlineAt', 'deadlinePrecision']);
+async function createProject(input = {}, { requireRequestKey = false } = {}) {
+	assertKnownFields(input, ['ownerUserId', 'teamId', 'title', 'description', 'timezone', 'startsAt', 'startsPrecision', 'deadlineAt', 'deadlinePrecision', 'requestKey']);
 	const { ownerUserId, title, description, timezone: zone, startsAt, startsPrecision, deadlineAt, deadlinePrecision } = input;
 	const teamId = text(input.teamId) || null;
 	const projectTitle = requiredText(title, 'title', 120);
 	const projectDescription = optionalText(description, 'description', 4000);
 	const projectZone = timezone(zone);
 	const schedule = dates({ startsAt, startsPrecision, deadlineAt, deadlinePrecision }, projectZone);
+	const key = creationKey(input.requestKey, requireRequestKey);
 
-	return transaction(async (client) => {
+	return transaction(async (client) => withCreationReceipt(client, {
+		key, actorId: ownerUserId, kind: 'project',
+		payload: { teamId, title: projectTitle, description: projectDescription, timezone: projectZone, ...schedule },
+	}, async () => {
 		let team = null;
 		if (teamId) {
 			if (process.env.MEGU_PROJECT_TEAMS_ENABLED === '0') throw codedError('teams_disabled');
+			await requireTeamCompanyAccess(client, teamId, ownerUserId, { lock: true, write: true });
 			const found = await client.query(
 				`SELECT t.*,m.role FROM teams t JOIN team_memberships m ON m.team_id=t.id
 				 AND m.user_id=$2 AND m.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
@@ -318,6 +354,7 @@ async function createProject(input = {}) {
 			if (!team) throw codedError('team_not_found');
 			if (team.archived_at) throw codedError('team_archived');
 			if (!['owner', 'admin'].includes(team.role)) throw codedError('team_forbidden');
+			await require('./team-membership-sources').requireManualMembership(client, teamId, ownerUserId);
 		}
 		for (let attempt = 0; attempt < 6; attempt++) {
 			const project = {
@@ -344,15 +381,14 @@ async function createProject(input = {}) {
 				};
 		}
 		throw codedError('project_code_unavailable');
-	});
+	}, result => accessByCode(client, result.code, ownerUserId)));
 }
 
 async function listProjectsForUser(userId, { includeClosed = true } = {}) {
 	const result = await query(
 		`SELECT p.*, m.role,team_ref.name AS team_name,team_ref.color AS team_color,team_ref.archived_at AS team_archived_at,tm.role AS team_role,
 			 count(t.id) FILTER (WHERE t.archived_at IS NULL)::int AS topic_count,
-		 COALESCE(round((sum(t.progress * t.weight) FILTER (WHERE t.archived_at IS NULL))::numeric /
-		  NULLIF(sum(t.weight) FILTER (WHERE t.archived_at IS NULL), 0)), 0)::int AS progress,
+		 sum(t.progress) FILTER (WHERE t.archived_at IS NULL) AS progress_sum,
 			 max(COALESCE(t.updated_at, p.updated_at)) AS last_updated_at,
 			 min(t.deadline_at) FILTER (WHERE t.archived_at IS NULL AND t.workflow <> 'completed') AS next_due_at,
 		 (SELECT count(*)::int FROM project_topic_assignees mine
@@ -365,6 +401,7 @@ async function listProjectsForUser(userId, { includeClosed = true } = {}) {
 		 LEFT JOIN project_topics t ON t.project_id = p.id
 		 WHERE ($2::boolean OR p.status NOT IN ('completed', 'cancelled'))
 		 AND (p.team_id IS NULL OR tm.user_id IS NOT NULL)
+		 AND ${await companyEligibilitySql({query},'team_ref', '$1')}
 		 GROUP BY p.id, m.role,team_ref.id,tm.role ORDER BY p.updated_at DESC, p.id DESC`,
 		[userId, includeClosed],
 	);
@@ -377,6 +414,8 @@ function directoryCursor(row) {
 
 async function listProjectDirectory(userId, options = {}) {
 	const bucket = ['active', 'closed'].includes(options.bucket) ? options.bucket : 'all';
+	const guildId = text(options.guildId);
+	if (guildId && !/^\d{17,20}$/.test(guildId)) throw codedError('discord_guild_invalid');
 	const teamId = options.teamId === 'standalone' ? 'standalone' : text(options.teamId);
 	const search = text(options.search);
 	if (search.length > 120) throw codedError('search_too_long');
@@ -387,8 +426,7 @@ async function listProjectDirectory(userId, options = {}) {
 		 team_ref.archived_at AS team_archived_at,tm.role AS team_role,
 		 count(t.id) FILTER (WHERE t.archived_at IS NULL)::int AS topic_count,
 		 min(t.deadline_at) FILTER (WHERE t.archived_at IS NULL AND t.workflow <> 'completed') AS next_due_at,
-		 COALESCE(round((sum(t.progress * t.weight) FILTER (WHERE t.archived_at IS NULL))::numeric /
-		  NULLIF(sum(t.weight) FILTER (WHERE t.archived_at IS NULL), 0)), 0)::int AS progress,
+		 sum(t.progress) FILTER (WHERE t.archived_at IS NULL) AS progress_sum,
 		 max(COALESCE(t.updated_at, p.updated_at)) AS last_updated_at,
 		 (SELECT count(*)::int FROM project_topic_assignees mine
 		   JOIN project_topics mt ON mt.id=mine.topic_id
@@ -403,13 +441,17 @@ async function listProjectDirectory(userId, options = {}) {
 		 AND ($4::boolean=false OR EXISTS (SELECT 1 FROM project_topic_assignees mine JOIN project_topics mt ON mt.id=mine.topic_id WHERE mine.project_id=p.id AND mine.user_id=$1 AND mt.archived_at IS NULL))
 		 AND ($5::timestamptz IS NULL OR (p.updated_at,p.id) < ($5::timestamptz,$6::text))
 		 AND (p.team_id IS NULL OR tm.user_id IS NOT NULL)
+		 AND ${await companyEligibilitySql({query},'team_ref', '$1')}
 		 AND ($7='' OR ($7='standalone' AND p.team_id IS NULL) OR p.team_id=$7)
+		 AND ($9='' OR team_ref.discord_guild_id=$9)
 		 GROUP BY p.id,m.role,team_ref.id,tm.role ORDER BY p.updated_at DESC,p.id DESC LIMIT $8`,
-		[userId, bucket, search, options.assignedOnly === true, cursor?.at || null, cursor?.id || '', teamId, limit + 1],
+		[userId, bucket, search, options.assignedOnly === true, cursor?.at || null, cursor?.id || '', teamId, limit + 1, guildId],
 	), query(`SELECT EXISTS (
 		SELECT 1 FROM project_memberships pm JOIN projects p ON p.id=pm.project_id
+		LEFT JOIN teams team_ref ON team_ref.id=p.team_id
 		LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=$1 AND tm.revoked_at IS NULL
 		WHERE pm.user_id=$1 AND pm.revoked_at IS NULL AND (p.team_id IS NULL OR tm.user_id IS NOT NULL)
+		AND ${await companyEligibilitySql({query},'team_ref', '$1')}
 	) AS present`, [userId])]);
 	const hasMore = result.rows.length > limit;
 	const rows = result.rows.slice(0, limit);
@@ -422,6 +464,7 @@ async function accessByCode(client, code, userId, { lock = false } = {}) {
 		const locator = await client.query('SELECT team_id FROM projects WHERE code=$1', [normalizedCode]);
 		if (!locator.rows[0]) throw codedError('project_not_found');
 		if (locator.rows[0].team_id) {
+			await requireTeamCompanyAccess(client, locator.rows[0].team_id, userId, { lock: true, write: true, notFound: 'project_not_found' });
 			const teamAccess = await client.query(
 				`SELECT t.archived_at FROM teams t JOIN team_memberships tm ON tm.team_id=t.id
 				 AND tm.user_id=$2 AND tm.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
@@ -437,7 +480,7 @@ async function accessByCode(client, code, userId, { lock = false } = {}) {
 		 JOIN project_memberships m ON m.project_id = p.id AND m.user_id = $2 AND m.revoked_at IS NULL
 		 LEFT JOIN teams team_ref ON team_ref.id=p.team_id
 		 LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=$2 AND tm.revoked_at IS NULL
-		 WHERE p.code = $1 ${lock ? 'FOR UPDATE OF p' : ''}`,
+		 WHERE p.code = $1 AND ${await companyEligibilitySql(client,'team_ref', '$2')} ${lock ? 'FOR UPDATE OF p' : ''}`,
 		[normalizedCode, userId],
 	);
 	if (!result.rows[0] || (result.rows[0].team_id && !result.rows[0].team_role)) throw codedError('project_not_found');
@@ -485,12 +528,13 @@ async function getProjectByCode(code, userId) {
 		userId: row.user_id, displayName: row.display_name, avatarUrl: row.avatar_url, primary: row.is_primary,
 	});
 	for (const row of reports.rows) if (byTopic.has(row.topic_id)) byTopic.get(row.topic_id).latestReport = reportRow(row);
-	const denominator = topicList.reduce((sum, item) => sum + item.weight, 0);
+	const insights = projectInsights(topicList);
 	project.topicCount = topicList.length;
-	project.progress = denominator ? Math.round(topicList.reduce((sum, item) => sum + item.progress * item.weight, 0) / denominator) : 0;
+	project.progress = insights.reportedProgress ?? 0;
 	return {
 		project,
 		me: { userId, role: project.role },
+		insights,
 		members: members.rows.map(memberRow),
 		topics: topicList,
 		archivedTopics: archivedTopicList,
@@ -500,6 +544,20 @@ async function getProjectByCode(code, userId) {
 		dependencies: dependencies.rows.map(dependencyRow),
 		milestones: milestones.rows.map(milestoneRow),
 	};
+}
+
+// Resolve only the linked labels, reusing the project's current authorization.
+// Goal participation or team administration never substitutes for project access.
+async function resolveEvidenceReference(client, code, topicId, participantIds) {
+	let project;
+	for (const userId of new Set(participantIds.filter(Boolean))) project = await accessByCode(client, code, userId);
+	if (!project) throw codedError('project_not_found');
+	let topic = null;
+	if (topicId) {
+		topic = (await client.query('SELECT id,title FROM project_topics WHERE project_id=$1 AND id=$2', [project.id, topicId])).rows[0];
+		if (!topic) throw codedError('topic_not_found');
+	}
+	return { projectId: project.id, projectCode: project.code, title: project.title, topicId: topic?.id || null, topicTitle: topic?.title || null };
 }
 
 async function listProjectTopics(code, userId, { includeArchived = false } = {}) {
@@ -978,6 +1036,7 @@ async function proposeOwnershipTransfer(code, actorUserId, input = {}) {
 		if (project.teamId) {
 			const teamMember = await client.query('SELECT 1 FROM team_memberships WHERE team_id=$1 AND user_id=$2 AND revoked_at IS NULL', [project.teamId, proposedOwnerId]);
 			if (!teamMember.rows[0]) throw codedError('team_member_not_found');
+			await require('./team-membership-sources').requireManualMembership(client, project.teamId, proposedOwnerId);
 		}
 		await client.query(`UPDATE project_ownership_transfers SET cancelled_at=now()
 			WHERE project_id=$1 AND accepted_at IS NULL AND cancelled_at IS NULL AND expires_at <= now()`, [project.id]);
@@ -1018,6 +1077,7 @@ async function acceptOwnershipTransfer(code, transferId, actorUserId) {
 		);
 		if (!locator.rows[0]) throw codedError('project_not_found');
 		if (locator.rows[0].team_id) {
+			await requireTeamCompanyAccess(client, locator.rows[0].team_id, actorUserId, { lock: true, write: true, notFound: 'project_not_found' });
 			const team = await client.query(
 				`SELECT t.archived_at FROM teams t JOIN team_memberships tm ON tm.team_id=t.id
 				 AND tm.user_id=$2 AND tm.revoked_at IS NULL WHERE t.id=$1 FOR UPDATE OF t`,
@@ -1027,7 +1087,7 @@ async function acceptOwnershipTransfer(code, transferId, actorUserId) {
 			if (team.rows[0].archived_at) throw codedError('team_archived');
 		}
 		const found = await client.query(
-			`SELECT ot.*, p.code, p.owner_user_id,p.team_id FROM project_ownership_transfers ot
+			`SELECT ot.*, p.code,p.title,p.status,p.owner_user_id,p.team_id FROM project_ownership_transfers ot
 			 JOIN projects p ON p.id=ot.project_id
 			 WHERE p.code=$1 AND ot.id=$2 FOR UPDATE OF ot, p`,
 			[String(code || '').toUpperCase(), transferId],
@@ -1040,9 +1100,24 @@ async function acceptOwnershipTransfer(code, transferId, actorUserId) {
 		if (transfer.owner_user_id !== transfer.current_owner_id) throw codedError('ownership_transfer_stale');
 		const recipient = await client.query('SELECT 1 FROM project_memberships WHERE project_id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE', [transfer.project_id, actorUserId]);
 		if (!recipient.rows[0]) throw codedError('project_not_found');
+		if (transfer.team_id) await require('./team-membership-sources').requireManualMembership(client, transfer.team_id, actorUserId);
 		await client.query("UPDATE project_memberships SET role='lead' WHERE project_id=$1 AND user_id=$2", [transfer.project_id, transfer.current_owner_id]);
 		await client.query("UPDATE project_memberships SET role='owner' WHERE project_id=$1 AND user_id=$2", [transfer.project_id, actorUserId]);
 		const projectResult = await client.query('UPDATE projects SET owner_user_id=$2, revision=revision+1, updated_at=now() WHERE id=$1 RETURNING *', [transfer.project_id, actorUserId]);
+		await client.query(
+			`UPDATE notification_deliveries d SET status='skipped',locked_at=NULL,last_error='Project ownership changed'
+			 FROM notification_events e WHERE d.event_id=e.id AND e.event_type='project_join_requested'
+			 AND e.user_id=$2 AND e.payload->>'projectId'=$1 AND d.status IN ('pending','failed','sending')`,
+			[transfer.project_id, transfer.current_owner_id],
+		);
+		const pendingRequests = await client.query(
+			`SELECT r.* FROM project_join_requests r JOIN project_join_links l ON l.id=r.originating_link_id
+			 WHERE r.project_id=$1 AND r.status='pending' AND l.revoked_at IS NULL AND l.expires_at>now()`,
+			[transfer.project_id],
+		);
+		for (const request of pendingRequests.rows) await enqueueProjectJoinNotification(client, {
+			project: { id: transfer.project_id, code: transfer.code, title: transfer.title }, request, ownerUserId: actorUserId,
+		});
 		await client.query('UPDATE project_ownership_transfers SET accepted_at=now() WHERE id=$1', [transfer.id]);
 		await addEvent(client, transfer.project_id, null, actorUserId, 'ownership_transferred', { previousOwnerId: transfer.current_owner_id });
 		return { project: projectRow({ ...projectResult.rows[0], role: 'owner' }) };
@@ -1180,6 +1255,7 @@ async function convertProjectToTeam(code, actorUserId, input = {}) {
 	if (process.env.MEGU_PROJECT_TEAMS_ENABLED === '0') throw codedError('teams_disabled');
 	const teamId = requiredText(input.teamId, 'team_id', 100);
 	return transaction(async client => {
+		await requireTeamCompanyAccess(client, teamId, actorUserId, { lock: true, write: true });
 		// Lock the destination team before the project. Team roster changes use
 		// the same ordering, preventing conversion/removal deadlocks.
 		const teamResult = await client.query(
@@ -1209,6 +1285,7 @@ async function convertProjectToTeam(code, actorUserId, input = {}) {
 				unresolvedMembers: unresolved.rows.map(row => ({ userId: row.user_id, displayName: row.display_name, avatarUrl: row.avatar_url })),
 			});
 		}
+		await require('./team-membership-sources').requireManualMembership(client, teamId, actorUserId);
 		await client.query('UPDATE projects SET team_id=$2,revision=revision+1,updated_at=now() WHERE id=$1', [project.id, teamId]);
 		await client.query('UPDATE project_join_links SET revoked_at=now() WHERE project_id=$1 AND revoked_at IS NULL', [project.id]);
 		await client.query('UPDATE project_invitations SET revoked_at=now() WHERE project_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL', [project.id]);
@@ -1433,9 +1510,19 @@ async function reviewTopic(code, topicId, actorUserId, input = {}) {
 			if (!Number.isInteger(progress) || progress < 0 || progress > 99) throw codedError('progress_invalid');
 			workflow = 'in_progress';
 		}
-		const changed = await client.query('UPDATE project_topics SET workflow=$3, progress=$4, revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *', [project.id, topic.id, workflow, progress]);
+		const changed = await client.query(`UPDATE project_topics SET workflow=$3, progress=$4,
+		 completed_at=CASE WHEN $3='completed' THEN now() ELSE NULL END,
+		 completion_deadline_at=CASE WHEN $3='completed' THEN deadline_at ELSE NULL END,
+		 completion_deadline_precision=CASE WHEN $3='completed' THEN deadline_precision ELSE NULL END,
+		 completion_timezone=CASE WHEN $3='completed' THEN $5 ELSE NULL END,
+		 revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *`, [project.id, topic.id, workflow, progress, project.timezone]);
 		await projectReminders.rebuildForTopicWithClient(client, project.id, topic.id);
-		await addEvent(client, project.id, topic.id, actorUserId, `topic_${action === 'return' ? 'returned' : action === 'reopen' ? 'reopened' : 'completed'}`, { reason, progress });
+		await addEvent(client, project.id, topic.id, actorUserId, `topic_${action === 'return' ? 'returned' : action === 'reopen' ? 'reopened' : 'completed'}`, {
+			reason, progress, completedAt: changed.rows[0].completed_at,
+			completionDeadlineAt: changed.rows[0].completion_deadline_at,
+			completionDeadlinePrecision: changed.rows[0].completion_deadline_precision,
+			completionTimezone: changed.rows[0].completion_timezone,
+		});
 		await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1', [project.id]);
 		return { topic: topicRow(changed.rows[0]) };
 	});
@@ -1500,7 +1587,7 @@ async function revokeJoinLink(code, actorUserId) {
 
 async function requestProjectJoin(token, actorUserId) {
 	return transaction(async client => {
-		const found = await client.query('SELECT p.* FROM projects p JOIN project_join_links l ON l.project_id=p.id WHERE l.token_hash=$1 FOR UPDATE OF p', [invitationHash(requiredText(token, 'invitation_token', 200))]);
+		const found = await client.query('SELECT p.*,l.id AS join_link_id FROM projects p JOIN project_join_links l ON l.project_id=p.id WHERE l.token_hash=$1 FOR UPDATE OF p,l', [invitationHash(requiredText(token, 'invitation_token', 200))]);
 		const project = found.rows[0];
 		if (!project) throw codedError('invitation_not_found');
 		if (project.team_id) throw codedError('team_project_invite_disabled');
@@ -1513,7 +1600,11 @@ async function requestProjectJoin(token, actorUserId) {
 		if (existing.rows[0]) return { status: existing.rows[0].status };
 		const count = await client.query("SELECT count(*)::int AS n FROM project_join_requests WHERE project_id=$1 AND status='pending'", [project.id]);
 		if (count.rows[0].n >= 200) throw codedError('member_limit');
-		await client.query('INSERT INTO project_join_requests (id,project_id,user_id) VALUES ($1,$2,$3)', [newId('pjr'),project.id,actorUserId]);
+		const inserted = await client.query(
+			'INSERT INTO project_join_requests (id,project_id,user_id,originating_link_id) VALUES ($1,$2,$3,$4) RETURNING *',
+			[newId('pjr'), project.id, actorUserId, project.join_link_id],
+		);
+		await enqueueProjectJoinNotification(client, { project, request: inserted.rows[0], ownerUserId: project.owner_user_id });
 		return { status: 'pending' };
 	});
 }
@@ -1560,6 +1651,7 @@ async function reviewJoinRequest(code, requestId, actorUserId, input = {}) {
 }
 
 module.exports = {
+	resolveEvidenceReference,
 	createJoinLink, revokeJoinLink, requestProjectJoin, listJoinRequests, reviewJoinRequest,
 	PROJECT_STATES, PROJECT_TRANSITIONS, ROLES, createProject, listProjectsForUser, listProjectDirectory,
 	getProjectByCode, listProjectTopics, getProjectTopic, createTopic, reportProgress, reviewTopic, setProjectState,

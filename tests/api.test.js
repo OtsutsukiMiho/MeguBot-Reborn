@@ -4,6 +4,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const core = require('../core/index.js');
 const meguApi = require('../adapters/http/megu-api.js');
+const { createMutationOriginGuard } = require('../adapters/http/mutation-origin.js');
 
 const created = { users: [], activities: [] };
 let ok = 0;
@@ -16,11 +17,13 @@ function pass(m) {
 function makeApp(sessionFor) {
 	const app = express();
 	app.use(express.json());
+	app.use(express.urlencoded({ extended: true }));
 	app.use(cookieParser());
 	app.use((req, res, next) => {
 		req.session = sessionFor(req);
 		next();
 	});
+	app.use(createMutationOriginGuard('https://megu.test'));
 	app.use('/api/megu', meguApi.router({
 		botPresence: async () => ['111'],
 		frontendUrl: 'https://megu.test',
@@ -31,13 +34,14 @@ function makeApp(sessionFor) {
 // A tiny cookie-aware fetch so device tokens behave like a real browser.
 function client(base) {
 	const jar = new Map();
-	return async function call(method, url, body) {
-		const headers = { 'Content-Type': 'application/json' };
+	return async function call(method, url, body, options = {}) {
+		const headers = { 'Content-Type': options.form ? 'application/x-www-form-urlencoded' : 'application/json' };
+		if (!['GET', 'HEAD'].includes(method) && options.origin !== null) headers.Origin = options.origin || 'https://megu.test';
 		if (jar.size) headers.Cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
 		const res = await fetch(base + url, {
 			method,
 			headers,
-			body: body ? JSON.stringify(body) : undefined,
+			body: body ? (options.form ? new URLSearchParams(body).toString() : JSON.stringify(body)) : undefined,
 		});
 		for (const c of res.headers.getSetCookie?.() || []) {
 			const [pair] = c.split(';');
@@ -255,6 +259,17 @@ async function main() {
 	r = await ohmClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'yes' });
 	assert.strictEqual(r.body.activity.me.rsvp, 'yes');
 	pass('โอม answered yes and it stuck to the right row');
+	r = await ohmClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'no' }, { form: true, origin: 'https://sibling.megu.test' });
+	assert.strictEqual(r.status, 403, 'Sibling-origin form cannot mutate a device-cookie participant');
+	r = await ohmClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'no' }, { origin: 'https://attacker.test' });
+	assert.strictEqual(r.status, 403, 'Cross-origin JSON cannot mutate a device-cookie participant');
+	r = await ohmClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'no' }, { origin: null });
+	assert.strictEqual(r.status, 403, 'Missing origin evidence cannot mutate a device-cookie participant');
+	r = await ohmClient('GET', `/api/megu/a/${code}`);
+	assert.strictEqual(r.body.activity.me.rsvp, 'yes', 'Rejected RSVP attempts left the participant unchanged');
+	r = await ohmClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'yes' }, { form: true });
+	assert.strictEqual(r.status, 200, 'Same-origin form RSVP still works');
+	pass('device-cookie RSVP rejects sibling/cross/missing origin before the real handler and accepts same-origin form');
 
 	r = await strangerClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'yes' });
 	assert.strictEqual(r.status, 403);

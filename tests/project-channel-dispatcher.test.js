@@ -7,6 +7,7 @@ const { createProjectChannelDispatcher } = require('../adapters/notifications/pr
 const service = core.projectChannelNotifications;
 const originals = {
 	claimPending: service.claimPending,
+	recheckClaimed: service.recheckClaimed,
 	markSent: service.markSent,
 	markFailed: service.markFailed,
 };
@@ -21,6 +22,7 @@ async function main() {
 	const failed = [];
 	const logs = [];
 	service.claimPending = async () => queue.splice(0);
+	service.recheckClaimed = async () => true;
 	service.markSent = async id => sent.push(id);
 	service.markFailed = async (id, error, attempts) => failed.push({ id, message: error.message, attempts });
 
@@ -47,6 +49,10 @@ async function main() {
 	const lostAck = createProjectChannelDispatcher({ sendChannel: async notice => sends.push(notice) });
 	await lostAck.drain();
 	assert.deepStrictEqual(failed.at(-1), { id: 'delivery-lost-ack', message: 'Mock acknowledgement store unavailable', attempts: 1 });
+	const sentBeforeRevocation = sends.length;
+	service.recheckClaimed = async () => false;
+	await lostAck.drain();
+	assert.equal(sends.length,sentBeforeRevocation,'revoked destinations are rechecked immediately before dispatch');
 
 	console.log('project channel dispatcher passed — overlap, rate limits and lost acknowledgements retain explicit retry state');
 }

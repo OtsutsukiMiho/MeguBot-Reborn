@@ -34,6 +34,8 @@ let webProcess = null;
 let botProcess = null;
 let nextProcess = null;
 let botStartTimer = null;
+let supervisorStopping = false;
+let supervisorShutdownPromise = null;
 
 // A child that dies on boot used to come back three seconds later, forever. For
 // the bot that is not a restart policy, it is a denial-of-service against
@@ -94,6 +96,7 @@ function noteDiscordBlock(untilMs, source) {
 }
 
 function scheduleRestart(name, start, startedAt, exitCode) {
+	if (supervisorStopping) return;
 	const state = restarts[name] || (restarts[name] = { attempts: 0 });
 
 	if (Date.now() - startedAt >= HEALTHY_UPTIME_MS) {
@@ -136,6 +139,7 @@ function scheduleRestart(name, start, startedAt, exitCode) {
 	logMaster('System', `${COLOR.yellow}Restarting ${name} in ${Math.round(delay / 1000)}s (attempt ${state.attempts}).`);
 	const restart = () => {
 		if (name === 'Discord Bot') botStartTimer = null;
+		if (supervisorStopping) return;
 		start();
 	};
 	const timer = setTimeout(restart, delay);
@@ -171,6 +175,7 @@ function logMaster(host, msg) {
 }
 
 function startWeb() {
+	if (supervisorStopping) return;
 	logMaster('System', `${COLOR.cyan}Starting Express REST API process (Port ${EXPRESS_PORT})...`);
 	const startedAt = Date.now();
 	webProcess = fork(path.join(__dirname, 'backend', 'web', 'web.js'), [], {
@@ -222,11 +227,12 @@ function startWeb() {
 
 	webProcess.on('exit', (code, signal) => {
 		logMaster('System', `${COLOR.red}Express REST API process exited with code ${code} (signal: ${signal}).`);
-		scheduleRestart('Express REST API', startWeb, startedAt, code);
+		if (!supervisorStopping) scheduleRestart('Express REST API', startWeb, startedAt, code);
 	});
 }
 
 function startNext() {
+	if (supervisorStopping) return;
 	logMaster('System', `${COLOR.cyan}Starting Next.js App Router Frontend server (Port ${NEXT_PORT})...`);
 	const startedAt = Date.now();
 	const nextBin = path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next');
@@ -288,11 +294,12 @@ function startNext() {
 
 	nextProcess.on('exit', (code, signal) => {
 		logMaster('System', `${COLOR.red}Next.js server exited with code ${code} (signal: ${signal}).`);
-		scheduleRestart('Next.js', startNext, startedAt, code);
+		if (!supervisorStopping) scheduleRestart('Next.js', startNext, startedAt, code);
 	});
 }
 
 function startBot() {
+	if (supervisorStopping) return;
 	const remaining = discordBlockRemainingMs();
 	if (remaining > 0) {
 		// This check is below every caller of startBot, including restart timers.
@@ -357,9 +364,67 @@ function startBot() {
 			detail: `code ${code}, signal ${signal}, after ${Math.round((Date.now() - startedAt) / 1000)}s of uptime`,
 		});
 		botProcess = null;
-		scheduleRestart('Discord Bot', startBot, startedAt, code);
+		if (!supervisorStopping) scheduleRestart('Discord Bot', startBot, startedAt, code);
 	});
 }
+
+function stopChild(child, { cooperative = false } = {}) {
+	if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+	return new Promise(resolve => {
+		let settled = false;
+		let forceTimer = null;
+		const finish = () => {
+			if (settled) return;
+			settled = true;
+			if (forceTimer) clearTimeout(forceTimer);
+			resolve();
+		};
+		child.once('exit', finish);
+		try {
+			if (cooperative && child.connected) child.send({ type: 'shutdown', reason: 'Supervisor shutdown' });
+			else child.kill('SIGTERM');
+		}
+		catch {
+			try { child.kill('SIGTERM'); }
+			catch { finish(); }
+		}
+		if (settled) return;
+		forceTimer = setTimeout(() => {
+			try { child.kill('SIGTERM'); }
+			catch {
+				// It may have exited between the timeout and this call.
+			}
+			finish();
+		}, 5_000);
+		forceTimer.unref?.();
+	});
+}
+
+function shutdownSupervisor(reason, exitCode = 0) {
+	if (supervisorShutdownPromise) return supervisorShutdownPromise;
+	supervisorStopping = true;
+	logMaster('System', `${COLOR.yellow}Shutting down supervisor (${reason})...`);
+	if (botStartTimer) {
+		clearTimeout(botStartTimer);
+		botStartTimer = null;
+	}
+	const forcedExit = setTimeout(() => process.exit(exitCode), 7_000);
+	forcedExit.unref?.();
+	supervisorShutdownPromise = (async () => {
+		await Promise.allSettled([
+			stopChild(webProcess, { cooperative: true }),
+			stopChild(botProcess, { cooperative: true }),
+			stopChild(nextProcess),
+		]);
+		await healthLog.close({ permanent: true });
+		clearTimeout(forcedExit);
+		process.exit(exitCode);
+	})();
+	return supervisorShutdownPromise;
+}
+
+process.once('SIGINT', () => void shutdownSupervisor('SIGINT'));
+process.once('SIGTERM', () => void shutdownSupervisor('SIGTERM'));
 
 // A fresh supervisor means the whole service started: a deploy, a crash, or —
 // on a plan that sleeps — a wake. Those are indistinguishable in the audit log

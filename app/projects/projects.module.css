@@ -20,6 +20,19 @@
 .directoryHead p,
 .sectionHead p { color: var(--muted); margin: 0; max-width: 62ch; }
 
+.teamScopeContext {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: .75rem .9rem;
+	border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+	background: var(--accent-soft);
+}
+.teamScopeContext div { display: grid; gap: .12rem; min-width: 0; }
+.teamScopeContext span { color: var(--muted); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.teamScopeContext strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .notice,
 .filteredEmpty {
 	display: flex;

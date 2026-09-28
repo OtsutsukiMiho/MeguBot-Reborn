@@ -64,8 +64,13 @@ async function claimPending(limit = 20) {
 		const res = await client.query(
 			`SELECT d.id, d.channel, d.attempts, e.event_type, e.payload, e.user_id,
 				i.provider_uid AS discord_uid,
-				ge.email,p.id AS project_id,p.status AS project_status,p.team_id,
-				pm.user_id AS project_member_id,tm.user_id AS team_member_id,t.archived_at AS team_archived_at
+				ge.email,p.id AS project_id,p.status AS project_status,p.team_id,p.owner_user_id AS project_owner_id,
+				pm.user_id AS project_member_id,tm.user_id AS team_member_id,t.archived_at AS team_archived_at,
+				pjr.id AS project_request_id,pjr.status AS project_request_status,pjr.request_cycle AS project_request_cycle,
+				pjl.id AS project_link_id,pjl.revoked_at AS project_link_revoked_at,pjl.expires_at AS project_link_expires_at,
+				jt.id AS join_team_id,jt.archived_at AS join_team_archived_at,jtm.role AS join_team_recipient_role,
+				tjr.id AS team_request_id,tjr.status AS team_request_status,tjr.request_cycle AS team_request_cycle,
+				tjl.id AS team_link_id,tjl.revoked_at AS team_link_revoked_at,tjl.expires_at AS team_link_expires_at
 			 FROM notification_deliveries d
 			 JOIN notification_events e ON e.id = d.event_id
 			 LEFT JOIN identities i ON i.user_id = e.user_id AND i.provider = 'discord'
@@ -74,6 +79,12 @@ async function claimPending(limit = 20) {
 			 LEFT JOIN project_memberships pm ON pm.project_id=p.id AND pm.user_id=e.user_id AND pm.revoked_at IS NULL
 			 LEFT JOIN teams t ON t.id=p.team_id
 			 LEFT JOIN team_memberships tm ON tm.team_id=p.team_id AND tm.user_id=e.user_id AND tm.revoked_at IS NULL
+			 LEFT JOIN project_join_requests pjr ON pjr.id=(e.payload->>'projectRequestId') AND pjr.project_id=p.id
+			 LEFT JOIN project_join_links pjl ON pjl.id=pjr.originating_link_id AND pjl.project_id=p.id
+			 LEFT JOIN teams jt ON jt.id=(e.payload->>'teamId')
+			 LEFT JOIN team_memberships jtm ON jtm.team_id=jt.id AND jtm.user_id=e.user_id AND jtm.revoked_at IS NULL
+			 LEFT JOIN team_join_requests tjr ON tjr.id=(e.payload->>'teamRequestId') AND tjr.team_id=jt.id
+			 LEFT JOIN team_join_links tjl ON tjl.id=tjr.originating_link_id AND tjl.team_id=jt.id
 			 WHERE (d.status IN ('pending', 'failed') AND d.next_attempt_at <= now())
 			    OR (d.status = 'sending' AND d.locked_at < now() - interval '5 minutes')
 			 ORDER BY d.created_at
@@ -83,11 +94,38 @@ async function claimPending(limit = 20) {
 		);
 		const valid = [];
 		for (const row of res.rows) {
-			const referencesProject = Boolean(row.payload?.projectId);
-			const accessible = !referencesProject || (row.project_id && row.project_member_id
-				&& row.project_status === 'active' && (!row.team_id || (row.team_member_id && !row.team_archived_at)));
+			let accessible;
+			if (['team_goal_changed', 'team_goal_due'].includes(row.event_type)) accessible = await require('./team-goal-notifications').eligible(client, row);
+			else if (row.event_type === 'project_join_requested') {
+				accessible = Boolean(row.project_id
+					&& row.project_owner_id === row.user_id
+					&& ['planning', 'active', 'paused'].includes(row.project_status)
+					&& row.project_request_id === row.payload?.projectRequestId
+					&& row.project_request_status === 'pending'
+					&& Number(row.project_request_cycle) === Number(row.payload?.requestCycle)
+					&& row.project_link_id
+					&& !row.project_link_revoked_at
+					&& new Date(row.project_link_expires_at) > new Date());
+			}
+			else if (row.event_type === 'team_join_requested') {
+				accessible = Boolean(row.join_team_id
+					&& !row.join_team_archived_at
+					&& row.join_team_recipient_role === 'owner'
+					&& row.team_request_id === row.payload?.teamRequestId
+					&& row.team_request_status === 'pending'
+					&& Number(row.team_request_cycle) === Number(row.payload?.requestCycle)
+					&& row.team_link_id
+					&& !row.team_link_revoked_at
+					&& new Date(row.team_link_expires_at) > new Date());
+			}
+			else {
+				const referencesProject = Boolean(row.payload?.projectId);
+				accessible = !referencesProject || (row.project_id && row.project_member_id
+					&& row.project_status === 'active' && (!row.team_id || (row.team_member_id && !row.team_archived_at)));
+			}
+			if (accessible) accessible = await require('./company-access').notificationScopeEligible(client,row);
 			if (!accessible) {
-				await client.query("UPDATE notification_deliveries SET status='skipped',locked_at=NULL,last_error='Project access is no longer active' WHERE id=$1", [row.id]);
+				await client.query("UPDATE notification_deliveries SET status='skipped',locked_at=NULL,last_error='Notification is no longer eligible' WHERE id=$1", [row.id]);
 				continue;
 			}
 			valid.push(row);
@@ -100,6 +138,48 @@ async function claimPending(limit = 20) {
 			);
 		}
 		return valid;
+	});
+}
+
+async function recheckClaimed(deliveryId) {
+	return transaction(async client => {
+		const delivery = await client.query(
+			`SELECT d.id,d.status,d.channel,e.event_type,e.payload,e.user_id FROM notification_deliveries d
+			 JOIN notification_events e ON e.id=d.event_id WHERE d.id=$1 FOR UPDATE OF d`,
+			[deliveryId],
+		);
+		const row = delivery.rows[0];
+		if (!row || row.status !== 'sending') return false;
+		let eligible = true;
+		if (['team_goal_changed', 'team_goal_due'].includes(row.event_type)) eligible = await require('./team-goal-notifications').eligible(client, row);
+		else if (row.event_type === 'project_join_requested') {
+			const check = await client.query(
+				`SELECT 1 FROM projects p JOIN project_join_requests r ON r.project_id=p.id
+				 JOIN project_join_links l ON l.id=r.originating_link_id AND l.project_id=p.id
+				 WHERE p.id=$1 AND p.owner_user_id=$2 AND p.status IN ('planning','active','paused')
+				 AND r.id=$3 AND r.status='pending' AND r.request_cycle=$4
+				 AND l.revoked_at IS NULL AND l.expires_at>now()`,
+				[row.payload?.projectId, row.user_id, row.payload?.projectRequestId, Number(row.payload?.requestCycle)],
+			);
+			eligible = Boolean(check.rows[0]);
+		}
+		else if (row.event_type === 'team_join_requested') {
+			const check = await client.query(
+				`SELECT 1 FROM teams t JOIN team_memberships m ON m.team_id=t.id
+				 JOIN team_join_requests r ON r.team_id=t.id
+				 JOIN team_join_links l ON l.id=r.originating_link_id AND l.team_id=t.id
+				 WHERE t.id=$1 AND t.archived_at IS NULL AND m.user_id=$2 AND m.role='owner' AND m.revoked_at IS NULL
+				 AND r.id=$3 AND r.status='pending' AND r.request_cycle=$4
+				 AND l.revoked_at IS NULL AND l.expires_at>now()`,
+				[row.payload?.teamId, row.user_id, row.payload?.teamRequestId, Number(row.payload?.requestCycle)],
+			);
+			eligible = Boolean(check.rows[0]);
+		}
+		if (eligible) eligible = await require('./company-access').notificationScopeEligible(client,row);
+		if (!eligible) {
+			await client.query("UPDATE notification_deliveries SET status='skipped',locked_at=NULL,last_error='Notification became obsolete before dispatch' WHERE id=$1", [deliveryId]);
+		}
+		return eligible;
 	});
 }
 
@@ -146,4 +226,4 @@ function render(delivery) {
 	};
 }
 
-module.exports = { channelsFor, enqueue, enqueueWithClient, claimPending, markSent, markFailed, render };
+module.exports = { channelsFor, enqueue, enqueueWithClient, claimPending, recheckClaimed, markSent, markFailed, render };

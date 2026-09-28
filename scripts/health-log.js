@@ -10,6 +10,7 @@
 // session is pinned so it cannot be anything else.
 require('dotenv').config();
 const { Pool } = require('pg');
+const { postgresConnectionOptions } = require('../core/postgres-connection.js');
 
 const HOURS = Number(process.argv[2]) || 168;
 
@@ -21,8 +22,7 @@ async function main() {
 	if (!url) throw new Error('DATABASE_URL is not set.');
 
 	const pool = new Pool({
-		connectionString: url,
-		ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(url) ? false : { rejectUnauthorized: false },
+		...postgresConnectionOptions(url),
 		max: 1,
 		connectionTimeoutMillis: 15000,
 	});

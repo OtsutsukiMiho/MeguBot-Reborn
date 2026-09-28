@@ -35,6 +35,7 @@ bot-stats.json
 config.json
 temp/
 .agents/
+.tmp/
 .impeccable/
 sounds/temp*
 
@@ -61,6 +62,12 @@ desktop.ini
 !DIRECTION.md
 !DISCORD-PROXY-SETUP.md
 !YOUTUBE_AUDIO_QUEUE_IMPLEMENTATION_PLAN.md
+!VOICE_DATABASE_RESTART_INCIDENT_PLAN.md
+!COMPANY_TEAMS_PROJECTS_IMPROVEMENT_PLAN.md
+!COMPANY_IMPLEMENTATION_STATUS.md
+!PRE_RELEASE_AUDIT.md
+!RELEASE_MANIFEST.md
+!docs/adr/0002-company-workspaces-and-role-sources.md
 
 # Local env backups
 .env.backup*

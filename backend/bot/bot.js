@@ -1,3 +1,4 @@
+const consoleAuthorization = require('../../adapters/discord/console-authorization');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -13,13 +14,14 @@ const crypto = require('node:crypto');
 // side by side, but they write to the same table, so a duplicate shows up there
 // as two rows for one invocation with two different stamps.
 const INSTANCE = `${os.hostname()}#${process.pid}.${crypto.randomBytes(2).toString('hex')}`;
+let roleSyncWorker = null;
 
 if (fs.existsSync('.env')) {
 	require('dotenv').config();
 }
 const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
-const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
-const { getOrCreateVoiceConnection } = require('./voice_connection.js');
+const { getVoiceConnection } = require('@discordjs/voice');
+const { getOrCreateVoiceConnection, getReadyVoiceConnection } = require('./voice_connection.js');
 const {
 	isGlobalBlock,
 	isSevereRateLimit,
@@ -434,6 +436,12 @@ client.ttsChannels = new Map();
 client.automodConfigs = new Map();
 const userTtsHistoryMap = new Map();
 
+function logVoiceConnectionError({ error, guildName, guildId, channelName, channelId, status, phase }) {
+	const where = `${guildName || guildId || 'unknown guild'} / ${channelName || channelId || 'unknown channel'}`;
+	const detail = String(error?.message || error || 'Unknown voice connection error').replace(/[\r\n]+/g, ' ').slice(0, 500);
+	BotLogs('SYSTEM', `${COLOR.red}Voice connection error ${COLOR.gray}[${where}; ${phase || status || 'unknown'}]${COLOR.red}: ${COLOR.white}${detail}`);
+}
+
 function getOrCreateConnection(guild, channel) {
 	let connection = getVoiceConnection(guild.id);
 	const queue = require('./audio_queue.js').audioQueueManager.getQueue(guild.id);
@@ -441,7 +449,7 @@ function getOrCreateConnection(guild, channel) {
 	if (wrongChannel && queue.length > 0) return connection;
 	if (channel) {
 		try {
-			connection = getOrCreateVoiceConnection(guild, channel).connection;
+			connection = getOrCreateVoiceConnection(guild, channel, { onError: logVoiceConnectionError }).connection;
 		}
 		catch (error) {
 			BotLogs(guild.name, `${COLOR.red}Failed to establish voice connection: ${error.toString()}`);
@@ -453,8 +461,8 @@ function getOrCreateConnection(guild, channel) {
 
 // Called once per guild on every ready, and again whenever a channel empties.
 //
-// `joinVoiceChannel()` is the one Discord call in this file that does NOT go
-// through `guardRestClient()`: it sends gateway opcode 4, not a REST request,
+// Voice joins do NOT go through `guardRestClient()`: they send gateway opcode
+// 4, not a REST request,
 // so the process-wide circuit breaker never sees it. That left this as the one
 // path still talking to Discord during a block — and it is boot-time work, so a
 // restart loop ran it on every attempt, once per guild.
@@ -463,7 +471,7 @@ function getOrCreateConnection(guild, channel) {
 // than by anything we control, which is the shape rule 7 warns about.
 const AUTO_JOIN_SCAN_LIMIT = 25;
 
-function autoJoinActiveVC(guild) {
+async function autoJoinActiveVC(guild) {
 	if (discordBlock.blocked()) return false;
 	const { audioQueueManager } = require('./audio_queue.js');
 	if (audioQueueManager.getQueue(guild.id).length > 0) return false;
@@ -475,11 +483,7 @@ function autoJoinActiveVC(guild) {
 		if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) continue;
 		if (voiceChannel.members.size >= 1 && !(voiceChannel.members.size === 1 && voiceChannel.members.has(guild.members.me.id))) {
 			try {
-				joinVoiceChannel({
-					channelId: voiceChannel.id,
-					guildId: guild.id,
-					adapterCreator: guild.voiceAdapterCreator,
-				});
+				await getReadyVoiceConnection(guild, voiceChannel, { onError: logVoiceConnectionError });
 				BotLogs(guild.name, `${COLOR.blue}Joining Active VC ${COLOR.gray}[${COLOR.white}${voiceChannel.name}${COLOR.gray}]`);
 				return true;
 			}
@@ -537,6 +541,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 		const reminderSender = require('../../adapters/discord/reminder-sender.js');
 		core.setLogger((scope, message) => BotLogs(scope, message));
 		await core.initCoreSchema();
+		if (process.env.MEGU_TEAM_ROLE_SYNC_ENABLED === '1') {
+			roleSyncWorker ||= require('../../adapters/discord/server-role-sync').createRoleSyncWorker({ client, discordCall, log: message => BotLogs('Megu', message) });
+			roleSyncWorker.start();
+		}
 		reminderSender.start(client, {
 			baseUrl: process.env.FRONTEND_URL || '',
 			intervalMs: Number(process.env.MEGU_REMINDER_INTERVAL_MS) || undefined,
@@ -586,11 +594,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 			if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) continue;
 			if (voiceChannel.members.size > 1) {
 				try {
-					joinVoiceChannel({
-						channelId: voiceChannel.id,
-						guildId: guild.id,
-						adapterCreator: guild.voiceAdapterCreator,
-					});
+					await getReadyVoiceConnection(guild, voiceChannel, { onError: logVoiceConnectionError });
 					BotLogs('Bot', `${COLOR.blue}Reconnected voice channel -> ${COLOR.white}${voiceChannel.name} ${COLOR.gray}(${guild.name})`);
 					joined = true;
 				}
@@ -601,7 +605,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 		}
 
 		if (!joined) {
-			autoJoinActiveVC(guild);
+			await autoJoinActiveVC(guild);
 		}
 	}
 
@@ -1129,7 +1133,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
 	if (!botMember || !botMember.voice || !botMember.voice.channel) {
 		if (newState.channelId && newState.member.id !== client.user.id) {
-			autoJoinActiveVC(guild);
+			void autoJoinActiveVC(guild);
 		}
 		return;
 	}
@@ -1167,8 +1171,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			voiceStateProcessing.add(guild.id);
 
 			setTimeout(() => {
-				autoJoinActiveVC(guild);
-				voiceStateProcessing.delete(guild.id);
+				void autoJoinActiveVC(guild).finally(() => voiceStateProcessing.delete(guild.id));
 			}, 500);
 		}
 	}
@@ -1774,13 +1777,16 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
 	try {
 		let roleIdsToAssign = [];
+		// Read one snapshot: separately cached fields can combine an old dormant
+		// fallback with a newly cleared list even after an atomic settings save.
+		const automaticRoles = await database.getAllGuildVars(guildId);
 		if (isBot) {
-			const botRoles = await database.getGuildVar(guildId, 'bot_autorole_ids');
+			const botRoles = automaticRoles.bot_autorole_ids;
 			if (Array.isArray(botRoles)) roleIdsToAssign = botRoles;
 		}
 		else {
-			const humanRoles = await database.getGuildVar(guildId, 'autorole_ids');
-			const legacyRole = await database.getGuildVar(guildId, 'autorole_id');
+			const humanRoles = automaticRoles.autorole_ids;
+			const legacyRole = automaticRoles.autorole_id;
 			if (Array.isArray(humanRoles) && humanRoles.length > 0) {
 				roleIdsToAssign = humanRoles;
 			}
@@ -2564,28 +2570,45 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 });
 
 let shutdownStarted = false;
+let shutdownPromise = null;
 
 function shutdownBot(reason, exitCode = 0) {
-	if (shutdownStarted) return;
+	if (shutdownStarted) return shutdownPromise;
 	shutdownStarted = true;
 	BotLogs('SYSTEM', `${COLOR.yellow}Shutting down Discord Bot (${reason})...`);
-	try {
-		const { audioQueueManager } = require('./audio_queue.js');
-		audioQueueManager.clearAllQueues();
-	}
-	catch (error) {
-		BotLogs('SYSTEM', `${COLOR.red}Audio queue shutdown cleanup failed: ${error.message}`);
-	}
-	try { client.destroy(); }
-	catch (error) { BotLogs('SYSTEM', `${COLOR.red}Discord client shutdown failed: ${error.message}`); }
-	setTimeout(() => process.exit(exitCode), 500);
+	const forcedExit = setTimeout(() => process.exit(exitCode), 5_000);
+	forcedExit.unref?.();
+	shutdownPromise = (async () => {
+		roleSyncWorker?.stop();
+		try {
+			const { audioQueueManager } = require('./audio_queue.js');
+			audioQueueManager.clearAllQueues();
+		}
+		catch (error) {
+			BotLogs('SYSTEM', `${COLOR.red}Audio queue shutdown cleanup failed: ${error.message}`);
+		}
+		try { client.destroy(); }
+		catch (error) { BotLogs('SYSTEM', `${COLOR.red}Discord client shutdown failed: ${error.message}`); }
+		await Promise.allSettled([
+			database.close(),
+			require('../../core/index.js').db.close({ permanent: true }),
+			healthLog.close({ permanent: true }),
+		]);
+		clearTimeout(forcedExit);
+		process.exit(exitCode);
+	})();
+	return shutdownPromise;
 }
 
-process.once('SIGINT', () => shutdownBot('SIGINT'));
-process.once('SIGTERM', () => shutdownBot('SIGTERM'));
+process.once('SIGINT', () => void shutdownBot('SIGINT'));
+process.once('SIGTERM', () => void shutdownBot('SIGTERM'));
 
 process.on('message', async (msg) => {
 	if (!msg) return;
+	if (msg.type === 'shutdown') {
+		void shutdownBot(msg.reason || 'Supervisor shutdown');
+		return;
+	}
 
 	if (msg.type === 'discord_block') {
 		// Another process on this box was refused. The ban is on the IP, so it
@@ -2603,6 +2626,21 @@ process.on('message', async (msg) => {
 
 	if (msg.type === 'ping') {
 		BotLogs('SYSTEM', `${COLOR.green}Received Ping IPC from Web Server! Bot is alive and responsive! (Ready: ${client.isReady()})`);
+	}
+	else if (msg.type === 'verify_console_authority' || msg.type === 'verify_console_roles') {
+		try {
+			if (msg.type === 'verify_console_roles' && !Array.isArray(msg.roleIds)) throw Object.assign(new Error('Invalid role list.'), { status: 400 });
+			const context = msg.type === 'verify_console_roles' && msg.roleIds.length
+				? await consoleAuthorization.authorizeRoleMutation(client, discordCall, msg)
+				: await consoleAuthorization.authorizeConsole(client, discordCall, msg.type === 'verify_console_roles' ? { ...msg, permission: 'roles' } : msg);
+			if (msg.type === 'verify_console_roles') {
+				for (const id of msg.roleIds) consoleAuthorization.assertRole(context, id);
+			}
+			if (process.send) process.send({ target: 'web', type: 'console_authority_response', reqId: msg.reqId, success: true,
+				access: { isAdmin: context.isAdmin, isOwner: context.isOwner, isMember: true } });
+		} catch (error) {
+			if (process.send) process.send({ target: 'web', type: 'console_authority_response', reqId: msg.reqId, success: false, status: error.status || 503, error: error.message });
+		}
 	}
 	else if (msg.type === 'check_guilds_presence') {
 		const presence = {};
@@ -2757,7 +2795,8 @@ process.on('message', async (msg) => {
 	}
 	else if (msg.type === 'create_guild_role') {
 		try {
-			const guild = client.guilds.cache.get(msg.guildId);
+			const authority = await consoleAuthorization.authorizeRoleMutation(client, discordCall, msg);
+			const { guild } = authority;
 			if (!guild) {
 				if (process.send) process.send({ target: 'web', type: 'create_role_response', reqId: msg.reqId, success: false, error: 'Server not found.' });
 				return;
@@ -2769,6 +2808,7 @@ process.on('message', async (msg) => {
 				return;
 			}
 
+			if ((!authority.isOwner && authority.caller.roles.highest.position < 1) || authority.bot.roles.highest.position < 1) throw Object.assign(new Error('No role position below caller/bot hierarchy.'), { status: 403 });
 			const { name, color, hoist, mentionable } = msg.roleData || {};
 			const newRole = await guild.roles.create({
 				name: name || 'new role',
@@ -2802,18 +2842,19 @@ process.on('message', async (msg) => {
 		}
 		catch (err) {
 			BotLogs('SYSTEM', `${COLOR.red}Error creating role: ${err.message}`);
-			if (process.send) process.send({ target: 'web', type: 'create_role_response', reqId: msg.reqId, success: false, error: err.message });
+			if (process.send) process.send({ target: 'web', type: 'create_role_response', reqId: msg.reqId, success: false, status: err.status || 500, error: err.message });
 		}
 	}
 	else if (msg.type === 'update_guild_role') {
 		try {
-			const guild = client.guilds.cache.get(msg.guildId);
+			const authority = await consoleAuthorization.authorizeRoleMutation(client, discordCall, msg);
+			const { guild } = authority;
 			if (!guild) {
 				if (process.send) process.send({ target: 'web', type: 'update_role_response', reqId: msg.reqId, success: false, error: 'Server not found.' });
 				return;
 			}
 
-			const role = guild.roles.cache.get(msg.roleId);
+			const role = consoleAuthorization.assertRole(authority, msg.roleId, { everyone: true });
 			if (!role) {
 				if (process.send) process.send({ target: 'web', type: 'update_role_response', reqId: msg.reqId, success: false, error: 'Role not found.' });
 				return;
@@ -2863,18 +2904,19 @@ process.on('message', async (msg) => {
 		}
 		catch (err) {
 			BotLogs('SYSTEM', `${COLOR.red}Error updating role: ${err.message}`);
-			if (process.send) process.send({ target: 'web', type: 'update_role_response', reqId: msg.reqId, success: false, error: err.message });
+			if (process.send) process.send({ target: 'web', type: 'update_role_response', reqId: msg.reqId, success: false, status: err.status || 500, error: err.message });
 		}
 	}
 	else if (msg.type === 'delete_guild_role') {
 		try {
-			const guild = client.guilds.cache.get(msg.guildId);
+			const authority = await consoleAuthorization.authorizeRoleMutation(client, discordCall, msg);
+			const { guild } = authority;
 			if (!guild) {
 				if (process.send) process.send({ target: 'web', type: 'delete_role_response', reqId: msg.reqId, success: false, error: 'Server not found.' });
 				return;
 			}
 
-			const role = guild.roles.cache.get(msg.roleId);
+			const role = consoleAuthorization.assertRole(authority, msg.roleId);
 			if (!role) {
 				if (process.send) process.send({ target: 'web', type: 'delete_role_response', reqId: msg.reqId, success: false, error: 'Role not found.' });
 				return;
@@ -2908,7 +2950,7 @@ process.on('message', async (msg) => {
 		}
 		catch (err) {
 			BotLogs('SYSTEM', `${COLOR.red}Error deleting role: ${err.message}`);
-			if (process.send) process.send({ target: 'web', type: 'delete_role_response', reqId: msg.reqId, success: false, error: err.message });
+			if (process.send) process.send({ target: 'web', type: 'delete_role_response', reqId: msg.reqId, success: false, status: err.status || 500, error: err.message });
 		}
 	}
 	else if (msg.type === 'get_guild_members') {
@@ -2950,21 +2992,106 @@ process.on('message', async (msg) => {
 			if (process.send) process.send({ target: 'web', type: 'get_members_response', reqId: msg.reqId, success: false, error: err.message });
 		}
 	}
+	else if (msg.type === 'verify_company_guild_owner') {
+		try {
+			const guildId = String(msg.guildId || '');
+			const discordUserId = String(msg.discordUserId || '');
+			if (!/^\d{17,20}$/.test(guildId) || !/^\d{17,20}$/.test(discordUserId)) throw new Error('Invalid company verification request');
+			// force avoids treating cached ownership as permission evidence.
+			const guild = await discordCall('verifying company ownership', () => client.guilds.fetch({ guild: guildId, force: true }), null);
+			if (!guild) throw new Error('Company verification unavailable');
+			if (process.send) process.send({ target: 'web', type: 'company_guild_owner_response', reqId: msg.reqId, success: true,
+				verification: { available: true, guildId, isOwner: guild.ownerId === discordUserId, botPresent: true, name: guild.name, icon: guild.icon || null } });
+		}
+		catch {
+			if (process.send) process.send({ target: 'web', type: 'company_guild_owner_response', reqId: msg.reqId, success: false });
+		}
+	}
+	else if (msg.type === 'get_team_role_sync_capabilities') {
+		const capability = process.env.MEGU_TEAM_ROLE_SYNC_ENABLED === '1' ? await require('../../adapters/discord/server-role-sync').refreshCapabilities(client, discordCall) : { available: false, reason: 'sync_disabled' };
+		if (process.send) process.send({ target: 'web', type: 'team_role_sync_capabilities_response', reqId: msg.reqId, success: true, capability });
+	}
+	else if (msg.type === 'verify_company_guild_member') {
+		try {
+			const guildId = String(msg.guildId || '');
+			const discordUserId = String(msg.discordUserId || '');
+			if (!/^\d{17,20}$/.test(guildId) || !/^\d{17,20}$/.test(discordUserId)) throw new Error('Invalid company verification request');
+			const result = await require('../../adapters/discord/server-role-sync').verifyGuildMember(client, discordCall, { guildId, discordUserId, management: msg.verifyPermissions === true });
+			if (!result.available) throw new Error('Company verification unavailable');
+			if (process.send) process.send({ target: 'web',type: 'company_guild_member_response',reqId: msg.reqId,success: true,
+				verification: result });
+		} catch {
+			if (process.send) process.send({ target: 'web',type: 'company_guild_member_response',reqId: msg.reqId,success: false });
+		}
+	}
+	else if (msg.type === 'get_team_guild_roles') {
+		try {
+			const guildId = String(msg.guildId || '');
+			if (!/^\d{17,20}$/.test(guildId)) throw new Error('Invalid guild');
+			const guild = client.guilds.cache.get(guildId);
+			if (!guild) throw new Error('Server unavailable');
+			const fetched = await discordCall('fetching team role options', () => guild.roles.fetch(), null);
+			if (!fetched) throw new Error('Roles unavailable');
+			const roles = fetched.filter(role => role.id !== guildId && !role.managed)
+				.map(role => ({ id: role.id, guildId, name: role.name, color: role.hexColor, position: role.position, managed: false }))
+				.sort((a, b) => b.position - a.position || a.id.localeCompare(b.id));
+			if (process.send) process.send({ target: 'web', type: 'team_guild_roles_response', reqId: msg.reqId, success: true, guildId, roles });
+		} catch {
+			if (process.send) process.send({ target: 'web', type: 'team_guild_roles_response', reqId: msg.reqId, success: false });
+		}
+	}
+	else if (msg.type === 'get_team_guild_roster') {
+		try {
+			const guild = client.guilds.cache.get(String(msg.guildId || ''));
+			if (!guild) {
+				if (process.send) process.send({ target: 'web', type: 'team_guild_roster_response', reqId: msg.reqId, success: false, error: 'Server not found.' });
+				return;
+			}
+			const queryText = String(msg.query || '').trim().slice(0, 120);
+			const roleId = /^\d{17,20}$/.test(String(msg.roleId || '')) ? String(msg.roleId) : '';
+			const roleIds = Array.isArray(msg.roleIds) ? msg.roleIds.filter(id => /^\d{17,20}$/.test(id)).slice(0, 50) : [];
+			const eligible = member => !member.isBot && (!roleId || member.roles.includes(roleId)) && (!roleIds.length || roleIds.some(id => member.roles.includes(id)));
+			const limit = Math.min(100, Math.max(1, Number(msg.limit) || 30));
+			const offset = Math.max(0, Number(msg.offset) || 0);
+			let members = mapGuildMembers(guild, queryText).filter(eligible);
+			if (members.length === 0 && guild.members.cache.size === 0) {
+				await ensureGuildMembersCached(guild, { limit: 100, query: queryText });
+				members = mapGuildMembers(guild, queryText).filter(eligible);
+			}
+			members.sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id));
+			const total = members.length;
+			const page = members.slice(offset, offset + limit).map(member => ({ ...member, avatarUrl: member.avatar }));
+			const roles = guild.roles.cache
+				.filter(role => role.id !== guild.id && !role.managed)
+				.map(role => ({ id: role.id, name: role.name, color: role.hexColor, position: role.position }))
+				.sort((a, b) => b.position - a.position);
+			if (process.send) process.send({
+				target: 'web', type: 'team_guild_roster_response', reqId: msg.reqId, success: true,
+				guildId: guild.id, partial: true,
+				members: page, roles, total, nextOffset: offset + page.length < total ? offset + page.length : null,
+			});
+		}
+		catch (err) {
+			BotLogs('SYSTEM', `${COLOR.red}Error in get_team_guild_roster: ${err.message}`);
+			if (process.send) process.send({ target: 'web', type: 'team_guild_roster_response', reqId: msg.reqId, success: false, error: err.message });
+		}
+	}
 	else if (msg.type === 'modify_member_role') {
 		try {
-			const guild = client.guilds.cache.get(msg.guildId);
+			const authority = await consoleAuthorization.authorizeRoleMutation(client, discordCall, msg);
+			const { guild } = authority;
 			if (!guild) {
 				if (process.send) process.send({ target: 'web', type: 'modify_member_role_response', reqId: msg.reqId, success: false, error: 'Server not found.' });
 				return;
 			}
 
-			const member = await discordCall('fetching a member', () => guild.members.fetch(msg.memberId), null);
+			const member = await consoleAuthorization.authorizeTarget(authority, discordCall, msg.memberId);
 			if (!member) {
 				if (process.send) process.send({ target: 'web', type: 'modify_member_role_response', reqId: msg.reqId, success: false, error: 'Member not found in server.' });
 				return;
 			}
 
-			const role = guild.roles.cache.get(msg.roleId);
+			const role = consoleAuthorization.assertRole(authority, msg.roleId);
 			if (!role) {
 				if (process.send) process.send({ target: 'web', type: 'modify_member_role_response', reqId: msg.reqId, success: false, error: 'Role not found.' });
 				return;
@@ -3000,39 +3127,25 @@ process.on('message', async (msg) => {
 		}
 		catch (err) {
 			BotLogs('SYSTEM', `${COLOR.red}Error modifying member role: ${err.message}`);
-			if (process.send) process.send({ target: 'web', type: 'modify_member_role_response', reqId: msg.reqId, success: false, error: err.message });
+			if (process.send) process.send({ target: 'web', type: 'modify_member_role_response', reqId: msg.reqId, success: false, status: err.status || 500, error: err.message });
 		}
 	}
 	else if (msg.type === 'set_member_roles') {
 		try {
-			const guild = client.guilds.cache.get(msg.guildId);
+			const authority = await consoleAuthorization.authorizeRoleMutation(client, discordCall, msg);
+			const { guild } = authority;
 			if (!guild) {
 				if (process.send) process.send({ target: 'web', type: 'set_member_roles_response', reqId: msg.reqId, success: false, error: 'Server not found.' });
 				return;
 			}
 
-			const member = await discordCall('fetching a member', () => guild.members.fetch(msg.memberId), null);
+			const member = await consoleAuthorization.authorizeTarget(authority, discordCall, msg.memberId);
 			if (!member) {
 				if (process.send) process.send({ target: 'web', type: 'set_member_roles_response', reqId: msg.reqId, success: false, error: 'Member not found in server.' });
 				return;
 			}
 
-			const botMember = guild.members.me;
-			const botHighest = botMember ? botMember.roles.highest.position : 0;
-
-			// Preserve unmanageable roles (higher than bot or integration-managed)
-			const unmanageableRoles = Array.from(member.roles.cache.values())
-				.filter(r => r.id !== guild.id && (r.position >= botHighest || r.managed))
-				.map(r => r.id);
-
-			// Filter incoming desired roles to valid manageable roles
-			const manageableDesired = (Array.isArray(msg.roleIds) ? msg.roleIds : [])
-				.filter(rId => {
-					const r = guild.roles.cache.get(rId);
-					return r && r.id !== guild.id && r.position < botHighest && !r.managed;
-				});
-
-			const finalRoleIds = Array.from(new Set([...unmanageableRoles, ...manageableDesired]));
+			const finalRoleIds = consoleAuthorization.batchRoles(authority, member, msg.roleIds);
 
 			await member.roles.set(finalRoleIds, `Batch role update via Web Dashboard by ${msg.actor || 'Administrator'}`);
 			BotLogs(guild.name, `${COLOR.green}Updated roles for member ${member.user.username} via Web Dashboard (${finalRoleIds.length} active roles).`);
@@ -3050,7 +3163,7 @@ process.on('message', async (msg) => {
 		}
 		catch (err) {
 			BotLogs('SYSTEM', `${COLOR.red}Error setting member roles: ${err.message}`);
-			if (process.send) process.send({ target: 'web', type: 'set_member_roles_response', reqId: msg.reqId, success: false, error: err.message });
+			if (process.send) process.send({ target: 'web', type: 'set_member_roles_response', reqId: msg.reqId, success: false, status: err.status || 500, error: err.message });
 		}
 	}
 	else if (msg.type === 'send_custom_embed') {
@@ -3348,7 +3461,7 @@ process.on('message', async (msg) => {
 		}
 	}
 	else if (msg.type === 'restart_bot') {
-		shutdownBot('Developer Web Console restart');
+		void shutdownBot('Developer Web Console restart');
 	}
 	else if (msg.type === 'add_reaction_role_react') {
 		const { guildId, channelId, messageId, emoji } = msg;

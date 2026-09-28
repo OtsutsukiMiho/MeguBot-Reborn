@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const core = require('../core/index.js');
 
 const created = [];
+const sourceTeams = [];
 
 function track(...ids) {
 	for (const id of ids) if (id) created.push(id);
@@ -149,10 +150,40 @@ async function main() {
 	});
 
 	// --- the plan, which writes nothing ------------------------------------
+	const mappingId = `merge_mapping_${google.user.id}`;
+	await core.db.query(`INSERT INTO server_role_mappings(id,guild_id,kind,title,created_by,server_consent_by,server_consent_at,enabled)
+	 VALUES ($1,'123456789012345678','title','Developer',$2,$2,now(),true)`, [mappingId, google.user.id]);
+	const consentAt = (await core.db.query('SELECT server_consent_at FROM server_role_mappings WHERE id=$1', [mappingId])).rows[0].server_consent_at;
+	const sourceOwner = await core.users.loginWithIdentity({ provider: 'google', providerUid: `source_owner_${google.user.id}`, displayName: 'Source fixture owner' });
+	track(sourceOwner.user.id);
+	const manualTeam = await core.teams.createTeam({ ownerUserId: google.user.id, name: 'Manual source merge' });
+	sourceTeams.push(manualTeam.team.id);
+	await core.db.transaction(async client => {
+		await client.query('SELECT id FROM teams WHERE id=$1 FOR UPDATE', [manualTeam.team.id]);
+		await client.query("INSERT INTO team_memberships(team_id,user_id,role) VALUES ($1,$2,'member')", [manualTeam.team.id, discord.user.id]);
+		await require('../core/team-membership-sources').grantManualSource(client, manualTeam.team.id, discord.user.id, google.user.id, 'join_approved');
+	});
+	const derivedTeam = await core.teams.createTeam({ ownerUserId: sourceOwner.user.id, name: 'Derived source merge', discordGuildId: '998877665544332211', discordGuildName: 'Source test server' });
+	sourceTeams.push(derivedTeam.team.id);
+	const derivedMapping = `source_mapping_${google.user.id}`;
+	await core.db.query("INSERT INTO server_role_mappings(id,guild_id,kind,team_id,created_by) VALUES ($1,'998877665544332211','team',$2,$3)", [derivedMapping, derivedTeam.team.id, sourceOwner.user.id]);
+	for (const userId of [google.user.id, discord.user.id]) {
+		await core.db.query("INSERT INTO team_memberships(team_id,user_id,role) VALUES ($1,$2,'member')", [derivedTeam.team.id, userId]);
+		await core.db.query("INSERT INTO team_membership_sources(id,team_id,user_id,kind,source_key,mapping_id,cycle,origin) VALUES ($1,$2,$3,'discord_role',$4,$4,1,'role_sync')", [`source_${userId}`, derivedTeam.team.id, userId, derivedMapping]);
+	}
 	const plan = await core.accountMerge.planMerge(google.user.id, discord.user.id);
 	assert.strictEqual(plan.blockedBy, null, 'disjoint providers must not block');
 	assert.strictEqual(plan.survivorId, discord.user.id, 'the account owning activities keeps its id');
 	assert.strictEqual(plan.mergedId, google.user.id);
+	const removedTeam = await core.teams.createTeam({ ownerUserId: sourceOwner.user.id, name: 'Suppression merge history' });
+	sourceTeams.push(removedTeam.team.id);
+	for (const userId of [google.user.id, discord.user.id]) await core.db.query("INSERT INTO team_memberships(team_id,user_id,role) VALUES ($1,$2,'member')", [removedTeam.team.id, userId]);
+	await core.teams.removeTeamMember(removedTeam.team.id, google.user.id, sourceOwner.user.id, { expectedRevision: removedTeam.team.revision });
+	assert.deepStrictEqual((await core.accountMerge.planMerge(google.user.id, discord.user.id)).blockedBy, { reason: 'team-suppression-conflict' });
+	await assert.rejects(core.accountMerge.mergeAccounts({ userIdA: google.user.id, userIdB: discord.user.id }), /merge_team_suppression_conflict/);
+	assert.ok(await core.users.getUser(google.user.id), 'Conflicting merge leaves both accounts intact');
+	await core.teams.removeTeamMember(removedTeam.team.id, discord.user.id, discord.user.id, { expectedRevision: removedTeam.team.revision + 1 });
+	assert.equal((await core.accountMerge.planMerge(google.user.id, discord.user.id)).blockedBy, null, 'Two removed accounts may merge without restoring access');
 	assert.strictEqual(plan.notificationMode.result, 'both', 'discord + email is both');
 	assert.strictEqual(plan.duplicateParticipants.length, 1, 'the shared activity must be reported');
 	assert.strictEqual(plan.duplicateParticipants[0].code, before.code);
@@ -164,6 +195,9 @@ async function main() {
 
 	await unionTable();
 	await unknownReferenceIsRefused(google.user.id, discord.user.id);
+	await core.db.query('INSERT INTO server_role_suggestion_dismissals(mapping_id,discord_user_id,dismissed_by) VALUES ($1,$2,$3)', [mappingId, '223456789012345678', google.user.id]);
+	await core.db.query("INSERT INTO server_role_events(id,guild_id,actor_id,event_type,payload) VALUES ($1,'123456789012345678',$2,'title_roles_changed',$3)", [`event_${mappingId}`, google.user.id, JSON.stringify({ roleIds: ['223456789012345678'] })]);
+	await core.db.query("INSERT INTO server_role_team_creations(guild_id,request_key,actor_id,request_hash,result) VALUES ('123456789012345678',$1,$2,'immutable-request',$3)", [`creation_${mappingId}`, google.user.id, JSON.stringify({ teams: [{ id: 'historical-team' }] })]);
 
 	// --- the merge ----------------------------------------------------------
 	const result = await core.accountMerge.mergeAccounts({
@@ -175,6 +209,36 @@ async function main() {
 	assert.strictEqual(result.survivorId, discord.user.id);
 	assert.strictEqual(result.mergedId, google.user.id);
 	assert.strictEqual(result.notificationMode, 'both');
+	const suppressionHistory = (await core.db.query('SELECT user_id,created_by,cleared_at,cleared_by FROM team_membership_suppressions WHERE team_id=$1', [removedTeam.team.id])).rows;
+	assert.equal(suppressionHistory.length, 2, 'Both removal decisions survive instead of faking a human clearance');
+	assert.ok(suppressionHistory.every(row => row.user_id === discord.user.id && row.cleared_at === null && row.cleared_by === null));
+	assert.equal((await core.db.query('SELECT revoked_at FROM team_memberships WHERE team_id=$1 AND user_id=$2', [removedTeam.team.id, discord.user.id])).rows[0].revoked_at !== null, true);
+	await core.db.transaction(async client => {
+		await client.query('SELECT id FROM teams WHERE id=$1 FOR UPDATE', [removedTeam.team.id]);
+		assert.equal((await require('../core/team-membership-sources').restoreSuppressedMembership(client, removedTeam.team.id, discord.user.id, sourceOwner.user.id, true)).length, 2, 'Explicit human restoration clears every merged suppression');
+	});
+	const mapping = (await core.db.query('SELECT * FROM server_role_mappings WHERE id=$1', [mappingId])).rows[0];
+	assert.equal(mapping.created_by, discord.user.id);
+	assert.equal(mapping.server_consent_by, discord.user.id);
+	assert.equal(mapping.server_consent_at.toISOString(), consentAt.toISOString());
+	assert.equal(mapping.enabled, true);
+	const dismissal = (await core.db.query('SELECT discord_user_id,dismissed_by FROM server_role_suggestion_dismissals WHERE mapping_id=$1', [mappingId])).rows[0];
+	assert.equal(dismissal.discord_user_id, '223456789012345678', 'Merge preserves the dismissed Discord identity');
+	assert.equal(dismissal.dismissed_by, discord.user.id, 'Dismissal attribution follows the surviving actor');
+	const titleAudit = (await core.db.query('SELECT actor_id,payload FROM server_role_events WHERE id=$1', [`event_${mappingId}`])).rows[0];
+	assert.equal(titleAudit.actor_id, discord.user.id);
+	assert.deepEqual(titleAudit.payload.roleIds, ['223456789012345678'], 'Account merge preserves the role audit payload');
+	const creation = (await core.db.query('SELECT actor_id,request_hash,result FROM server_role_team_creations WHERE request_key=$1', [`creation_${mappingId}`])).rows[0];
+	assert.equal(creation.actor_id, discord.user.id);
+	assert.equal(creation.request_hash, 'immutable-request');
+	assert.deepEqual(creation.result, { teams: [{ id: 'historical-team' }] }, 'Merge preserves creation retry receipts');
+	for (const [teamId, expectedKind] of [[manualTeam.team.id, 'manual'], [derivedTeam.team.id, 'discord_role']]) {
+		const sources = (await core.db.query('SELECT kind,revoked_at FROM team_membership_sources WHERE team_id=$1 AND user_id=$2', [teamId, discord.user.id])).rows;
+		assert.equal(sources.length, 2, 'Both source histories survive the real account merge');
+		assert.ok(sources.every(source => source.kind === expectedKind), 'Account merge must not convert a derived-only membership into a manual grant');
+		assert.equal(sources.filter(source => !source.revoked_at).length, 1, 'Duplicate active eligibility collapses');
+	}
+	assert.equal((await core.teams.getTeam(manualTeam.team.id, discord.user.id)).me.role, 'owner', 'Source merging preserves explicit ownership');
 	const mergedProject = await core.projects.getProjectByCode(mergeProject.code, discord.user.id);
 	assert.strictEqual(mergedProject.project.ownerUserId, discord.user.id, 'project ownership follows the surviving account');
 	assert.strictEqual(mergedProject.me.role, 'owner', 'the strongest project role survives membership collapse');
@@ -324,7 +388,16 @@ async function cleanup() {
 		'DELETE FROM notification_events WHERE event_type LIKE \'account_merged%\' AND user_id = ANY($1::text[])',
 		[created],
 	).catch(() => undefined);
+	if (sourceTeams.length) {
+		await core.db.query('DELETE FROM team_membership_sources WHERE team_id=ANY($1::text[])', [sourceTeams]);
+		await core.db.query('DELETE FROM server_role_mappings WHERE team_id=ANY($1::text[])', [sourceTeams]);
+		await core.db.query('DELETE FROM team_memberships WHERE team_id=ANY($1::text[])', [sourceTeams]);
+		await core.db.query('DELETE FROM teams WHERE id=ANY($1::text[])', [sourceTeams]);
+	}
 	for (const id of created) {
+		await core.db.query('DELETE FROM server_role_mappings WHERE created_by=$1', [id]);
+		await core.db.query('DELETE FROM server_role_events WHERE actor_id=$1', [id]);
+		await core.db.query('DELETE FROM server_role_team_creations WHERE actor_id=$1', [id]);
 		await core.db.query('DELETE FROM account_merges WHERE survivor_user_id = $1', [id]).catch(() => undefined);
 		await core.db.query('DELETE FROM user_aliases WHERE user_id = $1 OR old_user_id = $1', [id]).catch(() => undefined);
 		await core.db.query('DELETE FROM activities WHERE owner_user_id = $1', [id]).catch(() => undefined);

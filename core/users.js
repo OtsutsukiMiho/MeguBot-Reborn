@@ -112,6 +112,7 @@ async function loginWithIdentity(profile) {
 	if (!providerUid) throw new Error('providerUid is required');
 
 	return transaction(async (client) => {
+		if (provider === 'discord') await client.query("SELECT pg_advisory_xact_lock(hashtext('team-goals-identity'))");
 		// OAuth callback and stale-session recovery can arrive together from two
 		// browser requests. Serialize work for this provider identity so both
 		// cannot observe "missing" and race to insert the same unique key.
@@ -142,6 +143,7 @@ async function loginWithIdentity(profile) {
 				 VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING`,
 				[identity.user_id, provider === 'google' && emailVerified ? 'email' : provider === 'discord' ? 'discord' : 'off'],
 			);
+			if (provider === 'discord') await require('./server-role-sync').enqueueIdentityWithClient(client, identity.user_id);
 			return { user: rowToUser(user.rows[0]), created: false };
 		}
 
@@ -162,6 +164,7 @@ async function loginWithIdentity(profile) {
 			[userId, provider === 'google' && emailVerified ? 'email' : provider === 'discord' ? 'discord' : 'off'],
 		);
 
+		if (provider === 'discord') await require('./server-role-sync').enqueueIdentityWithClient(client, userId);
 		return { user: rowToUser(created.rows[0]), created: true };
 	});
 }
@@ -186,6 +189,7 @@ async function linkIdentity(userId, profile) {
 	}
 
 	return transaction(async (client) => {
+		if (provider === 'discord') await client.query("SELECT pg_advisory_xact_lock(hashtext('team-goals-identity'))");
 		await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [userId, provider]);
 		const sameProvider = await client.query(
 			'SELECT provider_uid FROM identities WHERE user_id = $1 AND provider = $2',
@@ -210,6 +214,7 @@ async function linkIdentity(userId, profile) {
 				displayName || username || null],
 		);
 		await applyProfileSource(client, userId);
+		if (provider === 'discord') await require('./server-role-sync').enqueueIdentityWithClient(client, userId);
 		return { linked: true };
 	});
 }
@@ -281,15 +286,15 @@ async function setNotificationPreferences(userId, { mode, locale }) {
 
 async function unlinkIdentity(userId, provider) {
 	assertProvider(provider);
-	const remaining = await query(
-		'SELECT count(*)::int AS n FROM identities WHERE user_id = $1',
-		[userId],
-	);
-	if (remaining.rows[0].n <= 1) {
-		return { unlinked: false, reason: 'last-identity' };
-	}
-	await query('DELETE FROM identities WHERE user_id = $1 AND provider = $2', [userId, provider]);
-	return { unlinked: true };
+	return transaction(async client => {
+		await client.query("SELECT pg_advisory_xact_lock(hashtext('team-goals-identity'))");
+		await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId]);
+		const remaining = await client.query('SELECT count(*)::int AS n FROM identities WHERE user_id=$1', [userId]);
+		if (remaining.rows[0].n <= 1) return { unlinked: false, reason: 'last-identity' };
+		await client.query('DELETE FROM identities WHERE user_id=$1 AND provider=$2', [userId, provider]);
+		if (provider === 'discord') await require('./server-role-sync').enqueueIdentityWithClient(client, userId);
+		return { unlinked: true };
+	});
 }
 
 /**

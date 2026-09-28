@@ -19,13 +19,7 @@ import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
 import { useCopy } from '../copy';
 import styles from './servers.module.css';
-
-function guildIconUrl(guild) {
-	if (!guild?.icon) return null;
-	if (guild.icon.startsWith('http')) return guild.icon;
-	const extension = guild.icon.startsWith('a_') ? 'gif' : 'png';
-	return `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.${extension}?size=128`;
-}
+import { guildIconUrl } from '../lib/discord-guild-icon';
 
 function guildBannerUrl(guild) {
 	const artwork = guild?.banner || guild?.splash;

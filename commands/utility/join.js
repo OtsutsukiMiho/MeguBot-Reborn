@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const { joinVoiceChannel } = require('@discordjs/voice');
+const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
 
 const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 
@@ -11,11 +11,18 @@ module.exports = {
 		const voiceChannel = interaction.member.voice.channel;
 		if (!voiceChannel) return await interaction.editReply('❌ You need to join a voice channel first!');
 
-		joinVoiceChannel({
-			channelId: voiceChannel.id,
-			guildId: interaction.guild.id,
-			adapterCreator: interaction.guild.voiceAdapterCreator,
-		});
+		try {
+			await getReadyVoiceConnection(interaction.guild, voiceChannel, {
+				onError: ({ error, status }) => BotLogs(
+					interaction.guild.name,
+					`${COLOR.red}Voice connection error ${COLOR.gray}[${status || 'unknown'}]${COLOR.red}: ${COLOR.white}${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500)}`,
+				),
+			});
+		}
+		catch (error) {
+			BotLogs(interaction.guild.name, `${COLOR.red}Could not join ${COLOR.white}${voiceChannel.name}${COLOR.red}: ${error.cause?.message || error.message}`);
+			return await interaction.editReply('❌ I could not establish a Discord voice connection. Please try again.');
+		}
 
 		BotLogs(interaction.guild.name, `${COLOR.blue}✅ Connected to the voice channel! ${COLOR.gray}[${COLOR.white}${voiceChannel.name}${COLOR.gray}]`);
 		await interaction.editReply('✅ Connected to the voice channel!');

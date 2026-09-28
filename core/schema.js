@@ -1,5 +1,8 @@
 const { transaction } = require('./db.js');
 const { log } = require('./log.js');
+const { installCompanySchema } = require('./company-schema.js');
+const { installServerRoleSchema } = require('./server-role-schema.js');
+const { installTeamGoalSchema } = require('./team-goal-schema.js');
 
 // 'MEGU' read as a big-endian int32. Any fixed number would do; this one is
 // recognisable in pg_locks when you are trying to work out who is holding it.
@@ -643,6 +646,12 @@ const STATEMENTS = [
 		archived_at   TIMESTAMPTZ
 	);`,
 	'CREATE INDEX IF NOT EXISTS teams_creator_idx ON teams (created_by, archived_at);',
+	'ALTER TABLE teams ADD COLUMN IF NOT EXISTS discord_guild_id TEXT;',
+	'ALTER TABLE teams ADD COLUMN IF NOT EXISTS discord_guild_name TEXT;',
+	'ALTER TABLE teams ADD COLUMN IF NOT EXISTS discord_guild_icon TEXT;',
+	'ALTER TABLE teams ADD COLUMN IF NOT EXISTS discord_connected_by TEXT REFERENCES users(id) ON DELETE SET NULL;',
+	'ALTER TABLE teams ADD COLUMN IF NOT EXISTS discord_connected_at TIMESTAMPTZ;',
+	'CREATE INDEX IF NOT EXISTS teams_discord_guild_idx ON teams (discord_guild_id, archived_at);',
 
 	`CREATE TABLE IF NOT EXISTS team_memberships (
 		team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -678,8 +687,10 @@ const STATEMENTS = [
 		reviewed_at           TIMESTAMPTZ,
 		reviewed_by           TEXT REFERENCES users(id) ON DELETE RESTRICT,
 		rejection_reason      TEXT,
+		request_cycle         INTEGER NOT NULL DEFAULT 1 CHECK (request_cycle > 0),
 		UNIQUE (team_id, user_id)
 	);`,
+	'ALTER TABLE team_join_requests ADD COLUMN IF NOT EXISTS request_cycle INTEGER NOT NULL DEFAULT 1;',
 	'CREATE INDEX IF NOT EXISTS team_join_requests_team_idx ON team_join_requests (team_id, status, requested_at);',
 
 	`CREATE TABLE IF NOT EXISTS team_ownership_transfers (
@@ -867,6 +878,16 @@ const STATEMENTS = [
 	);`,
 	'CREATE INDEX IF NOT EXISTS project_events_cursor_idx ON project_events (project_id, created_at DESC, id DESC);',
 
+	// Immutable actor binding intentionally has no user FK: account merges/deletion
+	// must not reassign or erase a key and allow another account to recreate it.
+	`CREATE TABLE IF NOT EXISTS workspace_creations (
+		request_key TEXT PRIMARY KEY,
+		actor_id TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('team','project')),
+		request_hash TEXT NOT NULL,
+		result JSONB NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
 	`CREATE TABLE IF NOT EXISTS project_mutations (
 		id              TEXT PRIMARY KEY,
 		project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -902,8 +923,12 @@ const STATEMENTS = [
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ,
+		originating_link_id TEXT REFERENCES project_join_links(id) ON DELETE SET NULL,
+		request_cycle INTEGER NOT NULL DEFAULT 1 CHECK (request_cycle > 0),
 		UNIQUE (project_id, user_id)
 	);`,
+	'ALTER TABLE project_join_requests ADD COLUMN IF NOT EXISTS originating_link_id TEXT REFERENCES project_join_links(id) ON DELETE SET NULL;',
+	'ALTER TABLE project_join_requests ADD COLUMN IF NOT EXISTS request_cycle INTEGER NOT NULL DEFAULT 1;',
 	'ALTER TABLE project_join_requests ADD COLUMN IF NOT EXISTS reviewed_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT;',
 	'ALTER TABLE project_join_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT;',
 	'ALTER TABLE project_notification_settings ADD COLUMN IF NOT EXISTS dm_enabled BOOLEAN NOT NULL DEFAULT true;',
@@ -976,6 +1001,12 @@ const STATEMENTS = [
 		CHECK ((state = 'open' AND reached_at IS NULL) OR (state = 'reached' AND reached_at IS NOT NULL))
 	);`,
 	'CREATE INDEX IF NOT EXISTS project_milestones_due_idx ON project_milestones (project_id, due_at, id);',
+	// Historical completed topics intentionally remain NULL: updated_at does
+	// not prove when work was completed or which deadline applied then.
+	'ALTER TABLE project_topics ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;',
+	'ALTER TABLE project_topics ADD COLUMN IF NOT EXISTS completion_deadline_at TIMESTAMPTZ;',
+	'ALTER TABLE project_topics ADD COLUMN IF NOT EXISTS completion_deadline_precision TEXT;',
+	'ALTER TABLE project_topics ADD COLUMN IF NOT EXISTS completion_timezone TEXT;',
 ];
 
 /**
@@ -1001,6 +1032,18 @@ async function initCoreSchema() {
 		}
 		for (const statement of STATEMENTS) {
 			await client.query(statement);
+		}
+		// Maintain retained compatibility storage only. Fresh server-native
+		// installations must never create the retired Company hierarchy.
+		if ((await client.query("SELECT to_regclass('companies') AS table_name")).rows[0].table_name) await installCompanySchema(client);
+		await installServerRoleSchema(client);
+		await client.query("CREATE INDEX IF NOT EXISTS identities_discord_sync_idx ON identities(user_id) WHERE provider='discord'");
+		await client.query("CREATE UNIQUE INDEX IF NOT EXISTS team_events_sync_request_key ON team_events(team_id,(payload->>'requestKey')) WHERE event_type IN ('role_sync_requested','role_sync_transition')");
+		await require('./team-membership-sources').installTeamMembershipSourceSchema(client);
+		// Keep existing history maintained when the UI is disabled. Fresh storage
+		// is opt-in until the separate Goals rollout is approved.
+		if (process.env.MEGU_TEAM_GOALS_ENABLED === '1' || (await client.query("SELECT to_regclass('public.team_goals') AS table_name")).rows[0].table_name) {
+			await installTeamGoalSchema(client);
 		}
 	});
 	log('Core', 'Megu core schema verified.');

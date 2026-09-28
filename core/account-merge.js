@@ -1,6 +1,7 @@
 const { query, transaction } = require('./db.js');
 const { newId } = require('./ids.js');
 const users = require('./users.js');
+const { hasLegacyCompanySchema } = require('./company-access');
 
 /**
  * Two Megu accounts, one person.
@@ -58,6 +59,7 @@ const REPOINT = [
 	['activities', 'owner_user_id'],
 	['projects', 'owner_user_id'],
 	['teams', 'created_by'],
+	['teams', 'discord_connected_by'],
 	['participants', 'user_id'],
 	['payments', 'confirmed_by'],
 	['payments', 'reversed_by'],
@@ -93,6 +95,23 @@ const REPOINT = [
 	['team_ownership_transfers', 'current_owner_id'],
 	['team_ownership_transfers', 'proposed_owner_id'],
 	['team_events', 'actor_user_id'],
+	['server_role_mappings', 'created_by'],
+	['server_role_mappings', 'owner_consent_by'],
+	['server_role_mappings', 'server_consent_by'],
+	['server_role_mappings', 'sync_requested_by'],
+	['server_role_mappings', 'sync_preview_owner'],
+	['server_role_suggestion_dismissals', 'dismissed_by'],
+	['server_role_events', 'actor_id'],
+	['server_role_team_creations', 'actor_id'],
+	['team_membership_sources', 'granted_by'],
+	['team_membership_suppressions', 'user_id'],
+	['team_membership_suppressions', 'created_by'],
+	['team_membership_suppressions', 'cleared_by'],
+	['company_events', 'actor_user_id'],
+	['company_join_links', 'created_by'],
+	['company_join_requests', 'reviewed_by'],
+	['company_ownership_transfers', 'current_owner_id'],
+	['company_ownership_transfers', 'proposed_owner_id'],
 ];
 
 // Handled by hand further down, because moving the row would collide with a
@@ -104,7 +123,11 @@ const HANDLED_ELSEWHERE = [
 	['project_topic_assignees', 'user_id'],
 	['project_join_requests', 'user_id'],
 	['team_memberships', 'user_id'],
+	['team_membership_sources', 'user_id'],
 	['team_join_requests', 'user_id'],
+	['company_memberships', 'user_id'],
+	['company_join_requests', 'user_id'],
+	['server_role_sync_jobs', 'user_id'],
 ];
 
 function referenceKey(table, column) {
@@ -134,8 +157,15 @@ async function usersReferences(client) {
 	}));
 }
 
+const GOAL_REFERENCES = [
+	['team_goals', 'subject_id'], ['team_goals', 'created_by'],
+	['team_goal_versions', 'reviewer_id'], ['team_goal_versions', 'created_by'],
+	['team_goal_updates', 'author_id'], ['team_goal_reviews', 'reviewer_id'],
+	['team_goal_responses', 'author_id'], ['team_goal_events', 'actor_id'],
+];
+
 async function assertEveryReferenceIsKnown(client) {
-	const known = new Set([...REPOINT, ...HANDLED_ELSEWHERE].map(([t, c]) => referenceKey(t, c)));
+	const known = new Set([...REPOINT, ...GOAL_REFERENCES, ...HANDLED_ELSEWHERE].map(([t, c]) => referenceKey(t, c)));
 	const live = await usersReferences(client);
 	const unknown = live
 		.map(ref => referenceKey(ref.table, ref.column))
@@ -254,11 +284,48 @@ async function chooseSurvivor(client, userIdA, userIdB) {
  * `blockedBy` is the important field: a plan that cannot proceed says so here,
  * before the person is shown a button that would fail.
  */
+async function companyMembershipConflict(client, first, second) {
+	if (!await hasLegacyCompanySchema(client)) return false;
+	const result = await client.query(`SELECT 1 FROM company_memberships a
+		JOIN company_memberships b ON b.company_id=a.company_id
+		WHERE a.user_id=$1 AND b.user_id=$2
+		AND (a.revoked_at IS NULL) <> (b.revoked_at IS NULL)
+		UNION ALL SELECT 1 FROM company_ownership_transfers WHERE accepted_at IS NOT NULL
+		AND ((current_owner_id=$1 AND proposed_owner_id=$2) OR (current_owner_id=$2 AND proposed_owner_id=$1)) LIMIT 1`, [first, second]);
+	return result.rowCount > 0;
+}
+
+async function membershipSuppressionConflict(client, first, second) {
+	// Merging an active login into a removed one must not bypass the removal,
+	// revoke an owner's work implicitly, or clear a human decision by inference.
+	return (await client.query(`SELECT 1 FROM team_membership_suppressions s
+	 JOIN team_memberships m ON m.team_id=s.team_id AND m.revoked_at IS NULL
+	 WHERE s.cleared_at IS NULL AND s.user_id IN ($1,$2) AND m.user_id IN ($1,$2) LIMIT 1`, [first, second])).rows.length > 0;
+}
+
+async function goalMergeConflict(client, userIdA, userIdB) {
+	// Goal storage is optional until its rollout; do not require absent tables.
+	if (!(await client.query("SELECT to_regclass('public.team_goal_versions') AS table_name")).rows[0].table_name) return false;
+	const result = await client.query(`SELECT 1 FROM team_goals g JOIN team_goal_versions v ON v.goal_id=g.id
+	 WHERE (g.subject_id=$1 AND v.reviewer_id=$2) OR (g.subject_id=$2 AND v.reviewer_id=$1) LIMIT 1`, [userIdA, userIdB]);
+	if (result.rows.length > 0) return 'goal-participant-conflict';
+	const membership = await client.query(`SELECT 1 FROM team_memberships a JOIN team_memberships b ON b.team_id=a.team_id
+	 WHERE a.user_id=$1 AND b.user_id=$2 AND (a.revoked_at IS NULL) <> (b.revoked_at IS NULL)
+	 AND EXISTS (SELECT 1 FROM team_goals g JOIN team_goal_versions v ON v.goal_id=g.id
+	 WHERE g.team_id=a.team_id AND (g.subject_id IN ($1,$2) OR v.reviewer_id IN ($1,$2))) LIMIT 1`, [userIdA, userIdB]);
+	return membership.rows.length ? 'goal-membership-conflict' : null;
+}
+
 async function planMerge(userIdA, userIdB) {
 	if (!userIdA || !userIdB || userIdA === userIdB) throw new Error('merge_same_account');
 
 	return transaction(async (client) => {
 		const { survivorId, mergedId } = await chooseSurvivor(client, userIdA, userIdB);
+		// A merge must not bypass a company removal by reviving the other login's
+		// active eligibility. Resolve that conflict explicitly before merging.
+		const companyConflict = await companyMembershipConflict(client, survivorId, mergedId);
+		const suppressionConflict = await membershipSuppressionConflict(client, survivorId, mergedId);
+		const goalConflict = await goalMergeConflict(client, survivorId, mergedId);
 		const shared = await sharedProviders(client, userIdA, userIdB);
 		const duplicates = await duplicateParticipants(client, userIdA, userIdB);
 
@@ -278,7 +345,8 @@ async function planMerge(userIdA, userIdB) {
 		return {
 			survivorId,
 			mergedId,
-			blockedBy: shared.length > 0 ? { reason: 'provider-collision', providers: shared } : null,
+			blockedBy: shared.length > 0 ? { reason: 'provider-collision', providers: shared }
+				: companyConflict ? { reason: 'company-membership-conflict' } : goalConflict ? { reason: goalConflict } : suppressionConflict ? { reason: 'team-suppression-conflict' } : null,
 			counts: {
 				survivor: await countsFor(client, survivorId),
 				merged: await countsFor(client, mergedId),
@@ -424,8 +492,30 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 			[lockLow, lockHigh],
 		);
 		await assertEveryReferenceIsKnown(client);
+		const hasCompanies = await hasLegacyCompanySchema(client);
+		const hasGoals = Boolean((await client.query("SELECT to_regclass('public.team_goals') AS table_name")).rows[0].table_name);
+		if (hasGoals) {
+			// ponytail: serialize low-volume goal writes/merges; replace with per-user locks if contention is measured.
+			await client.query("SELECT pg_advisory_xact_lock(hashtext('team-goals-identity'))");
+		}
+		// Membership writers lock the team before changing membership/sources.
+		// Lock their complete union once, in order, including private goal teams.
+		await client.query(`SELECT t.id FROM teams t WHERE EXISTS (
+		 SELECT 1 FROM team_memberships m WHERE m.team_id=t.id AND m.user_id IN ($1,$2)) OR EXISTS (
+		 SELECT 1 FROM team_membership_sources s WHERE s.team_id=t.id AND s.user_id IN ($1,$2))
+		 OR EXISTS (SELECT 1 FROM team_membership_suppressions s WHERE s.team_id=t.id AND s.user_id IN ($1,$2))
+		 ${hasGoals ? `OR EXISTS (
+			 SELECT 1 FROM team_goals g JOIN team_goal_versions v ON v.goal_id=g.id
+			 WHERE g.team_id=t.id AND (g.subject_id IN ($1,$2) OR v.reviewer_id IN ($1,$2)))` : ''}
+		 ORDER BY t.id FOR UPDATE OF t`, [userIdA, userIdB]);
+		if (hasGoals) {
+			const conflict = await goalMergeConflict(client, userIdA, userIdB);
+			if (conflict) throw new Error(`merge_${conflict.replaceAll('-', '_')}`);
+		}
+		if (await membershipSuppressionConflict(client, userIdA, userIdB)) throw new Error('merge_team_suppression_conflict');
 
 		const { survivorId, mergedId } = await chooseSurvivor(client, userIdA, userIdB);
+		if (await companyMembershipConflict(client, survivorId, mergedId)) throw new Error('merge_company_membership_conflict');
 
 		// Re-checked inside the lock: the confirmation screen was rendered from a
 		// plan built earlier, and either account could have gained a provider in
@@ -502,6 +592,11 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 		);
 
 		// Preserve team ownership while collapsing the two accounts into one
+		if (hasCompanies) await client.query(`UPDATE company_ownership_transfers SET cancelled_at=now()
+		 WHERE accepted_at IS NULL AND cancelled_at IS NULL
+		 AND ((current_owner_id=$1 AND proposed_owner_id=$2) OR (current_owner_id=$2 AND proposed_owner_id=$1))`, [survivorId,mergedId]);
+
+		// Preserve team ownership while collapsing the two accounts into one
 		// membership row. Owners are demoted only for the few statements needed
 		// to avoid the active-owner unique index, then restored on the survivor.
 		const mergedOwnedTeams = await client.query(
@@ -510,7 +605,7 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 		);
 		await client.query("UPDATE team_memberships SET role='admin' WHERE user_id=$1 AND role='owner' AND revoked_at IS NULL", [mergedId]);
 
-		for (const [table, column] of REPOINT) {
+		for (const [table, column] of [...REPOINT, ...(hasGoals ? GOAL_REFERENCES : [])].filter(([table]) => hasCompanies || !table.startsWith('company_'))) {
 			await client.query(
 				`UPDATE ${table} SET ${column} = $1 WHERE ${column} = $2`,
 				[survivorId, mergedId],
@@ -600,6 +695,8 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 			[survivorId, mergedId],
 		);
 		await client.query('DELETE FROM team_memberships WHERE user_id=$1', [mergedId]);
+		await require('./team-membership-sources').mergeMembershipSources(client, survivorId, mergedId);
+		await require('./server-role-sync').mergeJobs(client, survivorId, mergedId);
 		if (mergedOwnedTeams.rows.length) {
 			await client.query(
 				"UPDATE team_memberships SET role='owner' WHERE user_id=$1 AND team_id=ANY($2::text[]) AND revoked_at IS NULL",
@@ -613,6 +710,24 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 			[survivorId, mergedId],
 		);
 		await client.query('UPDATE team_join_requests SET user_id=$1 WHERE user_id=$2', [survivorId, mergedId]);
+
+		// Free the unique owner slot before moving its membership to the survivor.
+		if (hasCompanies) {
+			const ownedCompanies = await client.query("SELECT company_id FROM company_memberships WHERE user_id=$1 AND role='owner' AND revoked_at IS NULL FOR UPDATE", [mergedId]);
+			await client.query("UPDATE company_memberships SET role='admin' WHERE user_id=$1 AND role='owner' AND revoked_at IS NULL", [mergedId]);
+			await client.query(`INSERT INTO company_memberships(company_id,user_id,role,joined_at,revoked_at)
+				SELECT company_id,$1,role,joined_at,revoked_at FROM company_memberships WHERE user_id=$2
+				ON CONFLICT(company_id,user_id) DO UPDATE SET
+				 role=CASE WHEN array_position(ARRAY['member','admin','owner'],EXCLUDED.role)
+				 > array_position(ARRAY['member','admin','owner'],company_memberships.role)
+				 THEN EXCLUDED.role ELSE company_memberships.role END,
+				 joined_at=LEAST(company_memberships.joined_at,EXCLUDED.joined_at)`, [survivorId, mergedId]);
+			await client.query('DELETE FROM company_memberships WHERE user_id=$1', [mergedId]);
+			if (ownedCompanies.rowCount) await client.query("UPDATE company_memberships SET role='owner' WHERE user_id=$1 AND company_id=ANY($2::text[]) AND revoked_at IS NULL", [survivorId, ownedCompanies.rows.map(row => row.company_id)]);
+			await client.query(`DELETE FROM company_join_requests old WHERE old.user_id=$2 AND EXISTS
+			 (SELECT 1 FROM company_join_requests kept WHERE kept.company_id=old.company_id AND kept.user_id=$1)`, [survivorId,mergedId]);
+			await client.query('UPDATE company_join_requests SET user_id=$1 WHERE user_id=$2', [survivorId,mergedId]);
+		}
 
 		// Deliberately *not* merging duplicate participant rows.
 		//

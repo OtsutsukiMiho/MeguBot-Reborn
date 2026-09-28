@@ -9,6 +9,7 @@ function createProjectChannelDispatcher({ sendChannel, log = () => undefined }) 
 			const deliveries = await core.projectChannelNotifications.claimPending();
 			for (const delivery of deliveries) {
 				try {
+					if (!await core.projectChannelNotifications.recheckClaimed(delivery.id)) continue;
 					await sendChannel({
 						guildId: delivery.guild_id,
 						channelId: delivery.channel_id,

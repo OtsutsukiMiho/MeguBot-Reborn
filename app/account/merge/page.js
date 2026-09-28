@@ -102,7 +102,7 @@ export default function AccountMergePage() {
 
 		{blocked
 			? <section className="panel stack-md">
-				<p role="alert">{copy.blocked(blocked.providers.join(', '))}</p>
+				<p role="alert">{blocked.reason === 'provider-collision' ? copy.blocked((blocked.providers || []).join(', ')) : copy.blockedConflict}</p>
 				<div><a className="btn btn-primary" href="/account">{copy.cancel}</a></div>
 			</section>
 			: <>

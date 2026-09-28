@@ -26,6 +26,7 @@
 //      down must not take the supervisor with it.
 
 const { Pool } = require('pg');
+const { postgresConnectionOptions } = require('../../core/postgres-connection.js');
 
 /** Long enough for a healthy write, short enough not to hold up an exit path. */
 const WRITE_TIMEOUT_MS = 2000;
@@ -54,12 +55,13 @@ const KINDS = [
 
 let pool = null;
 let ready = null;
+let permanentlyClosed = false;
 
 function poolFor(url) {
 	if (pool) return pool;
+	if (permanentlyClosed) throw new Error('The health-log pool is shutting down.');
 	pool = new Pool({
-		connectionString: url,
-		ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(url) ? false : { rejectUnauthorized: false },
+		...postgresConnectionOptions(url),
 		max: 1,
 		connectionTimeoutMillis: STATE_READ_TIMEOUT_MS,
 	});
@@ -257,7 +259,8 @@ async function list({ limit = 40 } = {}) {
 }
 
 /** Let a short-lived process (a script, a dying child) release the connection. */
-async function close() {
+async function close({ permanent = false } = {}) {
+	if (permanent) permanentlyClosed = true;
 	if (!pool) return;
 	const closing = pool;
 	pool = null;

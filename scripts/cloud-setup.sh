@@ -135,6 +135,7 @@ say 'Checking the database is reachable'
 node -e "
 require('dotenv').config();
 const { Client } = require('pg');
+const { postgresConnectionOptions } = require('./core/postgres-connection.js');
 const url = process.env.MEGU_DATABASE_URL || 'postgresql://${PGUSER_APP}:${PGPASS_APP}@localhost:${PGPORT}/${PGDB}';
 const host = new URL(url).hostname;
 if (!['localhost', '127.0.0.1', 'host.docker.internal', 'megu-db'].includes(host)) {
@@ -144,7 +145,7 @@ if (!['localhost', '127.0.0.1', 'host.docker.internal', 'megu-db'].includes(host
 	console.error('  MEGU_DATABASE_URL points at ' + host + ', which is not local. Refusing.');
 	process.exit(1);
 }
-const c = new Client({ connectionString: url });
+const c = new Client(postgresConnectionOptions(url));
 c.connect().then(() => c.query('select 1'))
 	.then(() => { console.log('  postgres ok'); return c.end(); })
 	.catch(e => { console.error('  postgres FAILED:', e.message); process.exit(1); });

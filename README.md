@@ -31,9 +31,32 @@ npm run dev              # เปิด bot + Express API + Next พร้อม
 ซึ่งจะเริ่ม service โดยไม่ register slash commands ซ้ำทุกครั้ง ใช้ `npm run deploy`
 เฉพาะเมื่อไฟล์ใน `commands/` เปลี่ยนเท่านั้น
 
-พอร์ตมาจาก `.env` และห้ามเปลี่ยนตามใจ: `NEXT_PORT=3100`, `EXPRESS_PORT=3001`
-เพราะ `DISCORD_REDIRECT_URI` ชี้ที่ 3100 ซึ่ง `next.config.js` proxy `/api/*`
-ต่อไปที่ Express อีกที
+พอร์ตสำหรับเครื่องพัฒนามาจาก `.env`: `NEXT_PORT=3100`, `EXPRESS_PORT=3001`.
+ใน production ให้ลงทะเบียน OAuth redirect ของ Discord ให้ตรงกับ
+`${FRONTEND_URL}/api/auth/callback` (หรือ `DISCORD_REDIRECT_URI` หากกำหนดเอง)
+บน public origin เดียวกับเว็บ; `next.config.js` proxy `/api/*` ต่อไปที่ Express.
+
+### Deployment request origin
+
+Set `FRONTEND_URL` to the single public application origin (for example,
+`https://app.example.test`), matching the browser URL and OAuth registration.
+Express compares mutation requests against this configured origin, never the
+private API host or forwarded Host headers. Same-origin form and JSON requests
+continue to work. Cross-origin/sibling-origin requests, malformed origin evidence
+and cookie-authenticated requests with neither Origin nor Referer are rejected.
+An exact-origin Referer is accepted when Origin is absent. Conflicting evidence
+is rejected. Console/account mutations, signed-in API mutations, and activity
+mutations (including anonymous device-cookie actions) share this boundary.
+Public read-only activity routes and unsigned ping retain their existing contracts.
+Normal route authentication and permissions still apply. OAuth login/callback
+GET routes and existing SameSite cookie settings are unchanged.
+
+There is no machine-auth exemption for console APIs. Cookie-based clients must
+authenticate normally and provide the trusted Origin/Referer evidence; a dummy
+Authorization header does not bypass browser protection. Deploy the correct
+public origin before testing mutations behind the Next-to-Express proxy. See
+[database TLS configuration](DATABASE.md#2-set-the-environment) for remote
+database trust requirements.
 
 ### Discord login และอีเมลแจ้งเตือน
 
@@ -62,10 +85,28 @@ MEGU_PROJECTS_ENABLED=1
 NEXT_PUBLIC_MEGU_PROJECTS_ENABLED=1
 MEGU_PROJECT_TEAMS_ENABLED=1
 NEXT_PUBLIC_MEGU_PROJECT_TEAMS_ENABLED=1
+MEGU_PROJECT_TEAMS_DISCORD_ENABLED=1
+NEXT_PUBLIC_MEGU_PROJECT_TEAMS_DISCORD_ENABLED=1
 ```
+
+Goals ใช้ opt-in ฝั่งเซิร์ฟเวอร์ `MEGU_TEAM_GOALS_ENABLED=1` และ automatic Discord
+role sync ใช้ opt-in แยกต่างหาก `MEGU_TEAM_ROLE_SYNC_ENABLED=1` หลังตรวจสิทธิ์และ
+ความยินยอมที่เกี่ยวข้อง; ทั้งสองค่าไม่ได้เปิดตาม flags ของทีมโดยอัตโนมัติ.
+กำหนด flags ที่ต้องการให้ตรงกันระหว่างเว็บ บอท และ frontend build ก่อน rollout.
+การสร้างทีม/โปรเจกต์ต้องมีตาราง `workspace_creations` เพิ่มโดย schema initializer
+พร้อมสิทธิ์ DDL ที่จำเป็น และต้องเก็บ receipt นี้ไว้ในการสำรอง/กู้คืนฐานข้อมูล.
+ระหว่าง rollout ห้ามให้ worker รุ่นเก่าที่ยังรับ create แบบไม่มี request key
+ทำงานร่วมกับรุ่นใหม่. See [database TLS configuration](DATABASE.md#2-set-the-environment)
+for remote PostgreSQL trust and `MEGU_PG_CA_FILE`.
 
 ตั้ง `MEGU_PROJECT_TEAMS_ENABLED=0` เพื่อปิด API ของทีม และตั้งค่า `NEXT_PUBLIC_...`
 เป็น `0` ใน build เดียวกันเพื่อซ่อนทางเข้า UI ระหว่าง rollback โดยโปรเจกต์แบบเดี่ยวยังคงทำงานได้
+
+`MEGU_PROJECT_TEAMS_DISCORD_ENABLED=0` ปิดเฉพาะการเชื่อมทีมกับเซิร์ฟเวอร์ การค้นหา
+สมาชิก/ยศ Discord และมุมมองทีมในคอนโซลเซิร์ฟเวอร์ โดยไม่ปิดทีมอิสระ โปรเจกต์เดี่ยว
+หรือสิทธิ์สมาชิกที่มีอยู่ ค่า `NEXT_PUBLIC_...` คู่กันต้องถูกกำหนดก่อน build เพื่อซ่อน
+ตัวเลือกฝั่ง browser ด้วย การเชื่อมต่อเป็นตัวช่วยจัดกลุ่มและค้นหาสมาชิกเท่านั้น การเปลี่ยนยศ
+Discord จะไม่เพิ่มหรือลบสิทธิ์ Megu อัตโนมัติ
 
 ## โครงสร้าง
 

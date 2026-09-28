@@ -154,7 +154,7 @@ module.exports = {
 		try {
 			if (!group && command === 'create') {
 				const deadlineAt = interaction.options.getString('deadline');
-				const project = await core.projects.createProject({ ownerUserId: user.id, title: interaction.options.getString('title', true), description: interaction.options.getString('description') || '', timezone: interaction.options.getString('timezone') || 'Asia/Bangkok', deadlineAt, deadlinePrecision: deadlineAt ? 'date' : null });
+				const project = await core.projects.createProject({ requestKey: `discord-project-${interaction.id}`, ownerUserId: user.id, title: interaction.options.getString('title', true), description: interaction.options.getString('description') || '', timezone: interaction.options.getString('timezone') || 'Asia/Bangkok', deadlineAt, deadlinePrecision: deadlineAt ? 'date' : null });
 				return interaction.editReply(replyOptions(copy.created(safe(project.title), project.code, projectUrl(project.code))));
 			}
 			if (!group && command === 'list') {

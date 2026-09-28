@@ -10,6 +10,7 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 			const deliveries = await core.notifications.claimPending();
 			for (const delivery of deliveries) {
 				try {
+					if (!await core.notifications.recheckClaimed(delivery.id)) continue;
 					const content = core.notifications.render(delivery);
 					if (delivery.channel === 'discord') {
 						if (!delivery.discord_uid) throw new Error('Discord identity is unavailable');

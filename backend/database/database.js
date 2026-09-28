@@ -2,6 +2,8 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 const { BotLogs, COLOR } = require('../bot/bot_functions.js');
+const { poolMax } = require('../../core/pool-config.js');
+const { postgresConnectionOptions, isLocalDatabaseUrl } = require('../../core/postgres-connection.js');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const VARS_DIR = path.join(DATA_DIR, 'variables');
@@ -22,25 +24,21 @@ function isValidSnowflake(id) {
  * one database — enough to exhaust a small Postgres on its own, and certain to
  * if the web process ever crash-loops and keeps reconnecting.
  *
- * Five is generous for this workload: every query here is a short read or
- * write and none of them run concurrently in any number. The idle timeout is
- * what actually protects the database — connections go back after ten seconds
- * rather than being held for the life of the process — and the connect timeout
- * means a database that is refusing connections produces an error instead of a
- * queue of requests waiting forever.
+ * The default is deliberately one. This module and core each create a pool in
+ * the web and bot processes, while health logging adds one more in every
+ * process. A default of five allowed 23 clients to compete for a Supabase
+ * session pool capped at 15. PG_POOL_MAX remains an explicit override after
+ * the deployment's complete pool inventory has been measured.
  */
 const POOL_LIMITS = {
-	max: Number(process.env.PG_POOL_MAX) || 5,
+	max: poolMax(),
 	idleTimeoutMillis: 10_000,
 	connectionTimeoutMillis: 8_000,
 };
 
 if (process.env.DATABASE_URL) {
 	pool = new Pool({
-		connectionString: process.env.DATABASE_URL,
-		ssl: {
-			rejectUnauthorized: false,
-		},
+		...postgresConnectionOptions(process.env.DATABASE_URL),
 		...POOL_LIMITS,
 	});
 	pool.on('error', (err) => {
@@ -50,9 +48,10 @@ if (process.env.DATABASE_URL) {
 
 async function initDatabase() {
 	if (pool) {
+		let client = null;
 		try {
-			const client = await pool.connect();
-			BotLogs('Database', `${COLOR.green}Connected to PostgreSQL database!`);
+			client = await pool.connect();
+			BotLogs('Database', `${COLOR.green}Connected to PostgreSQL database ${COLOR.gray}(pool max ${POOL_LIMITS.max})`);
 
 			await client.query(`
 				CREATE TABLE IF NOT EXISTS guild_variables (
@@ -132,14 +131,23 @@ async function initDatabase() {
 				CREATE INDEX IF NOT EXISTS idx_audio_logs_status ON audio_logs(status);
 				CREATE INDEX IF NOT EXISTS idx_audio_logs_item ON audio_logs(item_id);
 			`);
-			client.release();
 			BotLogs('Database', `${COLOR.green}PostgreSQL tables verified/created successfully.`);
 			cleanOldAuditLogs(7).catch(() => undefined);
 			cleanOldAudioLogs(7).catch(() => undefined);
 		}
 		catch (error) {
+			// Remote trust/connectivity failures must not turn retained database
+			// writes into unrelated local JSON writes. Local fallback is preserved.
+			if (!isLocalDatabaseUrl(process.env.DATABASE_URL)) throw error;
 			BotLogs('Database', `${COLOR.red}Failed to connect to PostgreSQL: ${error.message}. Falling back to local JSON database.`);
+			const failedPool = pool;
 			pool = null;
+			if (client) client.release();
+			client = null;
+			await failedPool.end().catch(() => undefined);
+		}
+		finally {
+			if (client) client.release();
 		}
 	}
 
@@ -155,6 +163,14 @@ async function initDatabase() {
 		}
 		BotLogs('Database', `${COLOR.blue}Using local JSON file-based database.`);
 	}
+}
+
+async function close() {
+	if (!pool) return;
+	const closing = pool;
+	pool = null;
+	guildVarCache.clear();
+	await closing.end().catch(() => undefined);
 }
 
 function sanitizeDbValue(val) {
@@ -189,8 +205,8 @@ function sanitizeDbValue(val) {
  *
  * One VoiceStateUpdate asks for two dozen of them in series — engine, voice,
  * language, welcome, leave, four announce limits, volume, templates — and a
- * busy channel produces those events several times a second. With a pool capped
- * at five connections, that is enough to leave a slash command waiting on
+ * busy channel produces those events several times a second. With a small pool,
+ * that is enough to leave a slash command waiting on
  * `connectionTimeoutMillis` for a client, past the three seconds Discord allows
  * an interaction. The symptom is "The application did not respond" on a command
  * that in fact worked: the query finished, the reply was simply too late.
@@ -308,6 +324,44 @@ async function getAllGuildVars(guildId) {
 		}
 		return {};
 	}
+}
+
+async function compareAndSetGuildRoleVars(guildId, before, desired) {
+	if (!isValidSnowflake(guildId)) return false;
+	const keys = ['autorole_id', 'autorole_ids', 'bot_autorole_ids'];
+	const same = current => keys.every(key => JSON.stringify(current[key] ?? null) === JSON.stringify(before[key] ?? null));
+	const update = Object.fromEntries(keys.map(key => [key, sanitizeDbValue(desired[key])]));
+	clearGuildVarCache(guildId);
+	if (pool) {
+		const client = await pool.connect();
+		try {
+			await client.query('BEGIN');
+			await client.query("INSERT INTO guild_variables (guild_id, variables) VALUES ($1, '{}'::jsonb) ON CONFLICT (guild_id) DO NOTHING", [guildId]);
+			const row = await client.query('SELECT variables FROM guild_variables WHERE guild_id = $1 FOR UPDATE', [guildId]);
+			const matches = same(sanitizeDbValue(row.rows[0].variables || {}));
+			if (matches) await client.query("UPDATE guild_variables SET variables = COALESCE(variables, '{}'::jsonb) || $2::jsonb WHERE guild_id = $1", [guildId, update]);
+			await client.query('COMMIT');
+			return matches;
+		}
+		catch (error) {
+			await client.query('ROLLBACK').catch(() => undefined);
+			throw error;
+		}
+		finally { client.release(); }
+	}
+	// The only writers of these role fields use this boundary. Exclusive create
+	// also serializes separate web processes using the legacy JSON fallback.
+	const dbPath = path.join(VARS_DIR, `${guildId}.json`), lockPath = `${dbPath}.roles.lock`;
+	let lock;
+	try { lock = fs.openSync(lockPath, 'wx'); }
+	catch (error) { if (error.code === 'EEXIST') return false; throw error; }
+	try {
+		const current = fs.existsSync(dbPath) ? sanitizeDbValue(JSON.parse(fs.readFileSync(dbPath, 'utf8'))) : {};
+		if (!same(current)) return false;
+		fs.writeFileSync(dbPath, JSON.stringify({ ...current, ...update }, null, 4));
+		return true;
+	}
+	finally { fs.closeSync(lock); fs.unlinkSync(lockPath); }
 }
 
 async function setGuildVar(guildId, key, value) {
@@ -1163,6 +1217,7 @@ async function cleanOldAudioLogs(retentionDays = 7) {
 
 module.exports = {
 	initDatabase,
+	close,
 	get isPostgres() {
 		return !!pool;
 	},
@@ -1170,6 +1225,7 @@ module.exports = {
 	getGuildVar,
 	clearGuildVarCache,
 	getAllGuildVars,
+	compareAndSetGuildRoleVars,
 	setGuildVar,
 	deleteGuildVar,
 	getUserNick,

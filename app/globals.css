@@ -508,6 +508,28 @@ input, textarea, select, button {
 	gap: .3rem;
 }
 
+.navbar .nav-menu-toggle, .navbar .nav-mobile-signout { display: none; }
+
+@media (max-width: 1100px) {
+	.nav-menu { display: none; }
+	.nav-menu.is-open {
+		display: flex;
+		position: absolute;
+		inset: 100% 0 auto;
+		flex-direction: column;
+		align-items: stretch;
+		padding: 1rem;
+		max-height: calc(100dvh - var(--nav-h));
+		overflow-y: auto;
+		background: var(--surface);
+		border-bottom: 1px solid var(--border);
+	}
+	.nav-menu.is-open a { min-height: 44px; display: flex; align-items: center; color: var(--ink); }
+	.navbar .nav-menu-toggle, .navbar .nav-mobile-signout { display: inline-flex; }
+	.nav-menu-toggle { min-width: 44px; min-height: 44px; padding: .5rem; }
+	.user-profile-badge > button { display: none; }
+}
+
 .nav-menu a {
 	font-size: .92rem;
 	font-weight: var(--w-medium);
@@ -4871,3 +4893,8 @@ textarea.form-control {
 	width: fit-content;
 	margin-bottom: 1rem;
 }
+
+.workspace-context { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: 1rem; font-size: .875rem; overflow-wrap: anywhere; }
+.workspace-context a { text-decoration: underline; text-underline-offset: .2em; }
+.workspace-context [aria-current] { color: var(--muted); }
+.navbar.is-over-band .nav-menu.is-open a { color: var(--ink); }

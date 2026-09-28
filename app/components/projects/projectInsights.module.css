@@ -1,0 +1,21 @@
+.insights { padding: 1.2rem .85rem; color: var(--ink); }
+.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.header h2 { margin: 0; font-size: 1.35rem; }
+.insights p { max-width: 70ch; color: var(--muted); margin-block: .5rem 1rem; }
+.timestamp { font-size: .82rem; }
+.progress { display: flex; align-items: baseline; gap: 1rem; margin-block: 1.6rem .4rem; }
+.progress dt { font-weight: 600; }
+.progress dd { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.metrics { margin-block: 1.4rem; border-top: 1px solid var(--line); }
+.metric { padding-block: 1rem; border-bottom: 1px solid var(--line); }
+.metricHeading { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+.metricHeading h3 { margin: 0; font-size: 1rem; }
+.metricHeading strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; text-align: end; }
+.metric p { margin-bottom: .5rem; font-size: .87rem; }
+.metric summary { cursor: pointer; color: var(--accent); width: fit-content; padding-block: .45rem; }
+.metric ul { padding-left: 1.25rem; margin-block: .4rem; }
+.metric button { background: transparent; color: var(--accent); border: 0; font: inherit; cursor: pointer; text-align: start; padding-block: .5rem; overflow-wrap: anywhere; }
+.metric button:hover { text-decoration: underline; text-underline-offset: .2em; }
+.metric button:focus-visible, .metric summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.note { border-top: 1px solid var(--line); padding-top: 1rem; }
+@media (max-width: 600px) { .metricHeading { flex-wrap: wrap; gap: .4rem 1rem; } }

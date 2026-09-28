@@ -74,6 +74,25 @@ module.exports = {
 	async execute(interaction) {
 		const subcommand = interaction.options.getSubcommand();
 		const guildId = interaction.guild.id;
+		const before = await database.getAllGuildVars(guildId);
+		// Match the join handler's effective grants without promoting a dormant
+		// legacy role when the modern list is populated.
+		let humanRoles = Array.isArray(before.autorole_ids) && before.autorole_ids.length
+			? [...before.autorole_ids] : (before.autorole_id ? [before.autorole_id] : []);
+		let botRoles = Array.isArray(before.bot_autorole_ids) ? [...before.bot_autorole_ids] : [];
+		const desired = {
+			autorole_id: before.autorole_id ?? null,
+			autorole_ids: before.autorole_ids ?? [],
+			bot_autorole_ids: before.bot_autorole_ids ?? [],
+		};
+		const saveRoles = async () => {
+			if (await database.compareAndSetGuildRoleVars(guildId, before, desired)) return true;
+			await interaction.reply({
+				content: '❌ Auto-role settings changed while this command was running. Check /autorole status and try again.',
+				flags: MessageFlags.Ephemeral,
+			});
+			return false;
+		};
 
 		// 1. ADD Subcommand
 		if (subcommand === 'add') {
@@ -96,20 +115,14 @@ module.exports = {
 			}
 
 			if (target === 'bot') {
-				let botRoles = await database.getGuildVar(guildId, 'bot_autorole_ids') || [];
-				if (!Array.isArray(botRoles)) botRoles = [];
 				if (!botRoles.includes(role.id)) botRoles.push(role.id);
-				await database.setGuildVar(guildId, 'bot_autorole_ids', botRoles);
+				desired.bot_autorole_ids = botRoles;
 			} else {
-				let humanRoles = await database.getGuildVar(guildId, 'autorole_ids') || [];
-				if (!Array.isArray(humanRoles)) {
-					const legacy = await database.getGuildVar(guildId, 'autorole_id');
-					humanRoles = legacy ? [legacy] : [];
-				}
 				if (!humanRoles.includes(role.id)) humanRoles.push(role.id);
-				await database.setGuildVar(guildId, 'autorole_ids', humanRoles);
-				await database.setGuildVar(guildId, 'autorole_id', role.id);
+				desired.autorole_ids = humanRoles;
+				desired.autorole_id = role.id;
 			}
+			if (!await saveRoles()) return;
 
 			BotLogs(interaction.guild.name, `${COLOR.green}Auto-role added (${target}): ${COLOR.white}${role.name} (${role.id})`);
 
@@ -125,19 +138,13 @@ module.exports = {
 			const target = interaction.options.getString('target') || 'human';
 
 			if (target === 'bot') {
-				let botRoles = await database.getGuildVar(guildId, 'bot_autorole_ids') || [];
-				if (Array.isArray(botRoles)) {
-					botRoles = botRoles.filter(id => id !== role.id);
-					await database.setGuildVar(guildId, 'bot_autorole_ids', botRoles);
-				}
+				desired.bot_autorole_ids = botRoles.filter(id => id !== role.id);
 			} else {
-				let humanRoles = await database.getGuildVar(guildId, 'autorole_ids') || [];
-				if (Array.isArray(humanRoles)) {
-					humanRoles = humanRoles.filter(id => id !== role.id);
-					await database.setGuildVar(guildId, 'autorole_ids', humanRoles);
-					await database.setGuildVar(guildId, 'autorole_id', humanRoles[0] || null);
-				}
+				humanRoles = humanRoles.filter(id => id !== role.id);
+				desired.autorole_ids = humanRoles;
+				desired.autorole_id = humanRoles[0] || null;
 			}
+			if (!await saveRoles()) return;
 
 			return await interaction.reply({
 				content: `✅ Removed <@&${role.id}> from **${target === 'bot' ? '🤖 Bot' : '👤 Human'} Auto-roles**.`,
@@ -147,14 +154,6 @@ module.exports = {
 
 		// 3. STATUS Subcommand
 		if (subcommand === 'status') {
-			let humanRoles = await database.getGuildVar(guildId, 'autorole_ids') || [];
-			if (!Array.isArray(humanRoles)) {
-				const legacy = await database.getGuildVar(guildId, 'autorole_id');
-				humanRoles = legacy ? [legacy] : [];
-			}
-			let botRoles = await database.getGuildVar(guildId, 'bot_autorole_ids') || [];
-			if (!Array.isArray(botRoles)) botRoles = [];
-
 			const humanList = humanRoles.length > 0 ? humanRoles.map(id => `<@&${id}>`).join(', ') : '*None*';
 			const botList = botRoles.length > 0 ? botRoles.map(id => `<@&${id}>`).join(', ') : '*None*';
 
@@ -176,12 +175,13 @@ module.exports = {
 			const target = interaction.options.getString('target') || 'all';
 
 			if (target === 'human' || target === 'all') {
-				await database.setGuildVar(guildId, 'autorole_ids', []);
-				await database.setGuildVar(guildId, 'autorole_id', null);
+				desired.autorole_ids = [];
+				desired.autorole_id = null;
 			}
 			if (target === 'bot' || target === 'all') {
-				await database.setGuildVar(guildId, 'bot_autorole_ids', []);
+				desired.bot_autorole_ids = [];
 			}
+			if (!await saveRoles()) return;
 
 			return await interaction.reply({
 				content: `🧹 **Cleared ${target === 'all' ? 'all' : (target === 'bot' ? '🤖 Bot' : '👤 Human')} auto-roles.**`,

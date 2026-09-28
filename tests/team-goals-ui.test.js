@@ -1,0 +1,46 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const React = require('react');
+const { renderToStaticMarkup } = require('react-dom/server');
+const babel = require('next/dist/compiled/babel/core');
+const filename = path.join(__dirname, '../app/components/teams/TeamGoals.js');
+const first = babel.transformSync(fs.readFileSync(filename, 'utf8'), { filename, configFile: false, babelrc: false, presets: ['next/babel'] });
+const { code } = babel.transformSync(first.code, { filename, configFile: false, babelrc: false, plugins: ['next/dist/compiled/babel/plugin-transform-modules-commonjs'] });
+for (const lang of ['en', 'th']) {
+	const t = require(`../app/copy/${lang}`);
+	let resource;
+	const module = { exports: {} };
+	vm.runInThisContext(`(function(require,module,exports){${code}\n})`, { filename })(id => {
+		if (id === '../../copy') return { useCopy: () => ({ t, lang }) };
+		if (id === './TeamWorkspaceNav') return {default:()=>null,__esModule:true};
+		if (id.endsWith('.css')) return {};
+		if (id === 'next/link') return { default: props => React.createElement('a', props), __esModule: true };
+		if (id.includes('useWorkspaceResource')) return { default: () => ({ ...resource, reload() {} }), __esModule: true };
+		if (id.includes('ProjectAvatar')) return { default: props => React.createElement('img', { src: props.avatarUrl, alt: '' }), __esModule: true };
+		if (id.includes('AuthGate')) return { default: () => React.createElement('p', null, 'Sign in boundary'), __esModule: true };
+		return require(id.startsWith('@babel/runtime/') ? `next/dist/compiled/${id}` : id);
+	}, module, module.exports);
+	const render = offset => renderToStaticMarkup(React.createElement(module.exports.default, { teamId: 'team', offset }));
+	const row = { id: 'goal', subjectName: 'Member', subjectAvatarUrl: 'https://cdn.discordapp.com/avatars/test/avatar.png', periodStart: '2026-09-01', periodEnd: '2026-09-30', lifecycle: 'proposed', needsReviewer: true, access: 'administration', title: 'PRIVATE TITLE MUST NOT RENDER' };
+	resource = { data: { team: { name: 'Example team' }, goals: [row], nextOffset: 60 }, loading: false };
+	let html = render(30);
+	for (const text of [t.teamGoals.title, t.teamGoals.administration, t.teamGoals.needsReviewer, t.teamGoals.state.proposed, 'Example team', 'cdn.discordapp.com']) assert.ok(html.includes(text.replaceAll('&', '&amp;')), `${lang}: missing ${text}`);
+	assert.ok(!html.includes(row.title));
+	assert.ok(html.includes('/goals?offset=0') && html.includes('/goals?offset=60'));
+	assert.ok(html.includes(lang === 'th' ? '2569' : '2026'));
+	row.access = 'private'; row.title = 'Agreed delivery';
+	assert.ok(render(0).includes(row.title));
+	resource = { data: { team: { name: 'Example team' }, goals: [], nextOffset: null }, loading: false };
+	assert.ok(render(0).includes(t.teamGoals.empty));
+	assert.ok(render(30).includes(t.teamGoals.emptyPage));
+	resource = { loading: true };
+	assert.match(render(0), /aria-busy="true"/);
+	resource = { error: { status: 503 } };
+	html = render(0); assert.ok(html.includes(t.teamGoals.failed)); assert.match(html, /role="alert"/);
+	resource = { error: { status: 401 } };
+	assert.ok(render(0).includes('Sign in boundary'));
+}
+console.log('Goal directory UI passed: EN/TH dates, privacy labels, avatars, pagination, empty/error/loading/auth states');

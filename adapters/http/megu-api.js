@@ -3,6 +3,10 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const QRCode = require('qrcode');
 const core = require('../../core/index.js');
+const roleMappings = require('../../core/server-role-mappings');
+const automaticRoles = require('../../core/server-role-automatic');
+const roleTeamCreation = require('../../core/server-role-team-creation');
+const roleTitles = require('../../core/server-role-titles');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
@@ -37,9 +41,10 @@ function fail(res, status, code, message) {
 }
 
 const PROJECT_NOT_FOUND = new Set(['project_not_found', 'topic_not_found', 'member_not_found', 'invitation_not_found', 'ownership_transfer_not_found', 'dependency_not_found', 'milestone_not_found']);
-const PROJECT_FORBIDDEN = new Set(['project_forbidden', 'team_forbidden', 'invitation_recipient_mismatch']);
+const PROJECT_FORBIDDEN = new Set(['project_forbidden', 'team_forbidden', 'invitation_recipient_mismatch', 'creation_actor_unavailable']);
 const PROJECT_CONFLICT = new Set(['revision_conflict', 'idempotency_conflict', 'project_transition_invalid', 'topic_not_reviewable', 'topic_completed', 'topic_not_completed', 'member_exists', 'invitation_pending', 'ownership_transfer_pending', 'ownership_transfer_stale', 'dependency_exists', 'dependency_cycle', 'team_archived', 'team_project_invite_disabled', 'project_not_team_managed', 'project_team_change_unsupported']);
 const PROJECT_UNPROCESSABLE = new Set([
+	'idempotency_key_invalid',
 	'title_required', 'title_too_long', 'description_too_long', 'timezone_invalid',
 	'starts_at_invalid', 'deadline_at_invalid', 'date_order_invalid', 'topic_title_required',
 	'topic_title_too_long', 'topic_limit', 'assignee_invalid', 'progress_invalid',
@@ -61,13 +66,14 @@ const PROJECT_UNPROCESSABLE = new Set([
 ]);
 
 function failProject(res, error) {
+	if (error.code === 'company_archived') return fail(res, 409, error.code);
 	if (error.code === 'unknown_field') return res.status(422).json({ error: error.code, code: error.code, field: error.field });
 	if (error.code === 'project_team_members_unresolved') return res.status(409).json({ error: error.code, code: error.code, unresolvedMembers: error.unresolvedMembers || [] });
 	if (error.code === 'teams_disabled') return fail(res, 404, error.code);
 	if (error.code === 'team_not_found') return fail(res, 404, error.code);
 	if (PROJECT_NOT_FOUND.has(error.code)) return fail(res, 404, 'project_not_found');
 	if (PROJECT_FORBIDDEN.has(error.code)) return fail(res, 403, error.code);
-	if (PROJECT_CONFLICT.has(error.code)) return fail(res, 409, error.code);
+	if (PROJECT_CONFLICT.has(error.code) || error.code === 'team_manual_membership_required') return fail(res, 409, error.code);
 	if (['invitation_expired', 'invitation_revoked', 'invitation_used'].includes(error.code)) return fail(res, 410, error.code);
 	if (error.code === 'ownership_transfer_expired') return fail(res, 410, error.code);
 	if (error.code === 'project_not_active' || error.code === 'project_closed') return fail(res, 409, error.code);
@@ -78,19 +84,41 @@ function failProject(res, error) {
 const TEAM_NOT_FOUND = new Set(['team_not_found', 'team_member_not_found']);
 const TEAM_FORBIDDEN = new Set(['team_forbidden']);
 const TEAM_CONFLICT = new Set([
+	'team_manual_membership_required', 'team_manual_confirmation_required',
+	'idempotency_conflict', 'role_creation_already_linked',
+	'role_mapping_shared_confirmation_required',
+	'role_mapping_automatic_not_supported',
+	'role_mapping_delegation_confirmation_required',
+	'role_member_restore_confirmation_required', 'role_mapping_consent_required', 'role_suggestion_dismissed', 'role_suggestion_limit',
+	'team_role_mapping_connected',
 	'team_archived', 'revision_conflict', 'team_owner_transfer_required',
+	'team_member_restore_confirmation_required',
 	'team_project_owner_transfer_required', 'ownership_transfer_pending', 'ownership_transfer_stale',
 ]);
 const TEAM_UNPROCESSABLE = new Set([
+	'role_creation_selection_invalid', 'role_creation_owner_required', 'role_creation_owner_ineligible', 'idempotency_key_invalid',
 	'team_name_required', 'team_name_too_long', 'team_description_too_long', 'team_color_invalid',
 	'team_role_invalid', 'team_member_limit', 'team_join_request_limit', 'team_members_required', 'member_user_id_required',
 	'proposed_owner_id_required', 'ownership_transfer_self', 'review_action_invalid',
 	'invitation_token_required', 'invitation_token_too_long', 'request_body_invalid', 'unknown_field', 'search_too_long',
+	'discord_guild_id_required', 'discord_guild_invalid', 'discord_guild_name_required', 'discord_guild_name_too_long',
+	'discord_guild_icon_too_long', 'discord_guild_mismatch',
 ]);
 
 function failTeam(res, error) {
+	if (error.code === 'creation_actor_unavailable') return fail(res, 403, error.code);
+	if (['role_member_sign_in_required', 'role_member_ineligible'].includes(error.code)) return fail(res, 422, error.code);
+	if (error.code === 'role_mapping_not_found') return fail(res, 404, error.code);
+	if (['role_mapping_roles_required', 'discord_role_ineligible'].includes(error.code)) return fail(res, 422, error.code);
+	if (error.code === 'company_not_found') return fail(res,404,'team_not_found');
+	if (error.code === 'company_forbidden') return fail(res,403,'team_forbidden');
+	if (['company_setup_required','company_team_members_unresolved'].includes(error.code)) return fail(res,409,error.code);
+	if (['company_archived', 'company_team_transfer_unsupported', 'company_team_disconnect_unsupported', 'company_membership_required', 'company_not_active'].includes(error.code)) return fail(res, 409, error.code);
+	if (error.code === 'company_request_limit') return fail(res, 429, error.code);
 	if (error.code === 'unknown_field') return res.status(422).json({ error: error.code, code: error.code, field: error.field });
 	if (error.code === 'teams_disabled') return fail(res, 404, error.code);
+	if (error.code === 'team_discord_disabled') return fail(res, 404, error.code);
+	if (['discord_guilds_unavailable','role_sync_capability_unavailable'].includes(error.code)) return fail(res, 503, error.code);
 	if (TEAM_NOT_FOUND.has(error.code)) return fail(res, 404, error.code);
 	if (TEAM_FORBIDDEN.has(error.code)) return fail(res, 403, error.code);
 	if (TEAM_CONFLICT.has(error.code)) return res.status(409).json({ error: error.code, code: error.code, projectCount: error.projectCount });
@@ -858,6 +886,7 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
 function router(deps = {}) {
 	const api = express.Router();
 	api.use(attachActor);
+	require('./team-goals-api').registerTeamGoalRoutes(api, requireAccount);
 	api.use((req, res, next) => {
 		const share = shareDetails(req, deps.frontendUrl ?? process.env.FRONTEND_URL);
 		req.actor.shareOrigin = share.origin;
@@ -991,15 +1020,204 @@ function router(deps = {}) {
 
 	// Reusable team rosters. A team membership alone never grants project
 	// access; project endpoints independently enforce the project roster too.
+	// Retired prototype: Discord servers are workspaces, not Company groups.
+	api.use('/companies', (req, res) => fail(res, 404, 'companies_disabled'));
+
 	api.use('/teams', (req, res, next) => process.env.MEGU_PROJECT_TEAMS_ENABLED === '0'
 		? fail(res, 404, 'teams_disabled')
 		: next());
+	async function managedDiscordGuilds(req) {
+		if (process.env.MEGU_PROJECT_TEAMS_DISCORD_ENABLED === '0') {
+			throw Object.assign(new Error('team_discord_disabled'), { code: 'team_discord_disabled' });
+		}
+		const result = deps.listManagedDiscordGuilds
+			? await deps.listManagedDiscordGuilds(req.session)
+			: { available: false, guilds: [] };
+		if (!result?.available) throw Object.assign(new Error('discord_guilds_unavailable'), { code: 'discord_guilds_unavailable' });
+		return result.guilds || [];
+	}
+	async function requireManagedDiscordGuild(req, guildId) {
+		const guilds = await managedDiscordGuilds(req);
+		const guild = guilds.find(candidate => String(candidate.id) === String(guildId || ''));
+		if (!guild) throw Object.assign(new Error('team_forbidden'), { code: 'team_forbidden' });
+		return guild;
+	}
+	async function requireDiscordGuildMembership(req, guildId, { management = false } = {}) {
+		const id = String(guildId || '');
+		if (!/^\d{17,20}$/.test(id)) throw Object.assign(new Error('discord_guild_invalid'), { code: 'discord_guild_invalid' });
+		// Session guild lists are discovery snapshots, not current membership evidence.
+		const verify = deps.verifyDiscordGuildMember || deps.verifyCompanyGuildMember;
+		const verified = typeof verify === 'function' ? await verify(req.actor.userId, id, { management }) : null;
+		if (!verified?.available) throw Object.assign(new Error('discord_guilds_unavailable'), { code: 'discord_guilds_unavailable' });
+		if (verified.userId !== req.actor.userId || verified.guildId !== id || verified.isMember !== true || verified.isBot === true) {
+			throw Object.assign(new Error('team_forbidden'), { code: 'team_forbidden' });
+		}
+		return verified;
+	}
 	api.get('/teams', requireAccount, async (req, res, next) => {
-		try { res.json(await teams.listTeamsForUser(req.actor.userId, { includeArchived: req.query.includeArchived === 'true' })); }
+		try { res.json(await teams.listTeamsForUser(req.actor.userId, { includeArchived: req.query.includeArchived === 'true', discordGuildId: req.query.discordGuildId })); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
+	api.get('/teams/discord-guilds', requireAccount, async (req, res, next) => {
+		try { res.json({ guilds: await managedDiscordGuilds(req) }); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	// Discovery is not authorization: workspace entry still verifies membership live.
+	api.get('/teams/workspace-guilds', requireAccount, async (req, res, next) => {
+		try {
+			if (process.env.MEGU_PROJECT_TEAMS_DISCORD_ENABLED === '0') return fail(res, 404, 'team_discord_disabled');
+			const result = await deps.listWorkspaceDiscordGuilds?.(req.session);
+			if (!result?.available) return fail(res, 503, 'discord_guilds_unavailable');
+			res.json({ guilds: (result.guilds || []).map(guild => ({ id: String(guild.id), name: guild.name, icon: guild.icon || null })) });
+		} catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	const roleMappingDependencies = { verify: deps.verifyDiscordGuildMember || deps.verifyCompanyGuildMember, listRoles: deps.listDiscordGuildRoles, listCandidates: deps.listDiscordGuildCandidates, getCapabilities: deps.getRoleSyncCapabilities };
+	api.get('/teams/:id/role-mapping/sync', requireAccount, async (req,res,next) => {
+		res.set('Cache-Control','private, no-store');
+		try { res.json(await automaticRoles.getStatus(req.params.id,req.actor.userId,roleMappingDependencies)); } catch(error) { if(!failTeam(res,error)) next(error); }
+	});
+	api.get('/teams/discord-guilds/:guildId/role-mappings/:teamId/sync', requireAccount, async (req,res,next) => {
+		res.set('Cache-Control','private, no-store');
+		try { res.json(await automaticRoles.getStatus(req.params.teamId,req.actor.userId,{...roleMappingDependencies,guildId:req.params.guildId})); } catch(error) { if(!failTeam(res,error)) next(error); }
+	});
+	api.post('/teams/discord-guilds/:guildId/role-mappings/:teamId/automatic', requireAccount, async (req,res,next) => {
+		res.set('Cache-Control','private, no-store');
+		if(req.get('Sec-Fetch-Site')==='cross-site') return fail(res,403,'request_origin_invalid');
+		if(!req.is('application/json')) return fail(res,415,'request_content_type_invalid');
+		try { res.json(await automaticRoles.requestAutomatic(req.params.guildId,req.params.teamId,req.actor.userId,req.body||{},roleMappingDependencies)); } catch(error) { if(!failTeam(res,error)) next(error); }
+	});
+	for(const [action,handle] of [['preview',automaticRoles.previewTransition],['confirm',automaticRoles.confirmTransition]]) {
+		api.post(`/teams/:id/role-mapping/sync/${action}`,requireAccount,async(req,res,next)=>{
+			res.set('Cache-Control','private, no-store');
+			if(req.get('Sec-Fetch-Site')==='cross-site') return fail(res,403,'request_origin_invalid');
+			if(!req.is('application/json')) return fail(res,415,'request_content_type_invalid');
+			try { res.json(await handle(req.params.id,req.actor.userId,req.body||{},roleMappingDependencies)); } catch(error) { if(!failTeam(res,error)) next(error); }
+		});
+	}
+	for (const path of ['/teams/:id/role-mapping/sync/reconcile','/teams/discord-guilds/:guildId/role-mappings/:teamId/sync/reconcile']) {
+		api.post(path,requireAccount,async(req,res,next)=>{
+			res.set('Cache-Control','private, no-store');
+			if(req.get('Sec-Fetch-Site')==='cross-site') return fail(res,403,'request_origin_invalid');
+			if(!req.is('application/json')) return fail(res,415,'request_content_type_invalid');
+			try { res.json(await automaticRoles.requestReconciliation(req.params.id||req.params.teamId,req.actor.userId,req.body||{},{...roleMappingDependencies,guildId:req.params.guildId||null})); } catch(error) { if(!failTeam(res,error)) next(error); }
+		});
+	}
+	api.get('/teams/discord-guilds/:guildId/role-teams/owners', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		try { res.json(await roleTeamCreation.listRoleTeamOwners(req.params.guildId, req.actor.userId, req.query, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	for (const [action, handle] of [['preview', roleTeamCreation.previewTeamsFromRoles], ['create', roleTeamCreation.createTeamsFromRoles]]) {
+		api.post(`/teams/discord-guilds/:guildId/role-teams/${action}`, requireAccount, async (req, res, next) => {
+			res.set('Cache-Control', 'private, no-store');
+			if (req.get('Sec-Fetch-Site') === 'cross-site') return fail(res, 403, 'request_origin_invalid');
+			if (!req.is('application/json')) return fail(res, 415, 'request_content_type_invalid');
+			try { res.json(await handle(req.params.guildId, req.actor.userId, req.body || {}, roleMappingDependencies)); }
+			catch (error) { if (!failTeam(res, error)) next(error); }
+		});
+	}
+	api.get('/teams/discord-guilds/:guildId/title-roles', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		try { res.json(await roleTitles.getTitleConfiguration(req.params.guildId, req.actor.userId, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/discord-guilds/:guildId/title-roles', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		if (req.get('Sec-Fetch-Site') === 'cross-site') return fail(res, 403, 'request_origin_invalid');
+		if (!req.is('application/json')) return fail(res, 415, 'request_content_type_invalid');
+		try { res.json(await roleTitles.setTitleConfiguration(req.params.guildId, req.actor.userId, req.body || {}, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/members/:userId/titles', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		try { res.json(await roleTitles.getTeamMemberTitles(req.params.id, req.actor.userId, req.params.userId, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/member-titles', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		const ids = typeof req.query.userId === 'string' ? [req.query.userId] : req.query.userId;
+		try { res.json(await roleTitles.getTeamMemberTitlesBatch(req.params.id, req.actor.userId, ids, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/role-mapping/members', requireAccount, async (req, res, next) => {
+		try { res.json(await roleMappings.previewRoleMembers(req.params.id, req.actor.userId, req.query, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/discord-guilds/:guildId/role-mappings/:teamId', requireAccount, async (req, res, next) => {
+		try { res.json(await roleMappings.proposeTeamMapping(req.params.guildId, req.params.teamId, req.actor.userId, req.body || {}, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/discord-guilds/:guildId/role-mappings/:teamId', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		try { res.json(await roleMappings.getServerTeamMapping(req.params.guildId, req.params.teamId, req.actor.userId, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/role-mapping', requireAccount, async (req, res, next) => {
+		try { res.json(await roleMappings.getTeamMapping(req.params.id, req.actor.userId)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/role-mapping/approve', requireAccount, async (req, res, next) => {
+		try { res.json(await roleMappings.approveTeamMapping(req.params.id, req.actor.userId, req.body || {}, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.delete('/teams/:id/role-mapping', requireAccount, async (req, res, next) => {
+		try { res.json(await roleMappings.removeTeamMapping(req.params.id, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/role-mapping/members', requireAccount, async (req, res, next) => {
+		try { res.json(await roleMappings.approveRoleMember(req.params.id, req.actor.userId, req.body || {}, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/role-mapping/suggestions', requireAccount, async (req, res, next) => {
+		if (req.get('Sec-Fetch-Site') === 'cross-site') return fail(res, 403, 'request_origin_invalid');
+		if (!req.is('application/json')) return fail(res, 415, 'request_content_type_invalid');
+		try { res.json(await roleMappings.setRoleSuggestionDismissed(req.params.id, req.actor.userId, req.body || {}, roleMappingDependencies)); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/discord-guilds/:guildId/roles', requireAccount, async (req, res, next) => {
+		try {
+			if (process.env.MEGU_PROJECT_TEAMS_DISCORD_ENABLED === '0') return fail(res, 404, 'team_discord_disabled');
+			const verified = await requireDiscordGuildMembership(req, req.params.guildId, { management: true });
+			if (verified.canManageServer !== true) return fail(res, 403, 'team_forbidden');
+			const result = await deps.listDiscordGuildRoles?.(req.params.guildId);
+			if (!result?.available || result.guildId !== req.params.guildId || !Array.isArray(result.roles)) return fail(res, 503, 'discord_guilds_unavailable');
+			const roles = result.roles.filter(role => role.guildId === req.params.guildId && role.id !== req.params.guildId && !role.managed)
+				.map(({ id, guildId, name, color, position }) => ({ id, guildId, name, color, position }));
+			res.json({ guildId: req.params.guildId, roles });
+		} catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/discord-guilds/:guildId/workspace', requireAccount, async (req, res, next) => {
+		try {
+			const verified = await requireDiscordGuildMembership(req, req.params.guildId, { management: true });
+			const workspace = await teams.listGuildWorkspace(req.params.guildId, req.actor.userId);
+			res.json({ ...workspace, canManageTitles: verified.canManageServer === true, guild: { id: req.params.guildId, name: verified.name || null, icon: verified.icon || null } });
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/discord-guilds/:guildId/workspace/:section', requireAccount, async (req, res, next) => {
+		try {
+			if (!['teams', 'projects'].includes(req.params.section)) return fail(res, 404, 'team_not_found');
+			const verified = await requireDiscordGuildMembership(req, req.params.guildId, { management: true });
+			const workspace = await teams.listGuildWorkspace(req.params.guildId, req.actor.userId, {
+				section: req.params.section, limit: req.query.limit, offset: req.query.offset,
+			});
+			res.json({ ...workspace, canManageTitles: verified.canManageServer === true, guild: { id: req.params.guildId, name: verified.name || null, icon: verified.icon || null } });
+		} catch (error) {
+			if (error.code === 'workspace_page_invalid') return fail(res, 422, error.code);
+			if (!failTeam(res, error)) next(error);
+		}
+	});
 	api.post('/teams', requireAccount, async (req, res, next) => {
-		try { res.status(201).json(await teams.createTeam({ ...(req.body || {}), ownerUserId: req.actor.userId })); }
+		try {
+			const input = { ...(req.body || {}), ownerUserId: req.actor.userId };
+			if (input.discordGuildId) {
+				const guild = await requireManagedDiscordGuild(req, input.discordGuildId);
+				input.discordGuildId = String(guild.id);
+				input.discordGuildName = guild.name;
+				input.discordGuildIcon = guild.icon || null;
+			}
+			res.status(201).json(await teams.createTeam(input, { requireRequestKey: true }));
+		}
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
 	api.get('/teams/join/:token', async (req, res, next) => {
@@ -1013,6 +1231,10 @@ function router(deps = {}) {
 		}
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
+	api.get('/teams/:id/summary', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.getTeam(req.params.id, req.actor.userId, {summary:true})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
 	api.get('/teams/:id', requireAccount, async (req, res, next) => {
 		try { res.json(await teams.getTeam(req.params.id, req.actor.userId)); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
@@ -1021,12 +1243,51 @@ function router(deps = {}) {
 		try { res.json(await teams.updateTeam(req.params.id, req.actor.userId, req.body || {})); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
+	api.post('/teams/:id/discord-guild', requireAccount, async (req, res, next) => {
+		try {
+			const guild = await requireManagedDiscordGuild(req, req.body?.guildId);
+			res.json(await teams.connectDiscordGuild(req.params.id, req.actor.userId, {
+				guildId: String(guild.id), guildName: guild.name, guildIcon: guild.icon || null,
+				expectedRevision: req.body?.expectedRevision,
+			}));
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.delete('/teams/:id/discord-guild', requireAccount, async (req, res, next) => {
+		try { res.json(await teams.disconnectDiscordGuild(req.params.id, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.get('/teams/:id/discord-candidates', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		try {
+			const detail = await teams.getTeam(req.params.id, req.actor.userId);
+			if (!detail.capabilities.canBrowseDiscordMembers || !detail.team.discordGuild) throw Object.assign(new Error('team_forbidden'), { code: 'team_forbidden' });
+			await requireManagedDiscordGuild(req, detail.team.discordGuild.id);
+			const roster = deps.listDiscordGuildCandidates
+				? await deps.listDiscordGuildCandidates({
+					guildId: detail.team.discordGuild.id, query: req.query.q, roleId: req.query.roleId,
+					limit: req.query.limit, offset: req.query.offset,
+				})
+				: null;
+			if (!roster?.available) throw Object.assign(new Error('discord_guilds_unavailable'), { code: 'discord_guilds_unavailable' });
+			const result = await teams.listDiscordCandidates(req.params.id, req.actor.userId, detail.team.discordGuild.id, roster.members);
+			res.json({ ...result, roles: roster.roles || [], total: roster.total || 0, nextOffset: roster.nextOffset ?? null });
+		}
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
 	api.get('/teams/:id/members', requireAccount, async (req, res, next) => {
 		try { res.json(await teams.listTeamMembers(req.params.id, req.actor.userId, { search: req.query.q, limit: req.query.limit, offset: req.query.offset })); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
 	api.patch('/teams/:id/members/:userId', requireAccount, async (req, res, next) => {
 		try { res.json(await teams.updateMemberRole(req.params.id, req.params.userId, req.actor.userId, req.body || {})); }
+		catch (error) { if (!failTeam(res, error)) next(error); }
+	});
+	api.post('/teams/:id/members/:userId/manual-grant', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		if (req.get('Sec-Fetch-Site') === 'cross-site') return fail(res, 403, 'request_origin_invalid');
+		if (!req.is('application/json')) return fail(res, 415, 'request_content_type_invalid');
+		try { res.json(await teams.retainManualMember(req.params.id, req.params.userId, req.actor.userId, req.body || {})); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
 	api.delete('/teams/:id/members/:userId', requireAccount, async (req, res, next) => {
@@ -1048,10 +1309,14 @@ function router(deps = {}) {
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
 	api.get('/teams/:id/join-requests', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
 		try { res.json(await teams.listJoinRequests(req.params.id, req.actor.userId)); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
 	api.post('/teams/:id/join-requests/:requestId', requireAccount, async (req, res, next) => {
+		res.set('Cache-Control', 'private, no-store');
+		if (req.get('Sec-Fetch-Site') === 'cross-site') return fail(res, 403, 'request_origin_invalid');
+		if (!req.is('application/json')) return fail(res, 415, 'request_content_type_invalid');
 		try { res.json(await teams.reviewJoinRequest(req.params.id, req.params.requestId, req.actor.userId, req.body || {})); }
 		catch (error) { if (!failTeam(res, error)) next(error); }
 	});
@@ -1086,12 +1351,13 @@ function router(deps = {}) {
 		: next());
 	api.get('/projects', requireAccount, async (req, res, next) => {
 		try {
+			if (req.query.guildId && (typeof req.query.guildId !== 'string' || !/^\d{17,20}$/.test(req.query.guildId))) return fail(res, 422, 'discord_guild_invalid');
 			const bucket = ['active', 'closed'].includes(req.query.bucket)
 				? req.query.bucket
 				: req.query.includeClosed === 'false' ? 'active' : 'all';
 			res.json(await projects.listProjectDirectory(req.actor.userId, {
 				bucket, search: req.query.q, assignedOnly: req.query.assigned === 'true',
-				cursor: req.query.cursor, limit: req.query.limit, teamId: req.query.teamId,
+				cursor: req.query.cursor, limit: req.query.limit, teamId: req.query.teamId, guildId: req.query.guildId,
 			}));
 		}
 		catch (error) { next(error); }
@@ -1099,7 +1365,7 @@ function router(deps = {}) {
 
 	api.post('/projects', requireAccount, async (req, res, next) => {
 		try {
-			const project = await projects.createProject({ ...(req.body || {}), ownerUserId: req.actor.userId });
+			const project = await projects.createProject({ ...(req.body || {}), ownerUserId: req.actor.userId }, { requireRequestKey: true });
 			res.status(201).json({ project });
 		}
 		catch (error) {

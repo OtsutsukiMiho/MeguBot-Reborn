@@ -133,7 +133,56 @@ async function main() {
 	//    which is the only way to catch a wiring mistake — a callback signature
 	//    that does not match what the middleware expects fails silently as
 	//    "everybody is logged out" rather than as an error.
+	await oauthConsumption(store, day);
 	await throughExpress();
+}
+
+async function oauthConsumption(store, day) {
+	const { fixture } = require('./discord-oauth-session.test');
+	for (const intent of ['login', 'link']) {
+		const f = fixture(intent), competitor = f.snapshot(), sid = `test-oauth-${Date.now()}-${intent}`;
+		const stale = sessionFixture(Date.now() + day, JSON.parse(JSON.stringify(f.req.session)));
+		await promisify(store, 'set', sid, stale);
+		f.req.sessionID = competitor.sessionID = sid;
+		f.req.sessionStore = store;
+		competitor.sessionStore = createSessionStore(session);
+		// Independently loaded storage snapshots, distinct valid code substitutes.
+		Object.assign(f.req.session, await promisify(store, 'get', sid));
+		Object.assign(competitor.session, await promisify(competitor.sessionStore, 'get', sid));
+		competitor.query.code = 'second-valid-code';
+		const secondRes = { ...f.res };
+		await Promise.all([f.handlers.finish(f.req, f.res), f.handlers.finish(competitor, secondRes)]);
+		assert.strictEqual(f.counts().exchanges, 1);
+		assert.strictEqual([f.res, secondRes].filter(res => res.statusCode === 403).length, 1);
+		const winner = [f.res, secondRes].find(res => res.statusCode !== 403);
+		assert.strictEqual(winner.statusCode, 200);
+		assert.strictEqual(winner.redirectTo, intent === 'login' ? '/servers' : '/account?link=success&provider=discord');
+		assert.strictEqual(intent === 'login' ? f.accounts() : f.counts().links, 1);
+		// A separate request can overwrite session JSON after consumption. It
+		// cannot erase the durable claim, even across a store/process restart.
+		await promisify(store, 'set', sid, stale);
+		assert.strictEqual(await createSessionStore(session).consumeOAuthRequest(sid, stale.oauth2Request), false);
+		const nextRequest = { ...stale.oauth2Request, state: `${stale.oauth2Request.state}-new` };
+		await promisify(store, 'set', sid, { ...stale, oauth2Request: nextRequest });
+		assert.strictEqual(await store.consumeOAuthRequest(sid, stale.oauth2Request), false, 'Replaced request rejected');
+		assert.strictEqual(await store.consumeOAuthRequest(sid, nextRequest), true, 'New request remains usable');
+		await promisify(store, 'destroy', sid);
+		ok(`atomic ${intent} consumption across two snapshots/stores; one exchange, stale-save replay denied, new state allowed`);
+	}
+	for (const scenario of ['expired-request', 'expired-session', 'changed-account', 'missing-request', 'invalid-time', 'future-time']) {
+		const sid = `test-oauth-${Date.now()}-${scenario}`;
+		const request = { provider: 'discord', intent: 'link', state: scenario, linkingUserId: 'usr', createdAt: Date.now() };
+		if (scenario === 'expired-request') request.createdAt -= 600001;
+		if (scenario === 'invalid-time') request.createdAt = 'invalid';
+		if (scenario === 'future-time') request.createdAt += 10000;
+		await promisify(store, 'set', sid, sessionFixture(Date.now() + (scenario === 'expired-session' ? -1000 : day), {
+			meguUserId: scenario === 'changed-account' ? 'another' : 'usr',
+			...(scenario === 'missing-request' ? {} : { oauth2Request: request }),
+		}));
+		assert.strictEqual(await store.consumeOAuthRequest(sid, request), false, scenario);
+		await promisify(store, 'destroy', sid);
+	}
+	ok('stored request/session expiry, missing request, malformed/future time and changed linking account fail closed');
 }
 
 async function throughExpress() {

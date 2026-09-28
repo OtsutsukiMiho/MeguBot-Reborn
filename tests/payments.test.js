@@ -71,6 +71,11 @@ function bankSlip(bank, ref) {
 	return `${body}${core.promptpay.crc16(body)}`;
 }
 
+// This suite expects an ordinary recent upload. Keep the fixed-clock late-upload
+// boundary in payment-evidence.test.js; this fixture must not age into that case.
+const testSlipDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const [testSlipYear, testSlipMonth, testSlipDay] = testSlipDate.split('-').map(Number);
+
 function exactSlipBody(ref, amountSatang, { qr = true } = {}) {
 	const fixture = Buffer.from(JSON.stringify({ ref, amountSatang, qr }));
 	return {
@@ -99,7 +104,7 @@ async function readTestPaymentSlip(image) {
 	const slip = qrPayload ? core.slip.readSlipQr(qrPayload) : null;
 	const read = {
 		amountSatang: fixture.amountSatang,
-		when: { year: 2026, month: 8, day: 1, hour: 10, minute: 30 },
+		when: { year: testSlipYear, month: testSlipMonth, day: testSlipDay, hour: 10, minute: 30 },
 		parties: {
 			sender: { name: 'บุคคลอื่น โอนแทนโอม', accountTail: '00001234' },
 			receiver: { name: 'Megu S.', accountTail: '00005678' },
@@ -266,7 +271,7 @@ async function main() {
 	assert.strictEqual(withSlip.status, 'confirmed');
 	assert.strictEqual(withSlip.verificationLevel, 'slip_matched');
 	assert.strictEqual(withSlip.slipAmountSatang, 10000);
-	assert.strictEqual(withSlip.slipWhen, '2026-08-01 10:30');
+	assert.strictEqual(withSlip.slipWhen, `${testSlipDate} 10:30`);
 	assert.strictEqual(withSlip.slipReceiverName, 'Megu S.');
 	assert.strictEqual(withSlip.slipReceiverAccountTail, '5678');
 	assert.strictEqual(withSlip.slipImage, undefined);

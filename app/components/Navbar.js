@@ -1,21 +1,35 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import MeguMark from './MeguMark';
 import ThemeToggle from './ThemeToggle';
 import { useLang, LANGS } from './LangProvider';
 import { useCopy } from '../copy';
+import { WorkspaceDraftNavigation } from './useDraftGuard';
 
 const PROJECTS_ENABLED = process.env.NEXT_PUBLIC_MEGU_PROJECTS_ENABLED !== '0';
+const TEAMS_ENABLED = PROJECTS_ENABLED && process.env.NEXT_PUBLIC_MEGU_PROJECT_TEAMS_ENABLED !== '0';
 
 export default function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDev, setIsDev] = useState(false);
+	const [menuOpen, setMenuOpen] = useState(false);
+	const menuButton = useRef(null);
 	const pathname = usePathname();
 	const { lang, setLang } = useLang();
 	const { t } = useCopy();
+	useEffect(() => { setMenuOpen(false); }, [pathname]);
+	useEffect(() => {
+		if (!menuOpen) return;
+		const close = event => {
+			if (event.key === 'Escape') { setMenuOpen(false); menuButton.current?.focus(); }
+		};
+		document.addEventListener('keydown', close);
+		return () => document.removeEventListener('keydown', close);
+	}, [menuOpen]);
 
 	// True while the landing page's hero band is still behind the bar. Starts
 	// true on `/` so the first paint is already transparent — the bar being
@@ -110,14 +124,15 @@ export default function Navbar() {
 		: 'https://cdn.discordapp.com/embed/avatars/0.png';
 
 	return (
-		<nav className={`navbar${overBand ? ' is-over-band' : ''}`}>
+		<nav aria-label={t.nav.mainNavigation} className={`navbar${overBand ? ' is-over-band' : ''}`}>
+			<WorkspaceDraftNavigation />
 			<div className="navbar-inner">
 				<Link href="/" className="nav-brand" aria-label="Megu">
 					<MeguMark size={34} />
 					<span className="brand-megubot">Megu</span>
 				</Link>
 
-				<div className="nav-menu">
+				<div id="main-navigation" className={`nav-menu${menuOpen ? ' is-open' : ''}`} aria-label={t.nav.mainNavigation} onClick={event => { if (event.target.closest('a')) setMenuOpen(false); }}>
 					<Link href="/" className={`tab-btn ${pathname === '/' ? 'active' : ''}`}>
 						{t.nav.home}
 					</Link>
@@ -130,6 +145,9 @@ export default function Navbar() {
 					{PROJECTS_ENABLED && <Link href="/projects" className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
 						{t.nav.projects}
 					</Link>}
+					{TEAMS_ENABLED && <Link href="/teams" aria-current={pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'page' : undefined} className={`tab-btn ${pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'active' : ''}`}>
+						{t.nav.teams}
+					</Link>}
 					<Link href="/bills" className={`tab-btn ${pathname.startsWith('/bills') ? 'active' : ''}`}>
 						{t.nav.bills}
 					</Link>
@@ -138,6 +156,7 @@ export default function Navbar() {
 							Developer
 						</Link>
 					)}
+					{user && <button type="button" className="btn btn-ghost nav-mobile-signout" onClick={handleLogout}>{t.nav.signOut}</button>}
 				</div>
 
 				<div className="nav-actions">
@@ -155,6 +174,7 @@ export default function Navbar() {
 						))}
 					</div>
 					<ThemeToggle />
+					<button ref={menuButton} type="button" className="btn btn-ghost nav-menu-toggle" aria-label={menuOpen ? t.nav.closeMenu : t.nav.openMenu} aria-expanded={menuOpen} aria-controls="main-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={22} aria-hidden="true" /> : <Menu size={22} aria-hidden="true" />}</button>
 					{user ? (
 						<div className="user-profile-badge">
 							<Link href="/account" className="user-identity-link" aria-current={pathname.startsWith('/account') ? 'page' : undefined} aria-label={`${user.displayName} · ${t.nav.account}`}>

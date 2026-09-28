@@ -10,6 +10,7 @@ import {
 	Info,
 	Hash,
 	History,
+	FolderKanban,
 	MessageSquareQuote,
 	Mic2,
 	MousePointer2,
@@ -39,6 +40,7 @@ import AuditLogsTab from '../../components/Tabs/AuditLogsTab';
 import EmbedCreatorTab from '../../components/Tabs/EmbedCreatorTab';
 import AudioQueueTab from '../../components/Tabs/AudioQueueTab';
 import PersonalSettingsTab from '../../components/Tabs/PersonalSettingsTab';
+import ProjectsTeamsTab from '../../components/Tabs/ProjectsTeamsTab';
 import CustomSelect from '../../components/CustomSelect';
 import FloatingSaveBar from '../../components/FloatingSaveBar';
 import Toast from '../../components/Toast';
@@ -46,8 +48,10 @@ import { TabDialog } from '../../components/Tabs/TabWorkspace';
 import { useCopy } from '../../copy';
 import styles from '../servers.module.css';
 const { emptyServerToolDrafts, getLocalDraftToolIds } = require('../../../core/server-dashboard-drafts');
+const DISCORD_TEAMS_ENABLED = process.env.NEXT_PUBLIC_MEGU_PROJECT_TEAMS_DISCORD_ENABLED !== '0';
 
 const TAB_DEFINITIONS = [
+	...(DISCORD_TEAMS_ENABLED ? [{ id: 'projects', group: 'community', icon: FolderKanban }] : []),
 	{ id: 'welcome', group: 'community', icon: Sparkles },
 	{ id: 'autorole', group: 'community', icon: UserPlus },
 	{ id: 'reactionroles', group: 'community', icon: MousePointer2 },
@@ -64,6 +68,7 @@ const TAB_DEFINITIONS = [
 ];
 
 const TAB_IDS = new Set(TAB_DEFINITIONS.map(tab => tab.id));
+const MEMBER_TAB_IDS = new Set(['personal', 'projects']);
 const GROUP_ORDER = ['community', 'people', 'safety', 'voice', 'tools', 'you'];
 
 const CONFIG_TOOL_KEYS = {
@@ -145,9 +150,11 @@ export default function ServerConfigPage({ params }) {
 			setIsForbidden(false);
 			setIconFailed(false);
 			if (data.isAdmin === false) {
-				setActiveTab('personal');
+				const requestedTab = new URLSearchParams(window.location.search).get('tab');
+				const memberTab = MEMBER_TAB_IDS.has(requestedTab) ? requestedTab : 'personal';
+				setActiveTab(memberTab);
 				const url = new URL(window.location.href);
-				url.searchParams.set('tab', 'personal');
+				url.searchParams.set('tab', memberTab);
 				window.history.replaceState({}, '', `${url.pathname}${url.search}`);
 			}
 			const nextConfig = data.config || {};
@@ -245,6 +252,7 @@ export default function ServerConfigPage({ params }) {
 			}
 			const requestedTab = new URLSearchParams(window.location.search).get('tab');
 			if (!requestedTab || !TAB_IDS.has(requestedTab) || requestedTab === activeTab) return;
+			if (guildData?.isAdmin === false && !MEMBER_TAB_IDS.has(requestedTab)) return;
 			if (volatileEditorDirtyIds.has(activeTab)) {
 				event.stopImmediatePropagation();
 				const restoredUrl = new URL(window.location.href);
@@ -257,7 +265,7 @@ export default function ServerConfigPage({ params }) {
 		};
 		window.addEventListener('popstate', syncTabFromHistory, true);
 		return () => window.removeEventListener('popstate', syncTabFromHistory, true);
-	}, [activeTab, departureDirty, guildId, volatileEditorDirtyIds]);
+	}, [activeTab, departureDirty, guildData?.isAdmin, guildId, volatileEditorDirtyIds]);
 
 	const navigation = useMemo(() => TAB_DEFINITIONS.map(tab => ({
 		...tab,
@@ -470,6 +478,7 @@ export default function ServerConfigPage({ params }) {
 	const tabPanel = (
 		<>
 			{activeTab === 'personal' && <PersonalSettingsTab guildId={guildId} serverName={serverName} initialChannels={channels} showToast={showToast} onEditorDirtyChange={handleEditorDirtyChange} />}
+			{activeTab === 'projects' && <ProjectsTeamsTab guildId={guildId} serverName={serverName} />}
 			{activeTab === 'welcome' && <WelcomeTab config={config} channels={channels} onChange={handleConfigChange} serverName={serverName} dirtyKinds={welcomeDirtyKinds} />}
 			{activeTab === 'autorole' && <AutoroleTab config={config} roles={roles} onChange={handleConfigChange} />}
 			{activeTab === 'roles' && <RoleManagerTab roles={roles} guildId={guildId} showToast={showToast} onRefresh={() => fetchServerData({ quiet: true })} onEditorDirtyChange={handleEditorDirtyChange} />}
@@ -537,9 +546,12 @@ export default function ServerConfigPage({ params }) {
 
 			{guildData.isAdmin === false ? (
 				<section className={styles.memberPanel}>
+					<nav className={styles.memberToolNav} aria-label={copy.navigationLabel}>
+						{navigation.filter(tab => MEMBER_TAB_IDS.has(tab.id)).map(tab => { const Icon = tab.icon; return <button type="button" key={tab.id} aria-current={activeTab === tab.id ? 'page' : undefined} className={activeTab === tab.id ? styles.activeMemberTool : ''} onClick={() => commitTabSelection(tab.id)}><Icon size={16} />{tab.label}</button>; })}
+					</nav>
 						<div className={styles.memberIntro} id="active-server-tool">
-							<span><UserRound size={20} /></span>
-							<div><h2>{copy.personalWorkspaceTitle}</h2><p>{copy.personalWorkspaceLede}</p></div>
+							<span><ActiveIcon size={20} /></span>
+							<div><h2>{activeDefinition.label}</h2><p>{activeDefinition.description}</p></div>
 					</div>
 					<div className={styles.tabContent}>{tabPanel}</div>
 				</section>

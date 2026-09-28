@@ -20,6 +20,7 @@ const { createProjectDeadlineSweep } = require('../../adapters/notifications/pro
 const { createProjectChannelDispatcher } = require('../../adapters/notifications/project-channel-dispatcher.js');
 const { createBlockGuard, INVALID_REQUEST_STOP_THRESHOLD } = require('../../adapters/discord/rate-limit.js');
 const { createSessionStore } = require('../../adapters/http/pg-session-store.js');
+const { createMutationOriginGuard } = require('../../adapters/http/mutation-origin.js');
 const healthLog = require('../../adapters/health/health-log.js');
 
 // When Cloudflare blocks our IP, every sign-in fails at the token exchange. The
@@ -237,6 +238,10 @@ app.use(session({
 	},
 }));
 
+// Validate public browser origin before any authenticated mutation can reach
+// console handlers or the mounted account APIs. OAuth GET callbacks pass through.
+app.use(createMutationOriginGuard(FRONTEND_URL));
+
 // Session Timeout & Hijack Fingerprint Security Middleware
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle timeout
 const ABSOLUTE_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours absolute max duration
@@ -301,6 +306,10 @@ const pendingIpcRequests = new Map();
 
 process.on('message', (msg) => {
 	if (!msg) return;
+	if (msg.type === 'shutdown') {
+		void shutdownWeb(msg.reason || 'Supervisor shutdown');
+		return;
+	}
 	if (msg.type === 'discord_block') {
 		if (discordBlock.adopt(msg.untilMs)) {
 			BotLogs('SYSTEM', `${COLOR.yellow}Discord is blocking this server's IP (reported elsewhere). Sign-ins are paused for ${Math.round(discordBlock.retryAfterSeconds() / 60)} minutes.`);
@@ -346,6 +355,26 @@ function sendIpcRequest(payload, timeoutMs = 3000) {
 	});
 }
 
+async function listManagedDiscordGuildsForTeams(session, { managedOnly = true } = {}) {
+	const verifiedAt = Number(session?.discordGuildsVerifiedAt || 0);
+	if (!session?.meguUserId) return { available: false, guilds: [] };
+	if (!session.adminGuilds || !session.allGuilds || Date.now() - verifiedAt > RESTORE_COOLDOWN_MS) {
+		await restoreDiscordConnection(session.meguUserId, session);
+	}
+	const source = managedOnly ? session.adminGuilds : session.allGuilds;
+	const guilds = Array.isArray(source) ? source : [];
+	if (session.discordReconnectRequired || Date.now() - Number(session.discordGuildsVerifiedAt || 0) > RESTORE_COOLDOWN_MS) return { available: false, guilds: [] };
+	const ipcRes = await sendIpcRequest({ type: 'check_guilds_presence', guildIds: guilds.map(guild => String(guild.id)) }, 8000);
+	if (!ipcRes) return { available: false, guilds: [] };
+	return {
+		available: true,
+		guilds: guilds.filter(guild => ipcRes.presence?.[String(guild.id)]).map(guild => ({
+			id: String(guild.id), name: guild.name, icon: guild.icon || ipcRes.guildInfo?.[String(guild.id)]?.icon || null,
+			owner: Boolean(guild.owner),
+		})),
+	};
+}
+
 app.use('/api/megu', meguApi.router({
 	botPresence: async (guildIds) => {
 		const ipcRes = await sendIpcRequest({ type: 'check_guilds_presence', guildIds });
@@ -358,6 +387,37 @@ app.use('/api/megu', meguApi.router({
 	validateProjectChannel: async ({ guildId, channelId }) => {
 		const response = await sendIpcRequest({ type: 'validate_project_channel', guildId, channelId }, 8000);
 		return response ? { valid: response.valid === true, name: response.name || null } : null;
+	},
+	listManagedDiscordGuilds: listManagedDiscordGuildsForTeams,
+	listWorkspaceDiscordGuilds: session => listManagedDiscordGuildsForTeams(session, { managedOnly: false }),
+	verifyCompanyGuildOwner: async (userId, guildId) => {
+		const identity = await core.db.query("SELECT provider_uid FROM identities WHERE user_id=$1 AND provider='discord'", [userId]);
+		if (!identity.rowCount) return { available: true, userId, guildId, isOwner: false, botPresent: false };
+		const response = await sendIpcRequest({ type: 'verify_company_guild_owner', guildId, discordUserId: identity.rows[0].provider_uid }, 8000);
+		if (!response?.success) return { available: false };
+		return { ...response.verification, userId };
+	},
+	verifyCompanyGuildMember: async (userId, guildId, { management = false } = {}) => {
+		const identity = await core.db.query("SELECT provider_uid FROM identities WHERE user_id=$1 AND provider='discord'", [userId]);
+		if (!identity.rowCount) return { available: true,userId,guildId,isMember: false };
+		const response = await sendIpcRequest({ type: 'verify_company_guild_member',guildId,discordUserId: identity.rows[0].provider_uid,verifyPermissions: management },8000);
+		return response?.success ? { ...response.verification,userId,discordUserId: identity.rows[0].provider_uid } : { available: false };
+	},
+	listDiscordGuildCandidates: async ({ guildId, query, roleId, roleIds, limit, offset }) => {
+		const response = await sendIpcRequest({ type: 'get_team_guild_roster', guildId, query, roleId, roleIds, limit, offset }, 8000);
+		return response?.success ? {
+			guildId: response.guildId, partial: true,
+			available: true, members: response.members || [], roles: response.roles || [],
+			total: Number(response.total || 0), nextOffset: response.nextOffset ?? null,
+		} : { available: false, members: [], roles: [] };
+	},
+	listDiscordGuildRoles: async guildId => {
+		const response = await sendIpcRequest({ type: 'get_team_guild_roles', guildId }, 8000);
+		return response?.success ? { available: true, guildId: response.guildId, roles: response.roles } : { available: false };
+	},
+	getRoleSyncCapabilities: async () => {
+		const response = await sendIpcRequest({ type: 'get_team_role_sync_capabilities' }, 8000);
+		return response?.success ? response.capability : { available: false, reason: 'capability_verification_unavailable' };
 	},
 }));
 
@@ -374,6 +434,7 @@ const notificationDispatcher = createDispatcher({
 const notificationTimer = setInterval(() => notificationDispatcher.drain().catch(error => BotLogs('Megu', `Notification dispatcher failed: ${error.message}`)), 15_000);
 notificationTimer.unref();
 
+let projectChannelTimer = null;
 if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
 	const projectChannelDispatcher = createProjectChannelDispatcher({
 		sendChannel: async ({ guildId, channelId, message, cta }) => {
@@ -382,7 +443,7 @@ if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
 		},
 		log: message => BotLogs('Megu', message),
 	});
-	const projectChannelTimer = setInterval(() => projectChannelDispatcher.drain().catch(error => BotLogs('Megu', `Project channel dispatcher failed: ${error.message}`)), 15_000);
+	projectChannelTimer = setInterval(() => projectChannelDispatcher.drain().catch(error => BotLogs('Megu', `Project channel dispatcher failed: ${error.message}`)), 15_000);
 	projectChannelTimer.unref();
 }
 
@@ -406,16 +467,17 @@ const paymentDueSweep = createPaymentDueSweep({
 	sendDiscord: sendDiscordNotice,
 	log: message => BotLogs('Megu', message),
 });
-paymentDueSweep.start({
+const stopPaymentDueSweep = paymentDueSweep.start({
 	intervalMs: Number(process.env.MEGU_PAYMENT_DUE_INTERVAL_MS) || undefined,
 });
 
+let stopProjectDeadlineSweep = null;
 if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
 	const projectDeadlineSweep = createProjectDeadlineSweep({
 		baseUrl: process.env.FRONTEND_URL || '',
 		log: message => BotLogs('Megu', message),
 	});
-	projectDeadlineSweep.start({
+	stopProjectDeadlineSweep = projectDeadlineSweep.start({
 		intervalMs: Number(process.env.MEGU_PROJECT_DEADLINE_INTERVAL_MS) || undefined,
 	});
 }
@@ -444,10 +506,7 @@ async function ensureDiscordGuilds(session) {
 // buttons: a sign-in, a Discord link, and a reconnect are three different
 // journeys, and only one of them was ever offered.
 async function discordConsoleDenial(session) {
-	// The guild list first, and on its own. The legacy Discord callback writes
-	// adminGuilds even when the Megu account behind it could not be created —
-	// meguUserId is null there — and asking for that id first would close a
-	// console that has everything it needs open in front of it.
+	// Guild lists support discovery only. Route guards verify current authority.
 	if (session?.adminGuilds || session?.allGuilds) return null;
 
 	if (!session?.meguUserId) {
@@ -468,47 +527,35 @@ async function discordConsoleDenial(session) {
 		: { status: 401, body: { error: 'This is the Discord bot console. Connect Discord to use it.', reason: 'discord-not-linked' } };
 }
 
-function requireAdminGuild(req, res, next) {
-	if (!req.session || !req.session.user || !req.session.adminGuilds) {
-		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
-	}
-
-	const guildId = req.params.guildId;
-	if (typeof guildId !== 'string' || !/^\d{17,20}$/.test(guildId)) {
-		return res.status(400).json({ error: 'Invalid server ID format.' });
-	}
-
-	const hasAccess = req.session.adminGuilds.some(g => String(g.id) === String(guildId));
-	if (!hasAccess) {
-		BotLogs('SYSTEM', `Security Warning: Unauthorized access attempt to Guild ID ${guildId} by User ${req.session.user.username} (${req.session.user.id}).`);
-		return res.status(403).json({ error: 'Forbidden. You do not have Administrator or Manage Server permissions for this server.' });
-	}
-	next();
+function requireConsoleGuild(permission) {
+	return async (req, res, next) => {
+		const actorId = req.session?.user?.id;
+		if (!actorId) return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+		const { guildId } = req.params;
+		if (typeof guildId !== 'string' || !/^\d{17,20}$/.test(guildId)) return res.status(400).json({ error: 'Invalid server ID format.' });
+		try {
+			const response = await sendIpcRequest({ type: 'verify_console_authority', guildId, actorId, permission }, 8000);
+			if (!response?.success) return res.status(response?.status || 503).json({ error: response?.error || 'Discord authority could not be verified.' });
+			req.actorDiscordId = actorId;
+			req.guildAccess = response.access;
+			return next();
+		} catch {
+			return res.status(503).json({ error: 'Discord authority could not be verified.' });
+		}
+	};
 }
 
-function requireGuildAccess(req, res, next) {
-	if (!req.session || !req.session.user) {
-		return res.status(401).json({ error: 'Unauthorized. Please log in with Discord.' });
+const requireAdminGuild = requireConsoleGuild('manage');
+const requireGuildAccess = requireConsoleGuild('member');
+const requireRoleGuild = requireConsoleGuild('roles');
+
+async function verifyConsoleRoles(req, res, roleIds) {
+	const response = await sendIpcRequest({ type: 'verify_console_roles', guildId: req.params.guildId, actorId: req.actorDiscordId, roleIds }, 8000);
+	if (!response?.success) {
+		res.status(response?.status || 503).json({ error: response?.error || 'Role authority could not be verified.' });
+		return false;
 	}
-
-	const guildId = req.params.guildId;
-	if (typeof guildId !== 'string' || !/^\d{17,20}$/.test(guildId)) {
-		return res.status(400).json({ error: 'Invalid server ID format.' });
-	}
-
-	const adminGuild = req.session.adminGuilds && req.session.adminGuilds.find(g => String(g.id) === String(guildId));
-	const memberGuild = req.session.allGuilds && req.session.allGuilds.find(g => String(g.id) === String(guildId));
-	const isAdmin = Boolean(adminGuild);
-	const isMember = Boolean(memberGuild);
-	const isOwner = Boolean((adminGuild && adminGuild.owner) || (memberGuild && memberGuild.owner));
-
-	if (!isAdmin && !isMember) {
-		BotLogs('SYSTEM', `Security Warning: Unauthorized server access attempt to Guild ID ${guildId} by User ${req.session.user.username} (${req.session.user.id}).`);
-		return res.status(403).json({ error: 'Forbidden. You are not a member of this server.' });
-	}
-
-	req.guildAccess = { isAdmin, isMember, isOwner };
-	next();
+	return true;
 }
 
 app.get(['/health', '/api/health'], (req, res) => {
@@ -697,6 +744,7 @@ function setDiscordSession(sessionObject, user, guilds) {
 		id: g.id, name: g.name, icon: g.icon, banner: g.banner, splash: g.splash,
 		owner: g.owner, permissions: g.permissions,
 	}));
+	sessionObject.discordGuildsVerifiedAt = Date.now();
 }
 
 async function restoreDiscordConnection(userId, sessionObject) {
@@ -817,8 +865,20 @@ function isLocalDatabase() {
 async function finishDiscordOAuth(req, res) {
 	const request = req.session?.oauth2Request;
 	const { code, state } = req.query;
-	if (!request || request.provider !== 'discord' || !state || state !== request.state || Date.now() - request.createdAt > 10 * 60 * 1000) {
+	if (!request || request.provider !== 'discord' || !['login', 'link'].includes(request.intent) || typeof state !== 'string' || !state || state !== request.state || !Number.isFinite(request.createdAt) || request.createdAt > Date.now() || Date.now() - request.createdAt >= 10 * 60 * 1000) {
 		return res.status(403).send('This sign-in request expired. Start again from Megu.');
+	}
+	// Request-local snapshots are not a replay boundary. Consume in the shared
+	// store before exchange; its durable claim also survives stale session saves.
+	try {
+		if (!req.sessionID || typeof req.sessionStore?.consumeOAuthRequest !== 'function'
+			|| !await req.sessionStore.consumeOAuthRequest(req.sessionID, request)) {
+			return res.status(403).send('This sign-in request expired. Start again from Megu.');
+		}
+	}
+	catch (error) {
+		BotLogs('SYSTEM', `OAuth request consumption failed: ${error.message}`);
+		return res.status(503).send('Could not verify this sign-in request. Start again from Megu.');
 	}
 	delete req.session.oauth2Request;
 	if (!code) return res.status(400).send('Missing authorization code.');
@@ -913,217 +973,6 @@ async function finishDiscordOAuth(req, res) {
 }
 
 app.get(['/api/auth/callback', '/api/auth/discord/callback'], finishDiscordOAuth);
-
-// Kept temporarily for old bookmarks while the provider-neutral routes above
-// become the only entry points.
-app.get('/api/auth/legacy/discord', (req, res) => {
-	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
-	const redirectUri = OAUTH_REDIRECT_URI;
-
-	if (!clientId) {
-		return res.status(500).send('Missing DISCORD_CLIENT_ID configuration.');
-	}
-
-	if (discordBlock.blocked()) {
-		return sendBlockedPage(res);
-	}
-
-	const state = crypto.randomBytes(16).toString('hex');
-	req.session.oauth2State = state;
-
-	req.session.save((err) => {
-		if (err) {
-			BotLogs('SYSTEM', `Session save error on OAuth login: ${err.toString()}`);
-		}
-		const authUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=identify%20guilds&state=${state}`;
-		res.redirect(authUrl);
-	});
-});
-
-app.get('/api/auth/legacy/discord/callback', async (req, res) => {
-	const { code, state } = req.query;
-
-	if (!state || (req.session.oauth2State && state !== req.session.oauth2State)) {
-		return res.status(403).send(`
-			<!DOCTYPE html>
-			<html>
-			<head>
-				<title>Authentication Error - Megu</title>
-				<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
-				<style>
-					body { background: #030712; color: #f3f4f6; font-family: 'Outfit', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 1.5rem; }
-					.card { background: rgba(17, 24, 39, 0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 2.5rem; max-width: 500px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-					h2 { color: #f87171; font-size: 1.5rem; margin-top: 0; }
-					p { color: #9ca3af; line-height: 1.6; }
-					.btn { display: inline-block; background: #6366f1; color: white; padding: 0.75rem 1.5rem; border-radius: 10px; text-decoration: none; font-weight: 600; margin-top: 1.5rem; }
-				</style>
-			</head>
-			<body>
-				<div class="card">
-					<h2>🔑 Login Session Expired</h2>
-					<p>Your authentication request expired or was interrupted. This can happen if the server was restarted while you were on the Discord authorization page.</p>
-					<a href="/api/auth/login" class="btn">Try Logging In Again</a>
-				</div>
-			</body>
-			</html>
-		`);
-	}
-	delete req.session.oauth2State;
-
-	if (!code) {
-		return res.status(400).send('Missing authorization code.');
-	}
-
-	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
-	const clientSecret = process.env.DISCORD_CLIENT_SECRET || config.clientSecret || config.client_secret;
-	const redirectUri = OAUTH_REDIRECT_URI;
-
-	if (discordBlock.blocked()) {
-		return sendBlockedPage(res);
-	}
-
-	try {
-		const tokenRes = await fetch(`${discordOAuth.apiEndpoint()}/oauth2/token`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/x-www-form-urlencoded',
-				...discordOAuth.proxyHeaders(),
-			},
-			body: new URLSearchParams({
-				client_id: clientId,
-				client_secret: clientSecret,
-				grant_type: 'authorization_code',
-				code: code.toString(),
-				redirect_uri: redirectUri,
-			}),
-		});
-
-		if (!tokenRes.ok) {
-			const discordError = await discordOAuth.discordResponseError(tokenRes, 'OAuth2 token exchange failed');
-			BotLogs('SYSTEM', discordError.message);
-			// A Cloudflare block is not this user's problem and not something a
-			// retry fixes, so it gets its own answer and shuts sign-ins down.
-			if (recordDiscordBlock(discordError, 'exchanging a legacy Discord OAuth code')) {
-				return sendBlockedPage(res);
-			}
-			return res.status(400).send('Failed to exchange code for token with Discord.');
-		}
-
-		const tokenData = await tokenRes.json();
-		const accessToken = tokenData.access_token;
-
-		// These two were read as JSON without ever checking the status. A block
-		// or a 401 arrived here as an error object, `userData.id` came out
-		// undefined, and the session was written anyway — a logged-in user with
-		// no identity. Both are checked now, and both feed the same guard.
-		const userRes = await fetch(`${discordOAuth.apiEndpoint()}/users/@me`, {
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				...discordOAuth.proxyHeaders(),
-			},
-		});
-		if (!userRes.ok) {
-			const discordError = await discordOAuth.discordResponseError(userRes, 'Discord profile read failed');
-			BotLogs('SYSTEM', discordError.message);
-			if (recordDiscordBlock(discordError, 'reading a legacy Discord profile')) return sendBlockedPage(res);
-			return res.status(502).send('Could not read your Discord profile.');
-		}
-		const userData = await userRes.json();
-
-		const guildsRes = await fetch(`${discordOAuth.apiEndpoint()}/users/@me/guilds`, {
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				...discordOAuth.proxyHeaders(),
-			},
-		});
-		if (!guildsRes.ok) {
-			const discordError = await discordOAuth.discordResponseError(guildsRes, 'Discord guild list read failed');
-			BotLogs('SYSTEM', discordError.message);
-			if (recordDiscordBlock(discordError, 'reading legacy Discord servers')) return sendBlockedPage(res);
-			return res.status(502).send('Could not read your Discord servers.');
-		}
-		const guildsData = await guildsRes.json();
-
-		const adminGuilds = (Array.isArray(guildsData) ? guildsData : []).filter(g => {
-			if (g.owner) return true;
-			const permissions = BigInt(g.permissions || '0');
-			const ADMINISTRATOR = 0x8n;
-			const MANAGE_GUILD = 0x20n;
-			return (permissions & ADMINISTRATOR) === ADMINISTRATOR || (permissions & MANAGE_GUILD) === MANAGE_GUILD;
-		});
-
-		// Mirror the Discord login into a Megu account so activities have an
-		// owner, and adopt any participant rows created for this person before
-		// they ever signed in.
-		let meguUserId = null;
-		try {
-			const { user: meguUser } = await core.users.loginWithIdentity(discordOAuth.toIdentityProfile(userData));
-			meguUserId = meguUser.id;
-			const { claimed } = await core.users.claimParticipants(meguUserId);
-			if (claimed > 0) {
-				BotLogs('Megu', `${COLOR.white}${userData.username}${COLOR.reset} claimed ${COLOR.white}${claimed}${COLOR.reset} past activities`);
-			}
-		}
-		catch (error) {
-			BotLogs('Megu', `${COLOR.red}Could not create Megu account for ${userData.username}: ${error.message}`);
-		}
-
-		req.session.regenerate((err) => {
-			if (err) {
-				BotLogs('SYSTEM', `Session regenerate error: ${err.toString()}`);
-			}
-
-			req.session.user = {
-				id: userData.id,
-				username: userData.username,
-				discriminator: userData.discriminator,
-				global_name: userData.global_name || userData.username,
-				avatar: userData.avatar,
-			};
-			req.session.meguUserId = meguUserId;
-
-			// Every guild, not just the manageable ones: an ordinary member
-			// still sees a server Megu lives in, just without the settings.
-			req.session.allGuilds = (Array.isArray(guildsData) ? guildsData : []).map(g => ({
-				id: g.id,
-				name: g.name,
-				icon: g.icon,
-				banner: g.banner,
-				splash: g.splash,
-				owner: g.owner,
-				permissions: g.permissions,
-			}));
-
-			req.session.adminGuilds = adminGuilds.map(g => ({
-				id: g.id,
-				name: g.name,
-				icon: g.icon,
-				banner: g.banner,
-				splash: g.splash,
-				owner: g.owner,
-				permissions: g.permissions,
-			}));
-
-			req.session.userAgent = req.headers['user-agent'] || '';
-			req.session.loginTimestamp = Date.now();
-			req.session.lastActivity = Date.now();
-
-			req.session.save(() => {
-				BotLogs('Web', `User ${COLOR.white}${userData.username}${COLOR.reset} authenticated with ${COLOR.white}${adminGuilds.length}${COLOR.reset} admin servers`);
-				res.redirect('/');
-			});
-		});
-	}
-	catch (error) {
-		BotLogs('SYSTEM', `OAuth2 Callback error: ${error.toString()}`);
-		// A block can also arrive as a thrown fetch failure rather than a
-		// response, so the guard gets a look at this path too.
-		if (recordDiscordBlock(error, 'finishing legacy Discord OAuth')) {
-			return sendBlockedPage(res);
-		}
-		res.status(500).send('An unexpected error occurred during Discord authentication.');
-	}
-});
 
 app.get('/api/auth/me', async (req, res) => {
 	if (!req.session?.meguUserId) return res.json({ loggedIn: false, user: null });
@@ -1716,6 +1565,41 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 
 	try {
 		const oldVars = await database.getAllGuildVars(guildId);
+		const desiredRoles = {
+			autorole_id: autorole_id || (Array.isArray(autorole_ids) && autorole_ids[0] ? autorole_ids[0] : null),
+			autorole_ids: Array.isArray(autorole_ids) ? autorole_ids : (autorole_id ? [autorole_id] : []),
+			bot_autorole_ids: Array.isArray(bot_autorole_ids) ? bot_autorole_ids : [],
+		};
+		const asIds = value => {
+			if (typeof value === 'string' && value.startsWith('[')) value = JSON.parse(value);
+			return Array.isArray(value) ? value : (value ? [value] : []);
+		};
+		const changedRoleIds = new Set();
+		let rolesChanged = false;
+		for (const [key, desired] of Object.entries(desiredRoles)) {
+			const before = asIds(oldVars[key]), after = asIds(desired);
+			if (JSON.stringify([...before].sort()) !== JSON.stringify([...after].sort())) {
+				rolesChanged = true;
+				for (const id of after.filter(id => !before.includes(id))) changedRoleIds.add(id);
+			}
+		}
+		// The bot uses the legacy ID whenever the human list is empty. Clearing
+		// that list can activate a grant without adding any stored role ID.
+		const effectiveHumans = vars => {
+			return Array.isArray(vars.autorole_ids) && vars.autorole_ids.length
+				? vars.autorole_ids : (vars.autorole_id ? [vars.autorole_id] : []);
+		};
+		const beforeEffective = effectiveHumans(oldVars);
+		const afterEffective = effectiveHumans(desiredRoles);
+		if (JSON.stringify([...beforeEffective].sort()) !== JSON.stringify([...afterEffective].sort())) rolesChanged = true;
+		for (const id of afterEffective) {
+			if (!beforeEffective.includes(id)) changedRoleIds.add(id);
+		}
+		if (rolesChanged && !await verifyConsoleRoles(req, res, [...changedRoleIds])) return;
+		if (!await database.compareAndSetGuildRoleVars(guildId, oldVars, desiredRoles)) {
+			return res.status(409).json({ error: 'Automatic role settings changed. Reload and try again.' });
+		}
+
 		const roomGreetingEnabled = toBooleanSetting(tts_join_greeting_enabled, false);
 		const roomGreetingText = String(tts_join_greeting_text || 'สวัสดีชาวโลก').slice(0, 300);
 
@@ -1727,9 +1611,6 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		await database.setGuildVar(guildId, 'leave_message_template', leave_message_template || '');
 		await database.setGuildVar(guildId, 'leave_mode', leave_mode || 'text');
 		await database.setGuildVar(guildId, 'leave_embed', typeof leave_embed === 'object' && leave_embed !== null ? JSON.stringify(leave_embed) : (leave_embed || ''));
-		await database.setGuildVar(guildId, 'autorole_id', autorole_id || (Array.isArray(autorole_ids) && autorole_ids[0] ? autorole_ids[0] : null));
-		await database.setGuildVar(guildId, 'autorole_ids', Array.isArray(autorole_ids) ? autorole_ids : (autorole_id ? [autorole_id] : []));
-		await database.setGuildVar(guildId, 'bot_autorole_ids', Array.isArray(bot_autorole_ids) ? bot_autorole_ids : []);
 		await database.setGuildVar(guildId, 'tts_channel_id', tts_channel_id || null);
 		await database.setGuildVar(guildId, 'tts_engine', tts_engine || 'EDGE_TTS');
 		await database.setGuildVar(guildId, 'tts_lang', tts_lang || 'th');
@@ -1833,8 +1714,26 @@ app.post('/api/guilds/:guildId/reaction-roles', requireAdminGuild, async (req, r
 	let { action, messageId, messageLink, channelId, emoji, roleId, mode, enabled } = req.body || {};
 
 	try {
+		// Parse Discord Message Link if provided (e.g. https://discord.com/channels/123/456/789)
+		if (messageLink && typeof messageLink === 'string') {
+			const match = messageLink.match(/discord\.com\/channels\/\d+\/(\d+)\/(\d+)/i);
+			if (match) {
+				channelId = match[1];
+				messageId = match[2];
+			}
+		}
+
 		const rawMap = await database.getGuildVar(guildId, 'reaction_roles');
 		let mappings = parseReactionRolesMap(rawMap);
+		const entry = mappings[messageId]?.[emoji];
+		const existingRoleId = typeof entry === 'string' ? entry : entry?.roleId;
+		// Removing/disabling a grant is safe even when its role was deleted or
+		// moved above the caller. Enabling it still requires current hierarchy.
+		const grantedRoleIds = action === 'toggle'
+			? (entry?.enabled === false ? [existingRoleId] : [])
+			: (['delete', 'clear_all'].includes(action) || enabled === false ? [] : [roleId]);
+		if (!await verifyConsoleRoles(req, res, grantedRoleIds.filter(Boolean))) return;
+
 
 		const sessionGuild = (req.session.adminGuilds || []).find(g => String(g.id) === String(guildId));
 		const gName = sessionGuild ? sessionGuild.name : 'Discord Server';
@@ -1845,15 +1744,6 @@ app.post('/api/guilds/:guildId/reaction-roles', requireAdminGuild, async (req, r
 			await database.setGuildVar(guildId, 'reaction_roles', JSON.stringify({}));
 			await database.logAuditEvent(guildId, 'REACTION_ROLE', uId, uName, 'Cleared all reaction role mappings', gName);
 			return res.json({ success: true, message: 'All reaction role mappings removed successfully!', reaction_roles: {} });
-		}
-
-		// Parse Discord Message Link if provided (e.g. https://discord.com/channels/123/456/789)
-		if (messageLink && typeof messageLink === 'string') {
-			const match = messageLink.match(/discord\.com\/channels\/\d+\/(\d+)\/(\d+)/i);
-			if (match) {
-				channelId = match[1];
-				messageId = match[2];
-			}
 		}
 
 		if (!messageId || !emoji) {
@@ -1979,7 +1869,7 @@ app.post('/api/guilds/:guildId/send-embed', requireAdminGuild, async (req, res) 
 // --- ROLE MANAGEMENT REST ENDPOINTS ---
 
 // Create Role
-app.post('/api/guilds/:guildId/roles/create', requireAdminGuild, async (req, res) => {
+app.post('/api/guilds/:guildId/roles/create', requireRoleGuild, async (req, res) => {
 	const { guildId } = req.params;
 	const { name, color, hoist, mentionable } = req.body || {};
 	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
@@ -1992,6 +1882,7 @@ app.post('/api/guilds/:guildId/roles/create', requireAdminGuild, async (req, res
 		guildId,
 		roleData: { name, color, hoist, mentionable },
 		actor: uName,
+		actorId: req.actorDiscordId,
 	}, 6000);
 
 	if (ipcRes && ipcRes.success) {
@@ -2007,12 +1898,12 @@ app.post('/api/guilds/:guildId/roles/create', requireAdminGuild, async (req, res
 		res.json({ success: true, message: `Role @${ipcRes.role.name} created successfully!`, role: ipcRes.role });
 	}
 	else {
-		res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to create role on Discord.' });
+		res.status(ipcRes?.status || 500).json({ error: (ipcRes && ipcRes.error) || 'Failed to create role on Discord.' });
 	}
 });
 
 // Update Role
-app.post('/api/guilds/:guildId/roles/:roleId/update', requireAdminGuild, async (req, res) => {
+app.post('/api/guilds/:guildId/roles/:roleId/update', requireRoleGuild, async (req, res) => {
 	const { guildId, roleId } = req.params;
 	const { name, color, hoist, mentionable } = req.body || {};
 	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
@@ -2026,6 +1917,7 @@ app.post('/api/guilds/:guildId/roles/:roleId/update', requireAdminGuild, async (
 		roleId,
 		roleData: { name, color, hoist, mentionable },
 		actor: uName,
+		actorId: req.actorDiscordId,
 	}, 6000);
 
 	if (ipcRes && ipcRes.success) {
@@ -2041,12 +1933,12 @@ app.post('/api/guilds/:guildId/roles/:roleId/update', requireAdminGuild, async (
 		res.json({ success: true, message: `Role @${ipcRes.role.name} updated successfully!`, role: ipcRes.role });
 	}
 	else {
-		res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to update role on Discord.' });
+		res.status(ipcRes?.status || 500).json({ error: (ipcRes && ipcRes.error) || 'Failed to update role on Discord.' });
 	}
 });
 
 // Delete Role
-app.post('/api/guilds/:guildId/roles/:roleId/delete', requireAdminGuild, async (req, res) => {
+app.post('/api/guilds/:guildId/roles/:roleId/delete', requireRoleGuild, async (req, res) => {
 	const { guildId, roleId } = req.params;
 	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
 	const uName = (req.session && req.session.user && (req.session.user.global_name || req.session.user.username)) || 'Administrator';
@@ -2058,6 +1950,7 @@ app.post('/api/guilds/:guildId/roles/:roleId/delete', requireAdminGuild, async (
 		guildId,
 		roleId,
 		actor: uName,
+		actorId: req.actorDiscordId,
 	}, 6000);
 
 	if (ipcRes && ipcRes.success) {
@@ -2073,12 +1966,12 @@ app.post('/api/guilds/:guildId/roles/:roleId/delete', requireAdminGuild, async (
 		res.json({ success: true, message: `Role @${ipcRes.roleName} deleted successfully!` });
 	}
 	else {
-		res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to delete role on Discord.' });
+		res.status(ipcRes?.status || 500).json({ error: (ipcRes && ipcRes.error) || 'Failed to delete role on Discord.' });
 	}
 });
 
 // Get Members for Role Assignment
-app.get('/api/guilds/:guildId/members', requireAdminGuild, async (req, res) => {
+app.get('/api/guilds/:guildId/members', requireRoleGuild, async (req, res) => {
 	const { guildId } = req.params;
 	const query = req.query.q || '';
 
@@ -2092,12 +1985,12 @@ app.get('/api/guilds/:guildId/members', requireAdminGuild, async (req, res) => {
 		res.json({ success: true, members: ipcRes.members || [] });
 	}
 	else {
-		res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to fetch server members.' });
+		res.status(ipcRes?.status || 500).json({ error: (ipcRes && ipcRes.error) || 'Failed to fetch server members.' });
 	}
 });
 
 // Modify / Batch Set Member Role Assignment
-app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/members/:memberId/set-roles'], requireAdminGuild, async (req, res) => {
+app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/members/:memberId/set-roles'], requireRoleGuild, async (req, res) => {
 	const { guildId, memberId } = req.params;
 	const { roleId, action, roleIds } = req.body || {};
 	const uId = (req.session && req.session.user && req.session.user.id) || 'Unknown';
@@ -2113,6 +2006,7 @@ app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/
 			memberId,
 			roleIds,
 			actor: uName,
+			actorId: req.actorDiscordId,
 		}, 8000);
 
 		if (ipcRes && ipcRes.success) {
@@ -2128,7 +2022,7 @@ app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/
 			return res.json({ success: true, message: 'Member roles updated successfully!', roles: ipcRes.roles });
 		}
 		else {
-			return res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to update member roles.' });
+			return res.status(ipcRes?.status || 500).json({ error: (ipcRes && ipcRes.error) || 'Failed to update member roles.' });
 		}
 	}
 
@@ -2144,6 +2038,7 @@ app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/
 		roleId,
 		action,
 		actor: uName,
+		actorId: req.actorDiscordId,
 	}, 6000);
 
 	if (ipcRes && ipcRes.success) {
@@ -2159,7 +2054,7 @@ app.post(['/api/guilds/:guildId/members/:memberId/roles', '/api/guilds/:guildId/
 		res.json({ success: true, message: `Role ${action === 'add' ? 'assigned' : 'removed'} successfully!`, roles: ipcRes.roles });
 	}
 	else {
-		res.status(500).json({ error: (ipcRes && ipcRes.error) || 'Failed to modify member role.' });
+		res.status(ipcRes?.status || 500).json({ error: (ipcRes && ipcRes.error) || 'Failed to modify member role.' });
 	}
 });
 
@@ -2767,4 +2662,31 @@ const server = app.listen(PORT, () => {
 // Configure Keep-Alive timeouts to prevent ECONNRESET proxy race conditions with Next.js rewrites
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
+
+let webShutdownPromise = null;
+function shutdownWeb(reason, exitCode = 0) {
+	if (webShutdownPromise) return webShutdownPromise;
+	BotLogs('SYSTEM', `${COLOR.yellow}Shutting down Express REST API (${reason})...`);
+	clearInterval(notificationTimer);
+	if (projectChannelTimer) clearInterval(projectChannelTimer);
+	stopPaymentDueSweep?.();
+	stopProjectDeadlineSweep?.();
+
+	const forcedExit = setTimeout(() => process.exit(exitCode), 5_000);
+	forcedExit.unref?.();
+	webShutdownPromise = (async () => {
+		await new Promise(resolve => server.close(() => resolve()));
+		await Promise.allSettled([
+			database.close(),
+			core.db.close({ permanent: true }),
+			healthLog.close({ permanent: true }),
+		]);
+		clearTimeout(forcedExit);
+		process.exit(exitCode);
+	})();
+	return webShutdownPromise;
+}
+
+process.once('SIGINT', () => void shutdownWeb('SIGINT'));
+process.once('SIGTERM', () => void shutdownWeb('SIGTERM'));
 

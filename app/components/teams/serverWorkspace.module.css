@@ -1,0 +1,56 @@
+.shell { display: grid; gap: 1.5rem; padding-block: 2.5rem 5rem; }
+.shell h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.7rem); overflow-wrap: anywhere; }
+.back { display: inline-flex; align-items: center; gap: .4rem; width: fit-content; color: var(--muted); }
+.header { display: flex; gap: 1rem; align-items: center; padding-bottom: 1.2rem; border-bottom: 1px solid var(--line); }
+.header > div { min-width: 0; }
+.serverIcon { display:grid; place-items:center; width:56px; height:56px; flex:none; border-radius:50%; overflow:hidden; background:var(--sunk); color:var(--ink); font-weight:700; }
+.serverSwitcher { width: min(100%, 20rem); flex-shrink:0; }
+.header > :global(.btn) { margin-left: auto; flex-shrink: 0; }
+.setupForm { display: grid; gap: .9rem; max-width: 42rem; }
+.setupForm p { margin: 0; }
+.searchForm { display: grid; gap: .4rem; max-width: 36rem; margin-block: 1rem; }
+.searchForm input { min-width: 0; flex: 1; padding: .6rem .75rem; background: var(--surface); color: var(--ink); border: 1px solid var(--line-2); border-radius: var(--r-sm); font: inherit; }
+.controls { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.controls > div { min-width: 9rem; }
+.person { display: grid; grid-template-columns: 38px minmax(140px,1fr) auto; gap: .8rem; align-items: center; padding-block: 1rem; border-bottom: 1px solid var(--line); }
+.avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; overflow: hidden; background: var(--sunk); color: var(--ink); }
+.header p, .muted { color: var(--muted); margin-block: .35rem .8rem; max-width: 68ch; }
+.layout { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 2.4rem; }
+.navigation { display: flex; flex-direction: column; gap: .25rem; align-self: start; position: sticky; top: calc(var(--nav-h, 64px) + 1rem); }
+.navigation a { padding: .65rem .8rem; border-radius: var(--r-sm); color: var(--muted); font-weight: 600; text-decoration: none; }
+.navigation a:hover { background: var(--sunk); color: var(--ink); }
+.navigation a[aria-current='page'] { background: var(--accent-soft); color: var(--accent); }
+.mobileNavigation { display: none; }
+.content { min-width: 0; }
+.sectionHeader { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.sectionHeader h2 { margin: 0; font-size: 1.3rem; }
+.rows { margin-top: 1rem; border-top: 1px solid var(--line); }
+.row { display: flex; align-items: center; gap: .9rem; min-height: 80px; padding: .85rem .3rem; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+a.row:hover { background: var(--surface); text-decoration: none; }
+.row > svg { flex: none; color: var(--muted); }
+.identity { flex: 1; min-width: 0; }
+.identity strong { display: block; overflow-wrap: anywhere; }
+.identity small { display: block; margin-top: .3rem; color: var(--muted); }
+.notice { padding: .85rem 1rem; color: var(--ink); background: var(--accent-soft); border: 1px solid var(--line); }
+.roleCreationRow { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:end; gap:1rem; margin:1.5rem 0; padding:1rem 0; border:0; border-top:1px solid var(--line); min-width:0; }
+.roleCreationRow legend { font-weight:700; overflow-wrap:anywhere; }
+.roleCreationRow small { color:var(--muted); font-weight:400; }
+.roleCreationRow label { display:grid; gap:.4rem; color:var(--muted); font-size:.85rem; }
+.roleCreationRow input { width:100%; min-width:0; padding:.65rem; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line-2); border-radius:var(--r-sm); }
+.roleCreationRow input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.discardDialog[open] { position:fixed; inset:0; margin:auto; width:calc(100% - 2rem); max-width:42rem; max-height:calc(100% - 2rem); overflow:auto; color:var(--ink); background:var(--surface); }
+.discardDialog:not([open]) { display:none; }
+.discardDialog::backdrop { background:rgb(0 0 0 / 55%); }
+@media (min-width: 1121px) { :global(.container):has(.shell) { max-width: 1568px; } }
+@media (max-width: 780px) {
+	.roleCreationRow { grid-template-columns:minmax(0,1fr); }
+	.roleCreationRow > button { justify-self:end; }
+	.layout { grid-template-columns: minmax(0,1fr); gap: 1.2rem; }
+	.navigation { display: none; }
+	.mobileNavigation { display: block; }
+	.shell { padding-block: 1.5rem 3rem; }
+	.header { flex-wrap: wrap; }
+	.header > :global(.btn) { margin-left: 0; }
+	.person { grid-template-columns: 38px minmax(0,1fr); }
+	.person > .controls { grid-column: 2; }
+}

@@ -60,6 +60,8 @@
 .iconButton:hover { background: color-mix(in srgb, var(--danger, #b33) 10%, transparent); color: var(--danger, #b33); }
 .inviteArea { margin-top: 38px; padding-top: 24px; border-top: 1px solid var(--line); }
 .inviteArea > p, .inviteArea > div > p, .pending > p { margin: 5px 0 0; color: var(--muted); line-height: 1.55; }
+.inviteArea > .notificationPreference { display:flex; align-items:center; gap:.4rem; margin-top:.75rem; color:var(--muted); font-size:.84rem; }
+.notificationPreference svg { flex:none; color:var(--accent); }
 .inviteArea > .joinStatus { color: var(--accent); font-weight: 700; }
 .inviteForm { display: grid; grid-template-columns: 1fr 1.5fr 1fr auto; gap: 10px; align-items: end; margin-top: 18px; }
 .inviteForm label, .reason { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
@@ -106,3 +108,6 @@
 @media (max-width: 760px) { .shell { width: min(100% - 22px, 680px); padding-top: 20px; } .layout { grid-template-columns: 1fr; gap: 24px; } .nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; } .nav button { width: auto; white-space: nowrap; } .pendingRow { grid-template-columns: minmax(0, 1fr) minmax(145px, 180px); } .pendingActions { grid-column: 1 / -1; justify-content: flex-end; } }
 @media (max-width: 520px) { .header { align-items: start; } .header .code { display: none; } .facts div, .dateFields, .channelFields, .rosterTools, .convertForm { grid-template-columns: 1fr; gap: 5px; } .teamIdentity { grid-template-columns:auto 1fr; } .teamIdentity :global(.btn) { grid-column:2; justify-self:start; } .member { grid-template-columns: 38px 1fr auto; } .memberSelect, .member .role { grid-column: 2; } .memberSelect { width: 100%; } .member .iconButton { grid-column: 3; grid-row: 1 / span 2; } .pendingRow { grid-template-columns: 1fr; align-items: stretch; } .pendingActions { grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; } .inviteReady { flex-wrap: wrap; } .unsavedWarning { grid-template-columns: 1fr 1fr; } .unsavedWarning > div { grid-column: 1 / -1; } }
 @media (max-width: 360px) { .unsavedWarning { grid-template-columns: 1fr; } .unsavedWarning > div { grid-column: 1; } .unsavedWarning > button { width: 100%; } }
+
+/* Ownership review is a neutral decision, not a warning banner. */
+.transferReview { border: 1px solid var(--line); }

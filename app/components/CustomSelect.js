@@ -32,9 +32,11 @@ export default function CustomSelect({
 	const [isOpen, setIsOpen] = useState(false);
 	const [openUpward, setOpenUpward] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
+	const [activeValue, setActiveValue] = useState(null);
 	const rootRef = useRef(null);
 	const triggerRef = useRef(null);
 	const searchInputRef = useRef(null);
+	const listboxRef = useRef(null);
 	const listboxId = useId();
 
 	useEffect(() => {
@@ -53,23 +55,17 @@ export default function CustomSelect({
 		const handlePointerDown = event => {
 			if (rootRef.current && !rootRef.current.contains(event.target)) setIsOpen(false);
 		};
-		const handleKeyDown = event => {
-			if (event.key !== 'Escape') return;
-			setIsOpen(false);
-			triggerRef.current?.focus();
-		};
-
 		document.addEventListener('mousedown', handlePointerDown);
-		document.addEventListener('keydown', handleKeyDown);
 		return () => {
 			document.removeEventListener('mousedown', handlePointerDown);
-			document.removeEventListener('keydown', handleKeyDown);
 		};
 	}, [isOpen]);
 
 	useEffect(() => {
-		if (isOpen && searchable && options.length > 5) searchInputRef.current?.focus();
+		if (isOpen) (searchable && options.length > 5 ? searchInputRef : listboxRef).current?.focus();
 	}, [isOpen, options.length, searchable]);
+
+	useEffect(() => { if (disabled) setIsOpen(false); }, [disabled]);
 
 	const selectedOption = useMemo(() => {
 		const selected = options.find(option => String(option.value) === String(value));
@@ -86,6 +82,37 @@ export default function CustomSelect({
 			return label.includes(query) || subtitle.includes(query);
 		});
 	}, [options, searchQuery]);
+	const enabledOptions = filteredOptions.filter(option => !option.disabled);
+	const activeIndex = filteredOptions.findIndex(option => !option.disabled && String(option.value) === String(activeValue));
+	const focusedOption = activeIndex >= 0 ? filteredOptions[activeIndex] : enabledOptions[0];
+	const focusedIndex = filteredOptions.indexOf(focusedOption);
+	const optionId = index => `${listboxId}-option-${index}`;
+	const activeId = focusedIndex >= 0 ? optionId(focusedIndex) : undefined;
+	useEffect(() => { if (isOpen && focusedIndex >= 0) listboxRef.current?.children?.[focusedIndex]?.scrollIntoView?.({ block: 'nearest' }); }, [isOpen, focusedIndex]);
+
+	function openSelect(key) {
+		const available = options.filter(option => !option.disabled);
+		const selected = available.find(option => String(option.value) === String(value));
+		setActiveValue(key === 'End' || key === 'ArrowUp' ? available.at(-1)?.value : key === 'Home' ? available[0]?.value : selected?.value ?? available[0]?.value);
+		setIsOpen(true);
+	}
+
+	function handleMenuKeyDown(event) {
+		if (event.key === 'Escape') { event.preventDefault(); setIsOpen(false); triggerRef.current?.focus(); return; }
+		if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+			event.preventDefault();
+			if (!enabledOptions.length) return;
+			const current = enabledOptions.findIndex(option => String(option.value) === String(focusedOption?.value));
+			const next = event.key === 'Home' ? 0 : event.key === 'End' ? enabledOptions.length - 1
+				: (current + (event.key === 'ArrowDown' ? 1 : -1) + enabledOptions.length) % enabledOptions.length;
+			setActiveValue(enabledOptions[next].value);
+			return;
+		}
+		if (event.key === 'Enter' || (event.key === ' ' && event.target !== searchInputRef.current)) {
+			event.preventDefault();
+			if (focusedOption) selectOption(focusedOption);
+		}
+	}
 
 	function optionColor(option) {
 		if (!option?.color || option.color === '#000000') return null;
@@ -95,6 +122,7 @@ export default function CustomSelect({
 	}
 
 	function selectOption(option) {
+		if (disabled || option.disabled) return;
 		onChange?.(option.value, option);
 		setIsOpen(false);
 		triggerRef.current?.focus();
@@ -103,12 +131,16 @@ export default function CustomSelect({
 	const selectedColor = optionColor(selectedOption);
 
 	return (
-		<div ref={rootRef} className={`${styles.root} ${size === 'compact' ? styles.compact : ''} ${className}`.trim()} style={style}>
+		<div ref={rootRef} className={`${styles.root} ${size === 'compact' ? styles.compact : ''} ${className}`.trim()} style={style} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false); }}>
 			<button
 				ref={triggerRef}
 				type="button"
 				className={`${styles.trigger} ${isOpen ? styles.triggerOpen : ''}`.trim()}
-				onClick={() => setIsOpen(open => !open)}
+				onClick={() => isOpen ? setIsOpen(false) : openSelect()}
+				onKeyDown={event => {
+					if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) { event.preventDefault(); isOpen ? handleMenuKeyDown(event) : openSelect(event.key); }
+					else if (isOpen && event.key === 'Escape') handleMenuKeyDown(event);
+				}}
 				disabled={disabled}
 				aria-haspopup="listbox"
 				aria-label={ariaLabel || resolvedPlaceholder}
@@ -136,7 +168,7 @@ export default function CustomSelect({
 			</button>
 
 			{isOpen ? (
-				<div className={`${styles.menu} ${openUpward ? styles.menuUpward : ''}`.trim()}>
+				<div className={`${styles.menu} ${openUpward ? styles.menuUpward : ''}`.trim()} onKeyDown={handleMenuKeyDown}>
 					{searchable && options.length > 5 ? (
 						<label className={styles.searchField}>
 							<Search size={15} aria-hidden="true" />
@@ -147,22 +179,29 @@ export default function CustomSelect({
 								value={searchQuery}
 								onChange={event => setSearchQuery(event.target.value)}
 								placeholder={selectCopy.searchOptionsPlaceholder}
+								aria-controls={listboxId}
+								aria-activedescendant={activeId}
 							/>
 						</label>
 					) : null}
 
-					<div id={listboxId} className={styles.options} role="listbox" tabIndex="-1">
-						{filteredOptions.length ? filteredOptions.map(option => {
+					<div ref={listboxRef} id={listboxId} className={styles.options} role="listbox" aria-label={ariaLabel || resolvedPlaceholder} aria-activedescendant={activeId} tabIndex={searchable && options.length > 5 ? -1 : 0}>
+						{filteredOptions.length ? filteredOptions.map((option, index) => {
 							const color = optionColor(option);
 							const isSelected = String(option.value) === String(value);
 							return (
 								<button
 									key={option.value}
+									id={optionId(index)}
 									type="button"
-									className={`${styles.option} ${isSelected ? styles.optionSelected : ''}`.trim()}
+									className={`${styles.option} ${isSelected ? styles.optionSelected : ''} ${focusedIndex === index ? styles.optionActive : ''}`.trim()}
 									onClick={() => selectOption(option)}
 									role="option"
 									aria-selected={isSelected}
+									aria-disabled={option.disabled || undefined}
+									disabled={option.disabled}
+									tabIndex={-1}
+									onMouseEnter={() => { if (!option.disabled) setActiveValue(option.value); }}
 								>
 									<OptionMark option={option} type={type} color={color} />
 									<span className={styles.optionCopy}>

@@ -49,16 +49,18 @@ async function queueDue({ now = new Date(), baseUrl = '', limit = 50, projectId 
 	const current = now instanceof Date ? now : new Date(now);
 	if (Number.isNaN(current.getTime())) throw new Error('project_reminder_time_invalid');
 	return transaction(async client => {
+		const legacy = await require('./company-access').hasLegacyCompanySchema(client);
 		const due = await client.query(
 		`SELECT j.*, p.code, p.title AS project_title, p.status AS project_status,
 		 t.title AS topic_title, t.deadline_at AS current_deadline_at, t.schedule_revision,
 			 t.workflow, t.archived_at, s.enabled, s.reminder_48h, s.reminder_24h,
 			 s.dm_enabled, s.channel_enabled, s.guild_id, s.channel_id,
-			 p.team_id,team_ref.archived_at AS team_archived_at
+			 p.team_id,team_ref.archived_at AS team_archived_at,${legacy ? 'company_ref.archived_at' : 'NULL'} AS company_archived_at
 		 FROM project_reminder_jobs j
 		 JOIN projects p ON p.id=j.project_id
 			 JOIN project_topics t ON t.project_id=j.project_id AND t.id=j.topic_id
 			 LEFT JOIN teams team_ref ON team_ref.id=p.team_id
+			 ${legacy ? 'LEFT JOIN companies company_ref ON company_ref.id=team_ref.company_id' : ''}
 		 LEFT JOIN project_notification_settings s ON s.project_id=j.project_id
 			 WHERE j.status='pending' AND j.run_at <= $1
 			 AND ($3::text IS NULL OR j.project_id=$3)
@@ -70,7 +72,7 @@ async function queueDue({ now = new Date(), baseUrl = '', limit = 50, projectId 
 		for (const job of due.rows) {
 			const thresholdEnabled = job.threshold_hours === 48 ? job.reminder_48h : job.reminder_24h;
 			const currentDeadline = job.current_deadline_at && new Date(job.current_deadline_at).getTime();
-			const stale = !job.enabled || !thresholdEnabled || job.project_status !== 'active' || job.team_archived_at
+			const stale = !job.enabled || !thresholdEnabled || job.project_status !== 'active' || job.team_archived_at || job.company_archived_at
 				|| job.archived_at || job.workflow === 'completed'
 				|| Number(job.schedule_revision) !== Number(job.deadline_revision)
 				|| currentDeadline !== new Date(job.deadline_at).getTime()

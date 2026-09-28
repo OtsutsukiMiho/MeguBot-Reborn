@@ -1,7 +1,10 @@
 const { Pool } = require('pg');
 const { log } = require('./log.js');
+const { poolMax } = require('./pool-config.js');
+const { postgresConnectionOptions, isLocalDatabaseUrl } = require('./postgres-connection.js');
 
 let pool = null;
+let permanentlyClosed = false;
 
 /**
  * Core requires PostgreSQL. The legacy bot data has a JSON fallback, but
@@ -17,11 +20,12 @@ function connectionString() {
 }
 
 function isLocal(url) {
-	return /@(localhost|127\.0\.0\.1|host\.docker\.internal|megu-db)[:/]/.test(url);
+	return isLocalDatabaseUrl(url);
 }
 
 function getPool() {
 	if (pool) return pool;
+	if (permanentlyClosed) throw new Error('The core database pool is shutting down.');
 
 	const url = connectionString();
 	if (!url) {
@@ -30,18 +34,14 @@ function getPool() {
 
 	// A local container has no TLS to negotiate; forcing ssl there just fails.
 	//
-	// The cap matters more than it looks. index.js forks two processes, both of
-	// them open this pool and both also open the legacy bot's, so pg's default
-	// of 10 per pool is forty connections against one database — and a web
-	// process that crash-loops would keep opening more. Five each is generous
-	// for a workload of short reads and writes, the idle timeout hands
-	// connections back instead of holding them for the process lifetime, and
-	// the connect timeout turns an unreachable database into an error rather
-	// than a queue of callers waiting forever.
+	// The cap matters more than it looks. Web and bot each open this pool and
+	// the legacy pool, while health logging adds a separate one per process.
+	// With a 15-client Supabase session pool, five primary clients per pool can
+	// exhaust the provider before restart overlap is counted. One is the safe
+	// default; PG_POOL_MAX is an explicit deployment override.
 	pool = new Pool({
-		connectionString: url,
-		ssl: isLocal(url) ? false : { rejectUnauthorized: false },
-		max: Number(process.env.PG_POOL_MAX) || 5,
+		...postgresConnectionOptions(url),
+		max: poolMax(),
 		idleTimeoutMillis: 10_000,
 		connectionTimeoutMillis: 8_000,
 	});
@@ -78,10 +78,12 @@ async function transaction(fn) {
 	}
 }
 
-async function close() {
+async function close({ permanent = false } = {}) {
+	if (permanent) permanentlyClosed = true;
 	if (pool) {
-		await pool.end();
+		const closing = pool;
 		pool = null;
+		await closing.end();
 	}
 }
 
@@ -94,7 +96,7 @@ function describe() {
 	const url = connectionString();
 	if (!url) return 'not configured';
 	const safe = url.replace(/\/\/([^:]+):[^@]*@/, '//$1:***@');
-	return `${safe}${isLocal(url) ? '  (local)' : '  (remote)'}`;
+	return `${safe}${isLocal(url) ? '  (local)' : '  (remote)'}  (pool max ${poolMax()})`;
 }
 
 module.exports = { getPool, query, transaction, close, describe, isLocal, connectionString };
