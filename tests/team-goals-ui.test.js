@@ -16,6 +16,7 @@ for (const lang of ['en', 'th']) {
 	vm.runInThisContext(`(function(require,module,exports){${code}\n})`, { filename })(id => {
 		if (id === '../../copy') return { useCopy: () => ({ t, lang }) };
 		if (id === './TeamWorkspaceNav') return {default:()=>null,__esModule:true};
+		if (id === '../WorkspaceSkeleton') return {default:()=>React.createElement('div',{role:'status'},t.teamGoals.loading),__esModule:true};
 		if (id.endsWith('.css')) return {};
 		if (id === 'next/link') return { default: props => React.createElement('a', props), __esModule: true };
 		if (id.includes('useWorkspaceResource')) return { default: () => ({ ...resource, reload() {} }), __esModule: true };
@@ -27,7 +28,8 @@ for (const lang of ['en', 'th']) {
 	const row = { id: 'goal', subjectName: 'Member', subjectAvatarUrl: 'https://cdn.discordapp.com/avatars/test/avatar.png', periodStart: '2026-09-01', periodEnd: '2026-09-30', lifecycle: 'proposed', needsReviewer: true, access: 'administration', title: 'PRIVATE TITLE MUST NOT RENDER' };
 	resource = { data: { team: { name: 'Example team' }, goals: [row], nextOffset: 60 }, loading: false };
 	let html = render(30);
-	for (const text of [t.teamGoals.title, t.teamGoals.administration, t.teamGoals.needsReviewer, t.teamGoals.state.proposed, 'Example team', 'cdn.discordapp.com']) assert.ok(html.includes(text.replaceAll('&', '&amp;')), `${lang}: missing ${text}`);
+	for (const text of [t.teamGoals.title, t.teamGoals.administration, t.teamGoals.needsReviewer, t.teamGoals.state.proposed, 'cdn.discordapp.com']) assert.ok(html.includes(text.replaceAll('&', '&amp;')), `${lang}: missing ${text}`);
+	assert.match(html, /<a[^>]*href="\/teams\/team\/goals\/goal"[^>]*>[\s\S]*?<strong>[\s\S]*?<\/strong>[\s\S]*?aria-hidden="true"[\s\S]*?<\/a>/, 'Whole goal card is one native link');
 	assert.ok(!html.includes(row.title));
 	assert.ok(html.includes('/goals?offset=0') && html.includes('/goals?offset=60'));
 	assert.ok(html.includes(lang === 'th' ? '2569' : '2026'));

@@ -284,6 +284,7 @@ async function reassignReviewer(goalId, actorId, input) {
 		 FROM team_goals g JOIN team_goal_versions v ON v.goal_id=g.id AND v.version=g.current_version WHERE g.id=$1 FOR UPDATE OF g,v`, [goalId])).rows[0];
 		if (!goal || goal.revision !== input.expectedRevision) fail('goal_revision_conflict');
 		if (!['draft', 'proposed', 'active', 'submitted'].includes(goal.lifecycle)) fail('goal_transition_invalid');
+		if (goal.reviewer_id === input.reviewerId) fail('goal_reviewer_invalid');
 		if (goal.subject_id === input.reviewerId) fail('goal_reviewer_invalid');
 		await accessById(client, route.team_id, goal.subject_id, { allowArchived: false });
 		const reviewer = await accessById(client, route.team_id, input.reviewerId, { allowArchived: false });

@@ -16,6 +16,7 @@ import {
 	UsersRound,
 } from 'lucide-react';
 import AuthGate from '../components/AuthGate';
+import MainContextLoading from '../components/MainContextLoading';
 import MeguMark from '../components/MeguMark';
 import { useCopy } from '../copy';
 import styles from './servers.module.css';
@@ -179,13 +180,7 @@ export default function ServersPage() {
 	}, [filter, guilds, query]);
 
 	if (loading) {
-		return (
-			<div className={styles.loadingState} aria-live="polite">
-				<MeguMark size={72} mood="asleep" />
-				<strong>{copy.loadingServers}</strong>
-				<span>{copy.loadingServersLede}</span>
-			</div>
-		);
+		return <MainContextLoading title={copy.loadingServers} description={copy.loadingServersLede} />;
 	}
 
 	if (denial) {

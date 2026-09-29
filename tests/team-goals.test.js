@@ -228,6 +228,8 @@ const { isDisposableTestDatabase } = require('./test-database');
 		assert.equal((await getGoal(reassignment.id, member)).goal.needsReviewer, true);
 		await assert.rejects(reassignReviewer(reassignment.id, member, { reviewerId: owner, expectedRevision: 1, reason: 'Choose reviewer' }), { code: 'goal_forbidden' });
 		await reassignReviewer(reassignment.id, owner, { reviewerId: owner, expectedRevision: 1, reason: 'Previous reviewer changed role' });
+		await assert.rejects(reassignReviewer(reassignment.id, owner, { reviewerId: owner, expectedRevision: 2, reason: 'Duplicate assignment' }), { code: 'goal_reviewer_invalid' });
+		assert.equal((await getGoal(reassignment.id, owner)).goal.revision, 2, 'Duplicate assignment cannot reset agreement or add an event');
 		const proposedAssignment = await getGoal(reassignment.id, owner);
 		assert.equal(proposedAssignment.capabilities.canAccept, true);
 		assert.equal(proposedAssignment.access, 'proposal'); assert.equal(proposedAssignment.updates, undefined);

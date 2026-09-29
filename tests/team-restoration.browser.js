@@ -54,7 +54,7 @@ const output = path.resolve('.impeccable/review/team-restoration');
 			}
 			await page.goto(`${base}/teams/demo/people`);
 			await page.getByRole('button', { name: c.reviewMemberRestore, exact: true }).click();
-			await page.waitForURL('**/teams/demo/requests');
+			await page.waitForURL('**/teams/demo/join-requests');
 			const approve = page.getByRole('button', { name: c.restoreMember, exact: true });
 			await approve.waitFor(); assert.ok(await approve.isDisabled());
 			assert.equal(writes.length, 0, 'Discovery never restores someone without reviewing the request');

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Hash } from 'lucide-react';
 import { useCopy } from '../../copy';
 import CustomSelect from '../CustomSelect';
 import AuthGate from '../AuthGate';
@@ -54,14 +55,14 @@ export default function TeamRoleMapping({ team, readError, serverManagement = fa
 		<h2 id="team-role-mapping-title">{c.title}</h2><p className={styles.lede}>{c.hint}</p><p className={styles.lede}>{serverManagement ? c.ux.manager : c.ux.owner}</p><details><summary>{c.ux.howMembershipWorks}</summary><p>{c.ux.approval}</p><p>{c.ux.automatic}</p></details>
 		{error && <p className={styles.error} role="alert">{error}</p>}{message && <p role="status">{message}</p>}
 		{!resource.data ? <><p role={resource.error ? 'alert' : 'status'}>{resource.loading ? t.common.loading : resource.error ? explain(resource.error) : c.loadFailed}</p>{resource.error && <button type="button" className="btn btn-secondary" onClick={resource.reload}>{t.projects.retry}</button>}</> : <>
-			<h3>{c.ux.configuration}</h3><p>{automaticBlocked ? syncResource.data?.supported ? mapping.enabled ? c.sync.active : c.sync.paused : c.automaticBlocked : mapping ? mapping.enabled ? c.approved : c.pending : c.none}</p>
-			{mapping && <ul>{mapping.roles.map(role => <li key={role.id}>{role.name} <small>({role.id})</small></li>)}</ul>}
+			<h3>{c.ux.configuration}</h3><p className={styles.roleMappingStatus}>{automaticBlocked ? syncResource.data?.supported ? mapping.enabled ? c.sync.active : c.sync.paused : c.automaticBlocked : mapping ? mapping.enabled ? c.approved : c.pending : c.none}</p>
+			{mapping && <><ul className={styles.roleLinks}>{mapping.roles.map(role => <li className={styles.roleLink} key={role.id}><Hash size={16} aria-hidden="true" /><span><strong>{role.name}</strong><small>{c.discordRoleId}: {role.id}</small></span></li>)}</ul><p className={styles.roleLinkHint}>{mapping.mode === 'automatic' ? c.roleLinkAutomaticHint : c.roleLinkReviewHint}</p></>}
 			{roles !== null ? <form className={styles.form} onSubmit={event => { event.preventDefault(); mutate('save'); }}>
 				<div className={styles.wide}><CustomSelect ariaLabel={c.addRole} placeholder={c.addRole} value="" disabled={busy || syncLocked || selected.length >= 50} options={roles.filter(role => !selected.includes(role.id)).map(role => ({ value: role.id, label: `${role.name} (${role.id})` }))} onChange={id => setSelected(current => [...current, id])} /></div>
 				<ul className={styles.wide}>{selected.map(id => <li key={id}>{roles.find(role => role.id === id)?.name || mapping?.roles.find(role => role.id === id)?.name || id} <button type="button" className="btn btn-secondary btn-sm" disabled={busy || syncLocked} aria-label={c.removeRole(id)} onClick={() => setSelected(current => current.filter(value => value !== id))}>{c.remove}</button></li>)}</ul>
 				<label className={`${styles.goalCheck} ${styles.wide}`}><input type="checkbox" checked={shared} disabled={busy || syncLocked} onChange={event => setShared(event.target.checked)} /> {c.shared}</label>
 				<div className={`${styles.actions} ${styles.wide}`}><button type="button" className="btn btn-secondary" disabled={busy || syncLocked} onClick={cancelEdit}>{t.teams.cancel}</button><button className="btn btn-primary" disabled={busy || syncLocked || selected.length === 0}>{c.propose}</button></div>
-			</form> : <div className={styles.actions}>
+			</form> : <div className={`${styles.actions} ${styles.roleMappingActions}`}>
 				<button type="button" className="btn btn-secondary" disabled={busy || syncLocked} onClick={() => { setError(''); setMessage(''); resource.reload(); syncResource.reload(); }}>{c.reloadConfiguration}</button>
 				<button type="button" className="btn btn-secondary" disabled={busy || syncLocked || team.archivedAt || automaticBlocked} onClick={edit}>{c.configure}</button>
 				{mapping && team.role === 'owner' && !team.archivedAt && !automaticBlocked && <>{!mapping.enabled && <button type="button" className="btn btn-primary" disabled={busy || syncLocked} onClick={() => mutate('approve')}>{c.approve}</button>}<button type="button" className="btn btn-secondary" disabled={busy || syncLocked} onClick={() => setRemoving(true)}>{c.unlink}</button></>}

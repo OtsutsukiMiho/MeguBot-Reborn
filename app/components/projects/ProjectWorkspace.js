@@ -11,6 +11,7 @@ import ProjectAvatar from './ProjectAvatar';
 import ProjectTopicFilters from './ProjectTopicFilters';
 import ProjectInsights from './ProjectInsights';
 import CustomSelect from '../CustomSelect';
+import WorkspaceSkeleton from '../WorkspaceSkeleton';
 import { useCopy } from '../../copy';
 import { deriveProjectTopicFilters, deriveReportableTopics, normalizeTopicQuery, parseProjectFilterParams, writeProjectFilterParams } from './projectFilters.mjs';
 import styles from './projectWorkspace.module.css';
@@ -254,7 +255,7 @@ export default function ProjectWorkspace({ code }) {
 		now: filterNow,
 	}), [appliedTopicQuery, assignedToMe, attention, data?.me?.userId, data?.topics, filterNow]);
 
-	if (loading) return <ProjectSkeleton />;
+	if (loading) return <ProjectSkeleton p={p} />;
 	if (signedOut) return <AuthGate title={p.signedOutTitle} lede={p.signedOutLede} />;
 	if (!data) return <ProjectFailure message={error} retry={load} p={p} />;
 
@@ -758,8 +759,8 @@ function FilteredTopicsEmpty({ p, onClear }) {
 }
 
 
-function ProjectSkeleton() {
-	return <div className={styles.workspace} aria-busy="true"><span className="skeleton-line" style={{ width: '12ch', maxWidth: '100%' }} /><header className={styles.projectHead}><div><span className="skeleton-line" style={{ width: '24ch', maxWidth: '100%', height: '2.2rem' }} /><span className="skeleton-line" style={{ width: '34ch', maxWidth: '100%', marginTop: '.8rem' }} /></div></header><div className={styles.myWork}><span className="skeleton-line" style={{ width: '20ch', maxWidth: '100%' }} /></div><div className={styles.emptyPanel}><span className="skeleton-line" style={{ width: '65%', maxWidth: '100%' }} /></div></div>;
+function ProjectSkeleton({ p }) {
+	return <div className={styles.workspace} aria-busy="true"><Link href="/projects" className={styles.back}><ArrowLeft size={15} aria-hidden="true" />{p.title}</Link><header className={styles.projectHead}><div><span className="skeleton-line" style={{ width: '24ch', maxWidth: '100%', height: '2.2rem' }} /><span className="skeleton-line" style={{ width: '34ch', maxWidth: '100%', marginTop: '.8rem' }} /></div></header><div className={styles.myWork}><span className="skeleton-line" style={{ width: '20ch', maxWidth: '100%' }} /></div><WorkspaceSkeleton kind="detail" label={p.loadingMore} /></div>;
 }
 
 function ProjectFailure({ message, retry, p }) {

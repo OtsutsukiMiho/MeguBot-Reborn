@@ -40,7 +40,7 @@ for (const lang of ['en', 'th']) {
 	stateIndex=0;
 	const management=renderToStaticMarkup(React.createElement(module.exports.default,{serverManagement:true,team:{id:'known',discordGuild:{id:'811111111111111111'}},readError:()=> 'Error'}));
 	assert.deepEqual(reads.slice(-2),['/api/megu/teams/discord-guilds/811111111111111111/role-mappings/known','/api/megu/teams/discord-guilds/811111111111111111/role-mappings/known/sync']);
-	assert.ok(management.includes(t.roleMappings.approved));assert.ok(management.includes('Development'));
+	assert.ok(management.includes(t.roleMappings.approved));assert.ok(management.includes('Development'));assert.ok(management.includes('123456789012345678'));assert.ok(management.includes(t.roleMappings.discordRoleId));assert.ok(management.includes(t.roleMappings.roleLinkReviewHint));
 	assert.ok(!management.includes(t.roleMappings.membersTitle),'Server management cannot preview private team members');
 	assert.ok(!management.includes(`>${t.roleMappings.approve}</button>`),'Server management cannot exercise team-owner consent');
 	for (const text of [t.roleMappings.partialHint, t.roleMappings.reviewRestore, t.teams.needsMeguAccount, t.teams.alreadyTeamMember]) assert.ok(html.includes(text), `${lang}: missing ${text}`);

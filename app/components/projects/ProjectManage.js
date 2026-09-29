@@ -10,6 +10,7 @@ import ProjectTeamPicker, { ProjectTeamConversion } from './ProjectTeamPicker';
 import CustomSelect from '../CustomSelect';
 import useDraftGuard from '../useDraftGuard';
 import { useCopy } from '../../copy';
+import WorkspaceSkeleton from '../WorkspaceSkeleton';
 import styles from './projectManage.module.css';
 
 const TABS = ['general', 'people', 'notifications', 'lifecycle'];
@@ -76,12 +77,12 @@ export default function ProjectManage({ code }) {
 		if (destination?.href) window.location.assign(destination.href);
 		else if (destination?.tab) setTab(destination.tab);
 	};
-	if (loading) return <main className={styles.shell} aria-busy="true"><span className="skeleton-line" style={{ width: '20ch' }} /></main>;
+	if (loading && !data) return <main className={styles.shell} aria-busy="true"><Link href={`/p/${encodeURIComponent(code)}`} className={styles.back}>{p.backToProject}</Link><WorkspaceSkeleton kind="detail" label={p.loadingMore} /></main>;
 	if (signedOut) return <AuthGate title={p.signedOutTitle} lede={p.signedOutLede} />;
-	if (!data) return <main className={styles.shell}><p role="alert">{error}</p><Link href="/projects" className="btn btn-secondary">{p.title}</Link></main>;
+	if (!data) return <main className={styles.shell}><p role="alert">{error}</p><Link href="/projects" className="btn btn-secondary">{p.title}</Link><button type="button" className="btn btn-primary" onClick={load}>{p.retry}</button></main>;
 
 	const { project, members, me } = data;
-	return <main className={styles.shell}>
+	return <main className={styles.shell} aria-busy={loading}>
 		<Link data-draft-navigation href={`/p/${project.code}`} className={styles.back} onClick={event => { if (dirty) { event.preventDefault(); requestNavigation({ href: `/p/${project.code}` }); } }}><ArrowLeft size={15} />{p.backToProject}</Link>
 		<header className={styles.header}><div><h1>{p.manage}</h1><p>{project.title} · {p.manageLede}</p></div><span className={styles.code}>{project.code}</span></header>
 		{error && <p className={styles.alert} role="alert">{error}</p>}{lifecycleFeedback && <p role="status">{lifecycleFeedback}</p>}

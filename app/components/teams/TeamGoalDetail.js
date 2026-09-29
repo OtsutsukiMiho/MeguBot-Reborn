@@ -2,27 +2,32 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import AuthGate from '../AuthGate';
 import GoalActionForm from './GoalActionForm';
 import GoalReviewerForm from './GoalReviewerForm';
 import GoalTermsEditor from './GoalTermsEditor';
+import { loadTeamGoalMembers } from './loadTeamGoalMembers.mjs';
 import ProjectAvatar from '../projects/ProjectAvatar';
 import useWorkspaceResource from '../useWorkspaceResource';
+import WorkspaceSkeleton from '../WorkspaceSkeleton';
 import { useCopy } from '../../copy';
-import TeamWorkspaceNav from './TeamWorkspaceNav';
 import styles from '../../teams/teams.module.css';
 
 function goalGuidanceKey(goal, capabilities = {}, access) {
 	if (goal.version !== goal.currentVersion) return 'history';
-	if (access === 'administration') return 'administration';
-	if (goal.needsReviewer) return capabilities.canReassignReviewer ? 'assign' : 'waiting';
+	if (['archived', 'cancelled'].includes(goal.lifecycle)) return 'closed';
+	if (access === 'administration') return goal.reviewerId ? 'administrationAssigned' : 'administration';
+	if (goal.needsReviewer && !goal.reviewerId) return capabilities.canReassignReviewer ? 'assign' : 'waiting';
 	if (capabilities.canPropose) return 'propose';
 	if (capabilities.canAccept) return goal.reviewerId ? 'accept' : 'acceptPersonal';
 	if (capabilities.canReview) return 'review';
 	if (capabilities.canRespond) return 'respond';
+	if (capabilities.canRevise) return 'revise';
 	if (capabilities.canAddEvidence) return goal.reviewerId ? 'evidence' : 'personal';
+	if (goal.lifecycle === 'proposed') return 'waitingAgreement';
+	if (goal.lifecycle === 'submitted') return 'waitingReview';
 	return 'waiting';
 }
 
@@ -35,11 +40,47 @@ export default function TeamGoalDetail({ teamId, goalId, options = {} }) {
 	const { data, loading, error, reload } = useWorkspaceResource(`/api/megu${base}?${new URLSearchParams(options)}`);
 	const [saving, setSaving] = useState(false);
 	const [feedback, setFeedback] = useState(null);
+	const [participantMembers, setParticipantMembers] = useState(null);
+	const [memberLoadError, setMemberLoadError] = useState(false);
+	const [memberRetry, setMemberRetry] = useState(0);
 	const submitting = useRef(false);
-	if (error?.status === 401) return <AuthGate title={t.teams.signedOutTitle} lede={t.teams.signedOutLede} />;
 	const goal = data?.goal;
+	useEffect(() => {
+		if (!goal?.subjectId || (data?.access === 'administration' && !data?.capabilities?.canReassignReviewer)) { setParticipantMembers(null); return; }
+		const controller = new AbortController(); setMemberLoadError(false);
+		loadTeamGoalMembers(teamId, async url => {
+			const response = await fetch(url, { signal: controller.signal });
+			if (!response.ok) throw new Error('Roster unavailable');
+			return response.json();
+		}).then(members => { if (!controller.signal.aborted) setParticipantMembers(members); })
+			.catch(() => { if (!controller.signal.aborted) { setParticipantMembers(null); setMemberLoadError(true); } });
+		return () => controller.abort();
+	}, [teamId, goal?.subjectId, data?.access, data?.capabilities?.canReassignReviewer, memberRetry]);
+	if (error?.status === 401) return <AuthGate title={t.teams.signedOutTitle} lede={t.teams.signedOutLede} />;
+	const participantsById = Object.fromEntries((participantMembers || []).map(member => [member.userId, member]));
+	const participantNames = Object.fromEntries((participantMembers || []).map(member => [member.userId, member.displayName]));
+	const participantIdentity = (userId, fallback) => {
+		const member = participantsById[userId];
+		const name = member?.displayName || fallback;
+		return <span className={styles.goalPersonIdentity}><ProjectAvatar className={styles.avatar} name={name} avatarUrl={member?.avatarUrl} /><span>{name}</span></span>;
+	};
 	const privateAccess = data?.access === 'private';
 	const hasTerms = privateAccess || data?.access === 'proposal';
+	const guidanceKey = goal && goalGuidanceKey(goal, data.capabilities, data.access);
+	const capabilities = data?.capabilities || {};
+	const returned = privateAccess && goal?.lifecycle === 'active' && Boolean(goal.selfReview) && !goal.needsReviewer;
+	const currentAction = guidanceKey && !['history', 'closed', 'waiting', 'waitingAgreement', 'waitingReview', 'administration', 'administrationAssigned'].includes(guidanceKey);
+	const waitingParticipant = goal?.subjectAcceptedAt && !goal?.reviewerAcceptedAt ? participantNames[goal.reviewerId] || c.responsible.submitted : goal?.reviewerAcceptedAt && !goal?.subjectAcceptedAt ? participantNames[goal.subjectId] || c.responsible.active : c.responsible.proposed;
+	const responsible = ['history', 'closed'].includes(guidanceKey) ? null : currentAction || (guidanceKey === 'administration' && capabilities.canReassignReviewer) ? c.you : guidanceKey === 'waitingAgreement' ? waitingParticipant : guidanceKey === 'waitingReview' ? participantNames[goal.reviewerId] || c.responsible.submitted : guidanceKey === 'administrationAssigned' ? c.responsible.proposed : guidanceKey === 'administration' ? null : goal?.needsReviewer ? c.responsible.manager : c.responsible[goal?.lifecycle];
+	const guidance = guidanceKey === 'waitingAgreement' ? goal.subjectAcceptedAt && !goal.reviewerAcceptedAt ? c.guidance.waitingReviewer : goal.reviewerAcceptedAt && !goal.subjectAcceptedAt ? c.guidance.waitingMember : c.guidance.waitingBoth : c.guidance[guidanceKey];
+	const preferredAction = guidanceKey === 'evidence' && capabilities.canSubmit && data?.updates?.length && !returned ? 'submit' : null;
+	const nextAction = guidanceKey === 'propose' ? [c.propose, '#goal-agreement']
+		: ['accept', 'acceptPersonal'].includes(guidanceKey) ? [c.accept, '#goal-agreement']
+		: guidanceKey === 'assign' || (guidanceKey === 'administration' && capabilities.canReassignReviewer) ? [c.reassign, '#goal-reviewer-heading']
+		: guidanceKey === 'revise' ? [c.reviseTerms, '#goal-terms-editor']
+		: guidanceKey === 'review' ? [c.publishReview, '#goal-action-heading']
+		: guidanceKey === 'respond' ? [c.respond, '#goal-action-heading']
+		: ['evidence', 'personal'].includes(guidanceKey) ? [preferredAction ? c.submitReview : c.addEvidence, '#goal-action-heading'] : null;
 	const mutate = async (path, fields) => {
 		if (submitting.current || loading || !goal) return false;
 		submitting.current = true; setSaving(true); setFeedback(null);
@@ -68,40 +109,38 @@ export default function TeamGoalDetail({ teamId, goalId, options = {} }) {
 		{options[key] > 0 && <Link className="btn btn-secondary" href={href({ [key]: Math.max(0, options[key] - 50) })}>{c.previous}</Link>}
 		{nextOffset != null && <Link className="btn btn-secondary" href={href({ [key]: nextOffset })}>{c.next}</Link>}
 	</nav>;
-	return <main className={styles.shell} aria-busy={loading}><div className={styles.layout}><TeamWorkspaceNav teamId={teamId} section="goals" goalsEnabled /><section className={styles.content}>
-		<Link href={directory} className={styles.back}><ArrowLeft size={15} aria-hidden="true" />{c.back}</Link>
-		{loading && <p role="status">{c.loading}</p>}
+	return <section className={styles.goalPage} aria-busy={loading}>
+		<nav className="workspace-context" aria-label={t.teams.ux.context}><Link href={directory} className={styles.back}><ArrowLeft size={15} aria-hidden="true" />{c.back}</Link></nav>
+		{loading && !goal && <WorkspaceSkeleton kind="detail" label={c.loading} />}
 		{error && <div className={styles.error} role="alert"><p>{[403, 404].includes(error.status) ? c.unavailable : c.failed}</p><button type="button" className="btn btn-secondary" onClick={reload}>{c.retry}</button></div>}
 		{feedback && <p className={feedback.error ? styles.error : styles.notice} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
 		{goal && <>
-			<header className={styles.header}><div><h1>{hasTerms ? goal.title : c.administration}</h1><p>{c.version(goal.version)} · {date(goal.periodStart)} — {date(goal.periodEnd)}</p></div><span className={styles.role}>{c.state[goal.lifecycle]}</span></header>
-			<section className={styles.notice} aria-labelledby="goal-next-action"><h2 id="goal-next-action">{c.guidance.title}</h2><p>{c.guidance[goalGuidanceKey(goal, data.capabilities, data.access)]}</p></section><p className={styles.lede}>{data.access === 'proposal' ? c.proposal : c.privacy}</p>
-			{goal.needsReviewer && <p className={styles.notice}>{c.needsReviewer}</p>}
-			<nav className={styles.headerActions} aria-label={c.title}>
-				{goal.version > 1 && <Link className="btn btn-secondary" href={`${base}?version=${goal.version - 1}`}>{c.previousVersion}</Link>}
-				{goal.version < goal.currentVersion && <Link className="btn btn-secondary" href={`${base}?version=${goal.version + 1}`}>{c.nextVersion}</Link>}
-			</nav>
+			<header className={`${styles.header} ${styles.goalHeader}`}><div><h1>{hasTerms ? goal.title : c.administration}</h1><p>{date(goal.periodStart)} — {date(goal.periodEnd)} · {c.version(goal.version)}</p></div></header>
+			<section className={styles.goalNow} aria-labelledby="goal-next-action"><div className={styles.goalNowState}><span>{guidanceKey === 'history' ? c.historyTitle : c.currentStatus}</span><strong>{guidanceKey === 'closed' ? c.state[goal.lifecycle] : goal.needsReviewer && !goal.reviewerId ? c.needsReviewer : returned ? c.returnedStatus : c.state[goal.lifecycle]}</strong><p>{returned ? c.returnedSummary : c.statusSummary[goal.lifecycle]}</p>{goal.reviewerId && <div className={styles.goalReviewerIdentity}><span>{c.reviewerAssigned}:</span>{participantIdentity(goal.reviewerId, c.reviewer)}</div>}</div><div className={styles.goalNowAction}><h2 id="goal-next-action">{guidanceKey === 'closed' ? c.closedTitle : c.guidance.title}</h2><p>{returned ? c.returnedGuidance : preferredAction ? c.submitGuidance : guidanceKey === 'revise' ? c.reviseGuidance : guidance}</p>{responsible && <p className={styles.goalResponsible}><strong>{c.responsibleLabel}:</strong> {responsible}</p>}{nextAction && <a className="btn btn-primary" href={nextAction[1]}>{nextAction[0]}</a>}</div></section>
+			{hasTerms && <dl className={styles.goalPeople}><div><dt>{c.member}</dt><dd>{participantIdentity(goal.subjectId, c.member)}</dd></div><div><dt>{c.reviewer}</dt><dd>{goal.reviewerId ? participantIdentity(goal.reviewerId, c.reviewer) : c.noAssignedReviewer}</dd></div></dl>}
+			<details className={styles.privacyNote}><summary>{c.privacyTitle}</summary><p>{data.access === 'proposal' ? c.proposal : c.privacy}</p></details>
 			{hasTerms && <>
-				{['draft', 'proposed'].includes(goal.lifecycle) && <section className={styles.goalDetail}><h2>{c.agreement}</h2><p>{goal.subjectAcceptedAt ? c.subjectAccepted : c.subjectPending}</p><p>{!goal.reviewerId ? c.personalOnly : goal.reviewerAcceptedAt ? c.reviewerAccepted : c.reviewerPending}</p><div className={styles.headerActions}>
+				{['draft', 'proposed'].includes(goal.lifecycle) && <section id="goal-agreement" className={styles.goalDetail}><h2>{c.agreement}</h2><p>{goal.subjectAcceptedAt ? c.subjectAccepted : c.subjectPending}</p><p>{!goal.reviewerId ? c.personalOnly : goal.reviewerAcceptedAt ? c.reviewerAccepted : c.reviewerPending}</p><div className={styles.headerActions}>
 					{data.capabilities?.canPropose && <button type="button" className="btn btn-primary" disabled={saving || loading} onClick={() => transition('propose')}>{saving ? c.saving : c.propose}</button>}
 					{data.capabilities?.canAccept && <button type="button" className="btn btn-primary" disabled={saving || loading} onClick={() => transition('accept')}>{saving ? c.saving : c.accept}</button>}
 				</div></section>}
-				<section className={styles.goalDetail}><h2>{c.success}</h2><p>{goal.successDescription}</p></section>
+				<div className={styles.goalDefinition}><section className={styles.goalDetail}><h2>{c.success}</h2><p>{goal.successDescription}</p></section>
 				<section className={styles.goalDetail}><h2>{c.measurement}</h2>{goal.measurement.kind === 'milestone' ? <><h3>{c.criteria}</h3><p>{goal.measurement.criteria}</p></> : <dl className={styles.goalNumbers}>
 					<div><dt>{c.baseline}</dt><dd>{number(goal.measurement.baseline)} {goal.measurement.unit}</dd></div>
 					<div><dt>{c.target}</dt><dd>{number(goal.measurement.target)} {goal.measurement.unit}</dd></div>
 					{privateAccess && <><div><dt>{c.current}</dt><dd>{goal.measurement.current == null ? c.unreported : `${number(goal.measurement.current)} ${goal.measurement.unit}`}</dd></div><div><dt>{c.achievement}</dt><dd>{goal.achievement == null ? c.unreported : `${number(goal.achievement)}%`}</dd></div></>}
-				</dl>}<p className={styles.lede}>{c.noScore}</p></section>
+				</dl>}<p className={styles.lede}>{c.noScore}</p></section></div>
 			</>}
-			{privateAccess && <>
+			{privateAccess && <div className={styles.goalActivity}>
 				<section className={styles.goalDetail}><h2>{c.evidence}</h2>{data.updates.length ? <ol className={styles.goalList}>{data.updates.map(update => <li className={styles.goalEvidence} key={update.id}>{author(update, update.createdAt)}<p>{update.note}</p>{update.value != null && <strong>{c.current}: {number(update.value)} {goal.measurement.unit}</strong>}{update.reference && <p>{update.reference.access === 'available' ? <Link href={`/p/${encodeURIComponent(update.reference.projectCode)}${update.reference.topicId ? `?topic=${encodeURIComponent(update.reference.topicId)}` : ''}`}>{update.reference.title}{update.reference.topicTitle ? ` · ${update.reference.topicTitle}` : ''}</Link> : <span>{c.referenceUnavailable}</span>}</p>}{update.links.length > 0 && <ul>{update.links.map((link, index) => <li key={`${index}:${link}`}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>)}</ul>}</li>)}</ol> : <p>{c.noEvidence}</p>}{pagination('updatesOffset', data.updatesNextOffset, c.evidencePages)}</section>
 				{goal.selfReview && <section className={styles.goalDetail}><h2>{c.selfReview}</h2><p>{goal.selfReview}</p></section>}
-				<section className={styles.goalDetail}><h2>{c.review}</h2>{data.review ? <>{author(data.review, data.review.publishedAt)}<strong>{c.outcome[data.review.outcome]}</strong><p>{data.review.explanation}</p><h3>{c.nextStep}</h3><p>{data.review.nextStep}</p></> : <p>{c.noReview}</p>}</section>
+				{(data.review || ['submitted', 'reviewed'].includes(goal.lifecycle)) && <section className={styles.goalDetail}><h2>{c.review}</h2>{data.review ? <>{author(data.review, data.review.publishedAt)}<strong>{c.outcome[data.review.outcome]}</strong><p>{data.review.explanation}</p><h3>{c.nextStep}</h3><p>{data.review.nextStep}</p></> : <p>{c.noReview}</p>}</section>}
 				{data.review && <section className={styles.goalDetail}><h2>{c.responses}</h2>{data.responses.length ? <ol className={styles.goalList}>{data.responses.map(response => <li className={styles.goalEvidence} key={response.id}>{author(response, response.createdAt)}{response.acknowledged && <strong>{c.acknowledged}</strong>}{response.response && <p>{response.response}</p>}</li>)}</ol> : <p>{c.noResponses}</p>}{pagination('responsesOffset', data.responsesNextOffset, c.responsePages)}</section>}
-			</>}
+			</div>}
 		</>}
-		<GoalActionForm goal={privateAccess ? goal : null} capabilities={data?.capabilities} busy={saving || loading} onTransition={transition} />
+		<GoalActionForm goal={privateAccess ? goal : null} capabilities={data?.capabilities} busy={saving || loading} onTransition={transition} preferredAction={preferredAction} />
 		<GoalTermsEditor goal={privateAccess ? goal : null} capabilities={data?.capabilities} busy={saving || loading} onTransition={transition} />
-		<GoalReviewerForm teamId={teamId} goal={goal} allowed={Boolean(data?.capabilities?.canReassignReviewer)} busy={saving || loading} onAssign={fields => mutate('reviewer', fields)} />
-	</section></div></main>;
+		<GoalReviewerForm goal={goal} allowed={Boolean(data?.capabilities?.canReassignReviewer)} busy={saving || loading} members={participantMembers} loadError={memberLoadError} onRetry={() => setMemberRetry(value => value + 1)} onAssign={fields => mutate('reviewer', fields)} />
+		{goal && (goal.version > 1 || goal.version < goal.currentVersion) && <details className={styles.goalHistory}><summary>{c.historyTitle}</summary><p>{c.historyHint}</p><nav className={styles.headerActions} aria-label={c.historyTitle}>{goal.version > 1 && <Link className="btn btn-secondary" href={`${base}?version=${goal.version - 1}`}>{c.previousVersion}</Link>}{goal.version < goal.currentVersion && <Link className="btn btn-secondary" href={`${base}?version=${goal.version + 1}`}>{c.nextVersion}</Link>}</nav></details>}
+	</section>;
 }

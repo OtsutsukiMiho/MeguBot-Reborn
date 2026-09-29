@@ -1,0 +1,26 @@
+.skeleton { min-height: 10rem; width: 100%; }
+.compact { min-height: 5rem; }
+.header { display:grid; align-content:center; gap:.6rem; min-height:6rem; border-bottom:1px solid var(--line); }
+.header span { display:block; height:1rem; border-radius:5px; background:color-mix(in srgb, var(--line) 60%, var(--surface-2)); animation:workspacePulse 1.4s ease-in-out infinite; }
+.header span:first-child { width:min(28ch,65%); height:1.8rem; }
+.header span:last-child { width:min(44ch,80%); }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.shape { display: grid; gap: 1rem; }
+.shape span { display: block; border-radius: 5px; background: color-mix(in srgb, var(--line) 60%, var(--surface-2)); animation: workspacePulse 1.4s ease-in-out infinite; }
+.heading { width: min(32ch, 65%); height: 1.8rem; }
+.status { width: min(20ch, 48%); height: 1rem; }
+.wide { width: 85%; height: 1rem; }
+.columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.shape .panel { height: 9rem; border: 1px solid var(--line); background: var(--surface-raised, var(--sunk)); }
+.cards { display:grid; }
+.card { display:grid; align-content:start; gap:.7rem; min-height:11.5rem; padding:1.2rem; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); }
+.shape .cardFooter { width:100%; height:3.3rem; margin-top:.4rem; border-top:1px solid var(--line); border-radius:0; background:var(--surface-2); }
+.rows { display: grid; border-top: 1px solid var(--line); }
+.row { display: grid; gap: .7rem; padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.shape .rowTitle { width: min(30ch, 75%); height: 1.05rem; }
+.shape .rowMeta { width: min(19ch, 45%); height: .75rem; }
+.compact .row { padding: .65rem 0; }
+.compact .row:nth-child(3) { display: none; }
+@keyframes workspacePulse { 50% { opacity: .55; } }
+@media (max-width: 760px) { .columns { grid-template-columns: 1fr; } .shape .panel { height: 6rem; } }
+@media (prefers-reduced-motion: reduce) { .shape span, .header span { animation: none; } }

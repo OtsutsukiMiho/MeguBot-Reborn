@@ -31,6 +31,7 @@ const { isDisposableTestDatabase } = require('./test-database');
 		await goals.transitionGoal(goal.id, subject, { action: 'accept', version: 1, expectedRevision: 1 });
 		await goals.transitionGoal(goal.id, owner, { action: 'accept', version: 1, expectedRevision: 2 });
 		const evidence = { action: 'evidence', version: 1, expectedRevision: 3, note: 'Accepted delivery', reference: { projectCode: project.code, topicId: topic.id } };
+		await assert.rejects(goals.transitionGoal(goal.id, subject, { ...evidence, links: ['http://localhost:3000/teams/test/goals/goal'] }), { code: 'goal_evidence_links_invalid' });
 		await assert.rejects(goals.transitionGoal(goal.id, subject, evidence), { code: 'goal_reference_unavailable' });
 		assert.equal((await goals.getGoal(goal.id, subject)).goal.revision, 3);
 		await client.query("INSERT INTO project_memberships(project_id,user_id,role) VALUES ($1,$2,'viewer')", [project.id, subject]);

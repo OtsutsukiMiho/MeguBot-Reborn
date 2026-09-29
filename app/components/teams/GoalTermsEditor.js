@@ -26,7 +26,7 @@ export default function GoalTermsEditor({ goal, capabilities = {}, busy, onTrans
 		event.preventDefault(); if (busy || stale || !reason.trim()) return;
 		if (await onTransition(revise ? 'revise' : 'edit', { ...goalTermsPayload(form), reason })) { setDraftRevision(null); setReason(''); }
 	};
-	return <details className={styles.goalDetail}><summary>{revise ? c.reviseTerms : c.editTerms}</summary>
+	return <details id="goal-terms-editor" className={styles.goalDetail} open={revise || undefined}><summary>{revise ? c.reviseTerms : c.editTerms}</summary>
 		{revise && <p className={styles.lede}>{c.reviseHint}</p>}
 		<form className={styles.form} onSubmit={submit} aria-busy={busy}>
 			<GoalTermsFields form={form} set={set} busy={busy} />

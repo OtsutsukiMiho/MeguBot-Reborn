@@ -36,6 +36,7 @@ config.json
 temp/
 .agents/
 .tmp/
+.secrets/
 .impeccable/
 sounds/temp*
 
@@ -62,7 +63,6 @@ desktop.ini
 !DIRECTION.md
 !DISCORD-PROXY-SETUP.md
 !YOUTUBE_AUDIO_QUEUE_IMPLEMENTATION_PLAN.md
-!VOICE_DATABASE_RESTART_INCIDENT_PLAN.md
 !COMPANY_TEAMS_PROJECTS_IMPROVEMENT_PLAN.md
 !COMPANY_IMPLEMENTATION_STATUS.md
 !PRE_RELEASE_AUDIT.md
@@ -72,3 +72,6 @@ desktop.ini
 # Local env backups
 .env.backup*
 tools/yt-dlp/
+
+# Local historical incident note, outside the Team workspace release.
+/VOICE_DATABASE_RESTART_INCIDENT_PLAN.md

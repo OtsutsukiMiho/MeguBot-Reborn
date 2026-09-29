@@ -15,7 +15,7 @@ const output=path.resolve('.impeccable/review/workspace-ux');
 		const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
 		await context.addInitScript(({lang,theme})=>{localStorage.setItem('megu-lang',lang);localStorage.setItem('megu-theme',theme);},{lang,theme});
 		let team={id:'demo',name:lang==='th'?'ทีมพัฒนาระบบสำหรับชุมชน':'Community development',description:'Team description',role:'owner',revision:1,color:'blue',archivedAt:null};
-		let failLoad=true,failSave=true,linkActive=false,failLifecycle=true;
+		let failLoad=true,failSave=true,linkActive=false,failLifecycle=true,pendingRequests=[],summaryReads=0;
 		const writes=[];
 		let projectTransfer=null;
 		let pendingCreation=null,creationReady=null;
@@ -31,13 +31,17 @@ const output=path.resolve('.impeccable/review/workspace-ux');
 			else if(url.pathname==='/api/megu/teams' && method==='GET'){if(failLoad){status=503;body={code:'unavailable'};}else body={teams:[team]};}
 			else if(url.pathname==='/api/megu/teams' && method==='POST'){writes.push({method,path:url.pathname,payload:request.postDataJSON()});pendingCreation=route;creationReady?.();creationReady=null;return;}
 			else if(url.pathname==='/api/megu/teams/created/summary')body={team:{...team,id:'created',name:'Creation draft'},me:{userId:'owner',role:'owner'},capabilities};
+			else if(url.pathname==='/api/megu/teams/created/members')body={members:[{userId:'owner',role:'owner',displayName:'Owner'}],total:1,nextOffset:null};
+			else if(url.pathname==='/api/megu/teams/created/goals')body={goals:[],nextOffset:null};
 			else if(['/api/megu/teams/discord-guilds','/api/megu/teams/workspace-guilds'].includes(url.pathname))body={guilds:[]};
 			else if(url.pathname==='/api/megu/teams/demo' && method==='PATCH'){
 				const payload=request.postDataJSON();writes.push({method,payload});assert.equal(payload.expectedRevision,team.revision);
 				if(failSave){status=503;body={code:'unavailable'};}else{team={...team,...payload,revision:team.revision+1};body={team};}
-			}else if(['/api/megu/teams/demo','/api/megu/teams/demo/summary'].includes(url.pathname))body={team,me:{userId:'owner',role:'owner'},capabilities};
+			}else if(['/api/megu/teams/demo','/api/megu/teams/demo/summary'].includes(url.pathname)){if(url.pathname.endsWith('/summary'))summaryReads++;body={team,me:{userId:'owner',role:'owner'},capabilities};}
 			else if(url.pathname==='/api/megu/teams/demo/members')body={members:[{userId:'owner',role:'owner',displayName:'Owner',joinedAt:'2026-09-20T00:00:00Z'},{userId:'candidate',role:'member',displayName:'Candidate',joinedAt:'2026-09-20T00:00:00Z'}],total:2,nextOffset:null};
-			else if(url.pathname==='/api/megu/teams/demo/join-requests')body={requests:[],link:linkActive?{active:true}:null,teamRevision:team.revision};
+			else if(url.pathname==='/api/megu/teams/demo/member-titles')body={members:url.searchParams.getAll('userId').map(userId=>({userId,titles:[]}))};
+			else if(url.pathname==='/api/megu/teams/demo/goals')body={goals:[],nextOffset:null};
+			else if(url.pathname==='/api/megu/teams/demo/join-requests')body={requests:pendingRequests,link:linkActive?{active:true}:null,teamRevision:team.revision};
 			else if(url.pathname==='/api/megu/teams/demo/join-link'){writes.push({method,payload:request.postDataJSON()});linkActive=method!=='DELETE';body=linkActive?{token:'synthetic-invite'}:{ok:true};}
 			else if(['/api/megu/teams/demo/archive','/api/megu/teams/demo/ownership-transfer'].includes(url.pathname)){
 				const payload=request.postDataJSON();writes.push({method,path:url.pathname,payload});assert.equal(payload.expectedRevision,team.revision);
@@ -59,8 +63,14 @@ const output=path.resolve('.impeccable/review/workspace-ux');
 			await page.keyboard.press('Escape');assert.equal(await button.getAttribute('aria-expanded'),'false');assert.equal(await button.evaluate(el=>el===document.activeElement),true);
 			await button.click();await menu.getByRole('link',{name:t.nav.teams,exact:true}).click();assert.equal(await button.getAttribute('aria-expanded'),'false');
 		}else{assert.equal(await page.locator('.nav-menu-toggle').isVisible(),false);assert.equal(await page.locator('.nav-mobile-signout').isVisible(),false);assert.equal(await page.getByRole('button',{name:t.nav.signOut,exact:true}).count(),1);}
-		await page.goto(`${base}/teams/demo/people`);await page.getByRole('button',{name:c.ux.invitePeople,exact:true}).click();await page.waitForURL('**/teams/demo/requests');
+		await page.goto(`${base}/teams/demo/people`);await page.getByRole('heading',{name:team.name,exact:true}).waitFor();await page.evaluate(()=>{window.__teamTitle=document.querySelector('main h1');});const beforeSummary=summaryReads;
+		await page.getByRole('button',{name:c.ux.invitePeople,exact:true}).click();await page.waitForURL('**/teams/demo/join-requests');
+		assert.equal(await page.evaluate(()=>window.__teamTitle===document.querySelector('main h1')),true,'Team shell stays mounted across People and Join requests');assert.equal(summaryReads,beforeSummary,'Team summary stays cached across child navigation');
 		await page.getByText(c.ux.requestsHint,{exact:true}).waitFor();await capture('invite-empty');
+		if((lang==='en'&&theme==='light'&&[390,1440].includes(width))||(lang==='th'&&theme==='dark'&&width===768)){
+			pendingRequests=[{id:'request',displayName:'Candidate',requestedAt:'2026-09-20T00:00:00Z'}];await page.reload();await page.getByRole('button',{name:c.approve,exact:true}).waitFor();
+			await page.getByText(new Intl.DateTimeFormat(lang==='th'?'th-TH':'en-GB',{dateStyle:'medium'}).format(new Date(pendingRequests[0].requestedAt)),{exact:true}).waitFor();await capture('invite-pending');pendingRequests=[];await page.reload();await page.getByText(c.noRequests,{exact:true}).waitFor();
+		}
 		await page.getByRole('button',{name:c.createJoinLink,exact:true}).click();await page.getByText(c.ux.inviteReady,{exact:true}).waitFor();
 		const invite=page.getByRole('textbox',{name:c.joinTitle,exact:true});assert.equal(await invite.inputValue(),`${base}/teams/join/synthetic-invite`);
 		await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('synthetic clipboard denial');};});
@@ -70,10 +80,12 @@ const output=path.resolve('.impeccable/review/workspace-ux');
 		assert.equal(writes.filter(write=>write.method==='PATCH').length,2);assert.equal(writes.filter(write=>write.method==='POST').length,1);
 		if(Number(process.env.MEGU_UX_BATCH||4)>=2){
 			team.discordGuild={id:'811111111111111111',name:'Community server'};
-			await page.goto(`${base}/teams/demo`);await page.getByRole('heading',{name:c.ux.shortcuts,exact:true}).waitFor();
+			await page.goto(`${base}/teams/demo`);await page.getByRole('heading',{name:c.overviewCopy.workspaceNow,exact:true}).waitFor();
 			const hierarchy=page.getByRole('navigation',{name:c.ux.context,exact:true});assert.equal(await hierarchy.getByRole('link',{name:'Community server',exact:true}).getAttribute('href'),'/teams/server/811111111111111111/teams');
 			assert.equal(await page.getByRole('link',{name:c.ux.configureDiscord,exact:true}).getAttribute('href'),'/teams/demo/settings#discord-roles');await capture('overview-context');
-			await page.locator('main').getByRole('link',{name:c.workspace.projects,exact:true}).last().click();await page.waitForURL('**/teams/demo/projects');await page.getByText(c.ux.noProjectsHint,{exact:true}).waitFor();await capture('projects-empty');
+			await page.goto(`${base}/teams/demo/people`);await page.getByText('Candidate',{exact:true}).waitFor();await capture('team-people');
+			await page.goto(`${base}/teams/demo`);await page.getByRole('heading',{name:c.overviewCopy.workspaceNow,exact:true}).waitFor();
+			await page.getByRole('region',{name:c.workspace.projects,exact:true}).getByRole('link',{name:c.overviewCopy.viewAll}).click();await page.waitForURL('**/teams/demo/projects');await page.getByText(c.ux.noProjectsHint,{exact:true}).waitFor();await capture('projects-empty');
 			team.discordGuild=null;
 		}
 		if(Number(process.env.MEGU_UX_BATCH||4)>=3){

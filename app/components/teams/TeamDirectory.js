@@ -8,6 +8,7 @@ import AuthGate from '../AuthGate';
 import CustomSelect from '../CustomSelect';
 import MeguMark from '../MeguMark';
 import ProjectDirectoryNav from '../projects/ProjectDirectoryNav';
+import MainContextLoading from '../MainContextLoading';
 import { useCopy } from '../../copy';
 import TeamMark from './TeamMark';
 import useDraftGuard, { requestDraftNavigation } from '../useDraftGuard';
@@ -30,27 +31,31 @@ export default function TeamDirectory() {
 	const createButton = useRef(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
+	const loadVersion = useRef(0);
 	const load = async () => {
+		const current = ++loadVersion.current;
 		setLoading(true); setError('');
 		try {
-			const [meResponse, teamResponse, guildResponse, workspaceResponse] = await Promise.all([
-				fetch('/api/megu/me'), fetch('/api/megu/teams?includeArchived=true'),
-				DISCORD_ENABLED ? fetch('/api/megu/teams/discord-guilds') : Promise.resolve(null),
-				DISCORD_ENABLED ? fetch('/api/megu/teams/workspace-guilds') : Promise.resolve(null),
-			]);
+			const guildTask = DISCORD_ENABLED ? fetch('/api/megu/teams/discord-guilds').then(response => response.ok ? response.json() : null).catch(() => null) : Promise.resolve(null);
+			const workspaceTask = DISCORD_ENABLED ? fetch('/api/megu/teams/workspace-guilds').then(async response => ({ unavailable: !response.ok, body: response.ok ? await response.json() : null })).catch(() => ({ unavailable: true, body: null })) : Promise.resolve(null);
+			const [meResponse, teamResponse] = await Promise.all([fetch('/api/megu/me'), fetch('/api/megu/teams?includeArchived=true')]);
 			const me = await meResponse.json();
+			if (current !== loadVersion.current) return;
 			if (!me.loggedIn) { setAuth('signed-out'); return; }
 			const body = await teamResponse.json();
 			if (!teamResponse.ok) throw body;
 			setActorId(me.user.id); setAuth('ready'); setTeams(body.teams || []);
-			if (guildResponse?.ok) setGuilds((await guildResponse.json()).guilds || []);
-			setDiscoveryUnavailable(Boolean(workspaceResponse && !workspaceResponse.ok));
-			if (workspaceResponse?.ok) setWorkspaceGuilds((await workspaceResponse.json()).guilds || []);
+			Promise.all([guildTask, workspaceTask]).then(([guild, workspace]) => {
+				if (current !== loadVersion.current) return;
+				if (guild) setGuilds(guild.guilds || []);
+				setDiscoveryUnavailable(Boolean(workspace?.unavailable));
+				if (workspace?.body) setWorkspaceGuilds(workspace.body.guilds || []);
+			});
 		}
-		catch (problem) { setAuth('error'); setError(c.errors[problem?.code] || c.errors.failed); }
-		finally { setLoading(false); }
+		catch (problem) { if (current === loadVersion.current) { setAuth('error'); setError(c.errors[problem?.code] || c.errors.failed); } }
+		finally { if (current === loadVersion.current) setLoading(false); }
 	};
-	useEffect(() => { load(); }, []);
+	useEffect(() => { load(); return () => { loadVersion.current++; }; }, []);
 	useEffect(() => { setServerFilter(new URLSearchParams(window.location.search).get('server') || ''); }, []);
 	const visibleTeams = serverFilter ? teams.filter(team => team.discordGuild?.id === serverFilter) : teams;
 	const groups = useMemo(() => {
@@ -63,9 +68,10 @@ export default function TeamDirectory() {
 			if (!grouped.has(key)) grouped.set(key, { key, guild: team.discordGuild || null, teams: [] });
 			grouped.get(key).teams.push(team);
 		}
-		return [...grouped.values()].sort((left, right) => left.key === 'independent' ? 1 : right.key === 'independent' ? -1 : left.guild.name.localeCompare(right.guild.name));
+		return [...grouped.values()].sort((left, right) => left.key === 'independent' ? 1 : right.key === 'independent' ? -1 :
+			Number(Boolean(right.teams.length)) - Number(Boolean(left.teams.length)) || left.guild.name.localeCompare(right.guild.name) || left.key.localeCompare(right.key));
 	}, [visibleTeams, guilds, workspaceGuilds, serverFilter]);
-	if (auth === 'loading') return <main className={styles.shell} aria-busy="true"><header className={styles.header}><div><h1>{c.title}</h1><span className="skeleton-line" style={{ width: '34ch' }} /></div></header><span className="skeleton-line" style={{ width: '100%', minHeight: '7rem' }} /></main>;
+	if (auth === 'loading') return <main className={styles.shell} aria-busy="true"><MainContextLoading title={c.loadingTeams} description={c.loadingTeamsLede} /></main>;
 	if (auth === 'signed-out') return <AuthGate title={c.signedOutTitle} lede={c.signedOutLede} />;
 	if (auth === 'error') return <main className={styles.shell}><header className={styles.header}><div><h1>{c.title}</h1><p>{c.lede}</p></div></header><p className={styles.error} role="alert">{error}</p><button type="button" className="btn btn-secondary" disabled={loading} onClick={load}>{c.workspace.retry}</button></main>;
 	return <main className={styles.shell} aria-busy={loading}>

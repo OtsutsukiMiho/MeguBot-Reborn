@@ -8,6 +8,7 @@ import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
 import CustomSelect from '../components/CustomSelect';
 import ProjectDirectoryNav from '../components/projects/ProjectDirectoryNav';
+import WorkspaceSkeleton from '../components/WorkspaceSkeleton';
 import { useCopy } from '../copy';
 import styles from './projects.module.css';
 import { parseDirectoryFilters, serializeDirectoryFilters } from '../../core/project-directory-filters';
@@ -82,7 +83,7 @@ export default function ProjectsPage() {
 
 	useEffect(() => {
 		if (!filtersReady) return;
-		const timer = setTimeout(() => { const append = appendNext.current; appendNext.current = false; load({ cursor, append }); }, 180);
+		const timer = setTimeout(() => { const append = appendNext.current; appendNext.current = false; load({ cursor, append }); }, me ? 180 : 0);
 		return () => { clearTimeout(timer); ++requestSequence.current; };
 	}, [load, filtersReady, cursor]);
 	useEffect(() => {
@@ -158,7 +159,7 @@ export default function ProjectsPage() {
 						{TEAMS_ENABLED && <div className={styles.scopeSelect}><CustomSelect size="compact" searchable={scopedTeams.length > 5} ariaLabel={p.scope} value={scope} onChange={value => changeFilter(setScope, value)} options={[{ value: 'all', label: p.scopes.all }, ...(!server ? [{ value: 'standalone', label: p.scopes.standalone }] : []), ...scopedTeams.map(team => ({ value: team.id, label: team.name, subtitle: t.teams.role[team.role] }))]} /></div>}
 					</div>
 
-					{visible.length === 0 ? <section className={styles.filteredEmpty}><p>{p.filteredEmpty}</p><button className="btn btn-secondary btn-sm" type="button" onClick={() => { changeFilter(setQuery, ''); setMine(false); setBucket('active'); setScope('all'); setServer(''); }}>{p.clearFilters}</button></section> : (
+					{loading ? <WorkspaceSkeleton label={p.loadingMore} /> : visible.length === 0 ? <section className={styles.filteredEmpty}><p>{p.filteredEmpty}</p><button className="btn btn-secondary btn-sm" type="button" onClick={() => { changeFilter(setQuery, ''); setMine(false); setBucket('active'); setScope('all'); setServer(''); }}>{p.clearFilters}</button></section> : (
 						<section className={styles.projectList} aria-label={p.title}>
 							{visible.map(project => <ProjectRow key={project.id} project={project} p={p} lang={lang} />)}
 						</section>
@@ -190,5 +191,5 @@ function ProjectRow({ project, p, lang }) {
 
 
 function ProjectsSkeleton({ title }) {
-	return <div className={styles.directory} aria-busy="true"><header className={styles.directoryHead}><div><h1>{title}</h1><span className="skeleton-line" style={{ width: '28ch' }} /></div></header><section className={styles.projectList}>{[0, 1, 2].map(i => <div className={styles.projectRow} key={i}><span className="skeleton-line" style={{ width: `${18 + i * 4}ch` }} /></div>)}</section></div>;
+	return <div className={styles.directory} aria-busy="true"><header className={styles.directoryHead}><div><h1>{title}</h1><span className="skeleton-line" style={{ width: '28ch' }} /></div></header>{TEAMS_ENABLED && <ProjectDirectoryNav current="projects" />}<WorkspaceSkeleton /></div>;
 }

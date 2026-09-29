@@ -11,7 +11,6 @@ export { canonicalGoalDate } from './GoalTermsFields';
 import { loadTeamGoalMembers } from './loadTeamGoalMembers.mjs';
 import useDraftGuard from '../useDraftGuard';
 import { useCopy } from '../../copy';
-import TeamWorkspaceNav from './TeamWorkspaceNav';
 import styles from '../../teams/teams.module.css';
 
 export default function CreateTeamGoal({ teamId }) {
@@ -66,17 +65,19 @@ export default function CreateTeamGoal({ teamId }) {
 	};
 	if (loadError?.status === 401) return <AuthGate title={t.teams.signedOutTitle} lede={t.teams.signedOutLede} />;
 	const option = member => ({ value: member.userId, label: member.displayName, avatar: member.avatarUrl, subtitle: t.teams.role[member.role] });
-	return <main className={styles.shell}><div className={styles.layout}><TeamWorkspaceNav teamId={teamId} section="goals" goalsEnabled /><section className={styles.content}>
+	return <section className={styles.goalPage}>
 		<Link data-draft-navigation href={back} className={styles.back} onClick={event => { event.preventDefault(); leave(); }}><ArrowLeft size={15} aria-hidden="true" />{c.back}</Link>
-		<header className={styles.header}><div><h1>{c.create}</h1><p>{c.createHint}</p></div></header>
+		<header className={styles.header}><div><h1>{c.create}</h1><p>{context?.team?.name ? `${context.team.name} · ${c.createHint}` : c.createHint}</p></div></header>
 		{discard && <div className={styles.confirmation} role="alertdialog" aria-labelledby="goal-discard-title"><div><strong id="goal-discard-title">{p.unsavedTitle}</strong><p>{p.unsavedDetail}</p></div><div className={styles.confirmationActions}><button type="button" className="btn btn-secondary" onClick={() => setDiscard(false)}>{p.keepEditing}</button><button type="button" className="btn btn-danger" onClick={() => { setDirty(false); router.push(back); }}>{p.discardChanges}</button></div></div>}
-		{loadError ? <div className={styles.error} role="alert"><p>{c.unavailable}</p><button type="button" className="btn btn-secondary" onClick={() => setRetry(value => value + 1)}>{c.retry}</button></div> : !context ? <p role="status">{c.loading}</p> : <form className={styles.form} onSubmit={submit} aria-busy={busy}>
+		{loadError ? <div className={styles.error} role="alert"><p>{c.unavailable}</p><button type="button" className="btn btn-secondary" onClick={() => setRetry(value => value + 1)}>{c.retry}</button></div> : !context ? <p role="status">{c.loading}</p> : <form className={`${styles.form} ${styles.goalCreateForm}`} onSubmit={submit} aria-busy={busy}>
+			<div className={`${styles.formSectionTitle} ${styles.wide}`}><h2>{c.createPeople}</h2><p>{c.createPeopleHint}</p></div>
 			<div className={styles.field}><span>{c.member}</span><CustomSelect type="member" required disabled={busy || uncertain || !['owner', 'admin'].includes(context.me.role)} ariaLabel={c.member} value={form.subjectId} onChange={value => set('subjectId', value)} options={context.members.filter(member => ['owner', 'admin'].includes(context.me.role) || member.userId === context.me.userId).map(option)} /></div>
 			<div className={styles.field}><span>{c.reviewer}</span><CustomSelect type="member" disabled={busy || uncertain} ariaLabel={c.reviewer} value={form.reviewerId} onChange={value => set('reviewerId', value)} options={[{ value: '', label: c.noReviewer }, ...context.members.filter(member => member.userId !== form.subjectId && ['owner', 'admin'].includes(member.role)).map(option)]} /></div>
 			{!form.reviewerId && <p className={`${styles.lede} ${styles.wide}`}>{c.personalOnly}</p>}
+			<div className={`${styles.formSectionTitle} ${styles.wide}`}><h2>{c.createOutcome}</h2><p>{c.createOutcomeHint}</p></div>
 			<GoalTermsFields form={form} set={set} busy={busy || uncertain} />
 			{error && <p className={`${styles.error} ${styles.wide}`} role="alert">{error}{uncertain && <> <Link href={back}>{c.back}</Link></>}</p>}
 			<div className={`${styles.actions} ${styles.wide}`}><button type="button" className="btn btn-secondary" disabled={busy} onClick={leave}>{p.cancel}</button><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? c.saving : uncertain ? c.retryCreate : c.saveDraft}</button></div>
 		</form>}
-	</section></div></main>;
+	</section>;
 }
