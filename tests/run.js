@@ -11,6 +11,8 @@ const {
 } = require('./test-database.js');
 
 const SUITES = [
+	['reminder-delivery.test.js', 'scheduled Discord reminders — send ordering, retry, overdue recurrence and overlapping ticks'],
+	['reminder-persistence.test.js', 'scheduled reminder persistence — current/legacy PostgreSQL tables and write acknowledgements'],
 	['team-archive-disclosure.test.js', 'team archive — bilingual irreversible goal consequence and safe cancellation'],
 	['custom-select-keyboard.test.js', 'shared selector — keyboard, search, disabled options and accessible listbox'],
 	['creation-request.test.js', 'team/project creation — immediate latch and immutable retry intent'],
@@ -58,6 +60,7 @@ const SUITES = [
 	['project-directory-filters.test.js', 'project directory — URL filters preserve scope and bilingual searches'],
 	['rate-limit.test.js', 'the Discord block guard — recognise it, hold it, share it'],
 	['discord-oauth.test.js', 'OAuth 429s — preserve the body and honour Retry-After'],
+	['discord-invite-permissions.test.js', 'Discord bot invites — least-privilege permissions, scopes and encoding'],
 	['console-authorization.test.js', 'console security — current authority and caller/target/bot role hierarchy'],
 	['autorole-command.test.js', 'automatic-role commands — atomic mutation and coherent concurrent joins'],
 	['discord-oauth-session.test.js', 'OAuth sessions — retired legacy callback and current request lifecycle'],

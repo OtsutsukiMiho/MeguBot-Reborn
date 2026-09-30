@@ -14,6 +14,7 @@ const database = require('../database/database.js');
 const core = require('../../core/index.js');
 const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
+const { createBotInviteUrl } = require('./bot-invite.js');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createProjectDeadlineSweep } = require('../../adapters/notifications/project-deadlines.js');
@@ -1156,7 +1157,7 @@ app.get('/api/guilds', async (req, res) => {
 		}
 
 		const botInfo = guildInfoMap[gid] || {};
-		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${gid}`;
+		const inviteUrl = createBotInviteUrl(clientId, gid);
 
 		const isOwner = Boolean((adminGuild && adminGuild.owner) || g.owner);
 		let role = 'member';
@@ -1184,7 +1185,7 @@ app.get('/api/guilds', async (req, res) => {
 
 		const botInfo = guildInfoMap[gid] || {};
 		const isBotInGuild = botOnline ? !!presenceMap[gid] : null;
-		const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${gid}`;
+		const inviteUrl = createBotInviteUrl(clientId, gid);
 
 		enrichedGuilds.push({
 			...ag,

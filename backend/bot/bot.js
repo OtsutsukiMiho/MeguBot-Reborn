@@ -609,64 +609,52 @@ client.once(Events.ClientReady, async (readyClient) => {
 		}
 	}
 
-	setInterval(async () => {
-		try {
-			// Polling the database on a timer is fine; the rule is about Discord.
-			// But the row is deleted before the message is sent, so running this
-			// while blocked would drop the reminder on the floor as well as add
-			// traffic. Skipping the whole tick leaves everything due, and it goes
-			// out on the first tick after the block clears.
-			if (discordBlock.blocked()) return;
+	const { createReminderRunner } = require('../../adapters/discord/scheduled-reminders.js');
+	const reminderTick = createReminderRunner({
+		database,
+		isBlocked: () => discordBlock.blocked(),
+		onError: (error, reminder, stage) => BotLogs('SYSTEM', `Reminder ${reminder?.id ?? 'tick'} ${stage}: ${String(error)}`),
+		deliver: async (r) => {
+			let failure;
+			const guild = await discordCall('delivering a reminder', async () => {
+				try {
+					const destination = client.guilds.cache.get(r.guild_id) || await client.guilds.fetch(r.guild_id);
+					const channel = destination.channels.cache.get(r.channel_id) || await destination.channels.fetch(r.channel_id);
+					if (!channel || typeof channel.send !== 'function') throw Object.assign(new Error('Reminder channel is unavailable'), { code: 10003 });
+					await channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`);
+					return destination;
+				}
+				catch (error) { failure = error; throw error; }
+			}, null);
+			if (!guild) throw failure || new Error('Reminder delivery deferred by Discord guard');
+			return guild;
+		},
+		afterDelivery: async (r, guild) => {
+			const member = await discordCall('fetching a reminder recipient', () => guild.members.fetch(r.user_id));
+			const botMember = guild.members.me;
 
-			const now = Date.now();
-			const activeReminders = await database.getActiveReminders();
-			for (const r of activeReminders) {
-				if (now >= r.reminder_time) {
-					if (r.recurring) {
-						const nextTime = r.reminder_time + 86400000;
-						await database.updateReminderTime(r.id, nextTime);
-					}
-					else {
-						await database.deleteReminder(r.id);
-					}
+			if (member && member.voice && member.voice.channel && botMember && botMember.voice && botMember.voice.channel && member.voice.channel.id === botMember.voice.channel.id) {
+				const { addToQueue, generateUUID } = require('./audio_queue.js');
+				const connection = getOrCreateConnection(guild, botMember.voice.channel);
 
-					const guild = client.guilds.cache.get(r.guild_id);
-					if (!guild) continue;
-
-					const channel = guild.channels.cache.get(r.channel_id);
-					if (channel) {
-						await discordCall('sending a reminder', () => channel.send(`⏰ <@${r.user_id}>, **Reminder:** ${r.message}`));
-					}
-
-					const member = await discordCall('fetching a reminder recipient', () => guild.members.fetch(r.user_id));
-					const botMember = guild.members.me;
-
-					if (member && member.voice && member.voice.channel && botMember && botMember.voice && botMember.voice.channel && member.voice.channel.id === botMember.voice.channel.id) {
-						const { addToQueue, generateUUID } = require('./audio_queue.js');
-						const connection = getOrCreateConnection(guild, botMember.voice.channel);
-
-						if (connection) {
-							const nick = await database.getUserNick(guild.id, r.user_id);
-							const entry = {
-								uuid: generateUUID(),
-								name: `เตือนความจำคุณ ${nick} ${r.message}`,
-								lang: 'th',
-								type: 'GOOGLE_TTS',
-								guild: guild,
-								sender: client.user,
-								voice_channel: botMember.voice.channel,
-								connection: connection,
-							};
-							addToQueue(guild.id, entry);
-						}
-					}
+				if (connection) {
+					const nick = await database.getUserNick(guild.id, r.user_id);
+					const entry = {
+						uuid: generateUUID(),
+						name: `เตือนความจำคุณ ${nick} ${r.message}`,
+						lang: 'th',
+						type: 'GOOGLE_TTS',
+						guild: guild,
+						sender: client.user,
+						voice_channel: botMember.voice.channel,
+						connection: connection,
+					};
+					addToQueue(guild.id, entry);
 				}
 			}
-		}
-		catch (error) {
-			BotLogs('SYSTEM', `Error in reminders interval: ${error.toString()}`);
-		}
-	}, 5000);
+		},
+	});
+	setInterval(reminderTick, 5000);
 });
 
 client.commands = new Collection();

@@ -801,11 +801,12 @@ async function addReminder(userId, guildId, channelId, timeMs, messageText, recu
 	}
 }
 
-async function getActiveReminders() {
+async function getActiveReminders({ throwOnError = false } = {}) {
 	if (pool) {
 		try {
 			const res = await pool.query(
-				'SELECT id, user_id, guild_id, channel_id, reminder_time, message, recurring FROM reminders WHERE triggered = FALSE',
+				// Older tables have a triggered marker; current installs consume by deletion.
+				"SELECT id, user_id, guild_id, channel_id, reminder_time, message, recurring FROM reminders WHERE COALESCE((to_jsonb(reminders)->>'triggered')::boolean, FALSE) = FALSE",
 			);
 			return res.rows.map(row => ({
 				id: row.id,
@@ -819,6 +820,7 @@ async function getActiveReminders() {
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}Database error in getActiveReminders: ${error.message}`);
+			if (throwOnError) throw error;
 			return [];
 		}
 	}
@@ -829,7 +831,8 @@ async function getActiveReminders() {
 				const reminders = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 				return reminders.filter(r => !r.triggered);
 			}
-			catch {
+			catch (error) {
+				if (throwOnError) throw error;
 				return [];
 			}
 		}
@@ -841,9 +844,11 @@ async function deleteReminder(id) {
 	if (pool) {
 		try {
 			await pool.query('DELETE FROM reminders WHERE id = $1', [id]);
+			return true;
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}Database error in deleteReminder: ${error.message}`);
+			return false;
 		}
 	}
 	else {
@@ -853,11 +858,14 @@ async function deleteReminder(id) {
 				let reminders = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 				reminders = reminders.filter(r => r.id !== id);
 				fs.writeFileSync(filePath, JSON.stringify(reminders, null, 2), 'utf8');
+				return true;
 			}
 			catch (error) {
 				BotLogs('SYSTEM', `${COLOR.red}Error deleting reminder in local DB: ${error.message}`);
+				return false;
 			}
 		}
+		return true;
 	}
 }
 
@@ -865,9 +873,11 @@ async function updateReminderTime(id, nextTimeMs) {
 	if (pool) {
 		try {
 			await pool.query('UPDATE reminders SET reminder_time = $2 WHERE id = $1', [id, nextTimeMs]);
+			return true;
 		}
 		catch (error) {
 			BotLogs('SYSTEM', `${COLOR.red}Database error in updateReminderTime: ${error.message}`);
+			return false;
 		}
 	}
 	else {
@@ -880,11 +890,14 @@ async function updateReminderTime(id, nextTimeMs) {
 					rem.reminder_time = nextTimeMs;
 					fs.writeFileSync(filePath, JSON.stringify(reminders, null, 2), 'utf8');
 				}
+				return true;
 			}
 			catch (error) {
 				BotLogs('SYSTEM', `${COLOR.red}Error updating reminder time in local DB: ${error.message}`);
+				return false;
 			}
 		}
+		return true;
 	}
 }
 

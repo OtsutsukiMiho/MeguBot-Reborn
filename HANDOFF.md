@@ -32,6 +32,20 @@ Ports come from `.env` and must not be improvised: `NEXT_PORT=3100`,
 because `next.config.js` proxies `/api/*` from Next through to Express. Running
 Next on any other port breaks the OAuth callback.
 
+## Discord bot invite permissions
+
+**Independent audit: PASS, confirmed by the user on 30 September 2026; approved for controlled release with Reminder Reliability.** Final local release checks confirm the exact invite bitfield `275166620864` and OAuth scopes `bot applications.commands`.
+
+Normal generated bot invites exclude Administrator, Kick Members, Ban Members,
+and Moderate Members. Before configuring optional AutoMod kick penalties,
+honeypot/ban behavior, or timeout moderation, a server operator must manually
+grant the bot the corresponding Discord permission: Kick Members, Ban Members,
+or Moderate Members, respectively. These features require those grants; there
+is no automatic later permission escalation or change to existing guild roles.
+Manage Roles and its role hierarchy safeguards, default-enabled AFK bring-back
+(Move Members), and voice Connect/Speak permissions remain unchanged. Automatic
+Team role synchronization remains disabled by default.
+
 ## Databases are separated
 
 | | Where | Holds |
