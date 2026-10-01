@@ -72,6 +72,7 @@ const SUITES = [
 	['company-role-policy.test.js', 'Discord role mapping — explicit grants and safe unavailable evidence'],
 	['youtube-audio.test.js', 'YouTube audio — safe input, explicit selection and queue controls'],
 	['voice-announce.test.js', 'saying who arrived — once, not once per reconnect'],
+	['voice-batching.test.js', 'voice membership batches — grouped workload and fresh connection/channel checks'],
 	['health-log.test.js', 'the health log — it describes an incident, it never causes one'],
 	['locales.test.js', 'the locale registry — a third language is translations, not code'],
 	['split.test.js', 'dividing an expense — exact, percentage and weighted, always reconciling'],

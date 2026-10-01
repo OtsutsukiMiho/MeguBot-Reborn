@@ -1,6 +1,20 @@
 # Megu — handoff
 
-Branch: `feat/megu-core`
+Branch: `main`
+
+## Voice announcement batching candidate — 30 September 2026
+
+Implemented on hardening release `6b47659`. Independent audit PASS and non-production live pilot PASS; controlled production rollout authorized on 1 October 2026. The authoritative detailed evidence is the latest Voice announcement batching section in `COMPANY_IMPLEMENTATION_STATUS.md`.
+
+Membership announcements now share a fixed 1.5-second window per guild/channel/join-or-leave. The existing guard counts grouped clips, preserves individual direction-specific cooldowns, and keeps configured flood/quiet behavior. Accepted batches include all names, with an explicit 1,000-member safety cap and one overflow warning. Templates/nickname fallback, opt-out, engine/voice/language/volume and existing AFK/connection/queue behavior remain intact.
+
+Pending records hold ID tickets and text/settings, never captured channel/connection objects. Current connection identity, channel, Ready state and current membership are checked at flush. Moves/disconnects cancel pending work and invalidate in-flight tickets while retaining flood/cooldown history. Empty guilds/removal also reset that history. Invalid, flushed and exceptional batches release timers/state. No stale callback may flush a replacement batch.
+
+Verification: 33 new batching checks (including the actual handler with substituted boundaries), plus 47 existing announcement, 4 connection, 24 audio queue and 16 rate-limit checks passed. Five JavaScript parser checks and whitespace checks passed. PR #21 `7f3bd64`/`f62d4c7` were references only, not merged/cherry-picked. Reminder/invite/TLS/security behavior and unrelated `app/companies/` were not changed.
+
+Live pilot verified grouped join and leave clips with both distinct names spoken once, no extra/stale clip, successful pending-batch cancellation, cleanup/recovery, and post-batching Edge TTS exactly once. No runtime/queue/provider/voice errors were reported. One earlier silent leave was not reproduced; its cause remains unknown and no code was changed. Temporary debugger instrumentation was removed. Fresh release verification passed all five focused suites again: 124 checks.
+
+Release scope is the seven batching source/test/handoff files. Exclude `.gitignore`, `app/companies/`, `.env.testbot`, debugger settings and generated logs/screenshots. Remaining limits: process-local/ephemeral batching, intentional stale/unready discard and existing queue/provider/playback limits. Release only this candidate on `main`; production closure requires the matching manual Render deployment and passive startup/runtime/web-health evidence. Do not change production configuration or manufacture a production voice burst.
 
 ## Two products, one bot
 

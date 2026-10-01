@@ -207,6 +207,27 @@ function createAnnounceGuard(defaults = {}) {
 			return decision(true, 'ok');
 		},
 
+		/** One workload claim per clip, with individual reconnect cooldowns. */
+		claimBatch({ guildId, userIds, event, now = Date.now(), ...limits } = {}) {
+			if (!guildId || !Array.isArray(userIds) || !isEvent(event) || !Number.isFinite(now)) {
+				return { ...decision(false, 'invalid'), userIds: [] };
+			}
+			const cooldownMs = resolveMs(limits.cooldownMs, base.cooldownMs);
+			const announced = guilds.get(guildId)?.announced;
+			const eligible = [...new Set(userIds)].filter(userId => {
+				if (!userId) return false;
+				const last = announced?.get(`${event}:${userId}`);
+				return cooldownMs === 0 || last === undefined || now - last >= cooldownMs;
+			});
+			if (!eligible.length) return { ...decision(false, 'cooldown'), userIds: [] };
+			const result = this.claim({ guildId, userId: eligible[0], event, now, ...limits });
+			if (!result.speak) return { ...result, userIds: [] };
+			for (const userId of eligible.slice(1)) {
+				this.claim({ guildId, userId, event, now, ...limits, floodCount: 0 });
+			}
+			return { ...result, userIds: eligible };
+		},
+
 		/** Is this guild currently riding out a burst? For the dashboard. */
 		isQuiet(guildId, now = Date.now()) {
 			const state = guilds.get(guildId);

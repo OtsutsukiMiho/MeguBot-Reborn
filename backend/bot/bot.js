@@ -993,19 +993,49 @@ client.on(Events.ClientReady, async () => {
 
 const voiceStateProcessing = new Set();
 
-// One arrival, one announcement. Discord reports a dropped-and-restored
+// Member cooldowns survive grouping. Discord reports a dropped-and-restored
 // connection as a fresh join, so without this a single person on bad wifi can
 // have their name read out six times in ninety seconds — which is how this
 // feature gets switched off. See core/voice-announce.js.
 const {
-	createAnnounceGuard,
 	createVoiceGreetingGuard,
 	createSpeakerTracker,
 	shortSpeakerName,
 	cooldownMsFromSeconds,
 } = require('../../core/voice-announce.js');
-const announceGuard = createAnnounceGuard();
+const { createVoiceAnnouncementBatcher } = require('../../core/voice-announcement-batches.js');
+const announcementBatches = createVoiceAnnouncementBatcher({
+	lookup(guildId) {
+		const guild = client.guilds.cache.get(guildId);
+		if (!guild) return null;
+		const channelId = guild.members.me?.voice?.channelId;
+		const channel = guild.channels.cache.get(channelId);
+		const connection = getVoiceConnection(guildId);
+		const matches = connection && String(connection.joinConfig?.channelId || '') === String(channelId || '')
+			&& !['destroyed', 'disconnected'].includes(connection.state?.status);
+		return { guild, channel, channelId, connection: matches ? connection : null,
+			ready: Boolean(channel && matches && connection.state?.status === 'ready'), serverName: guild.name,
+			memberChannelId: userId => guild.members.cache.get(userId)?.voice?.channelId };
+	},
+	enqueue(current, text, speech, entries) {
+		const { addToQueue, generateUUID } = require('./audio_queue.js');
+		const result = addToQueue(current.guild.id, { uuid: generateUUID(), name: text,
+			...speech, guild: current.guild, sender: client.user,
+			voice_channel: current.channel, connection: current.connection });
+		if (!result.success) {
+			BotLogs('Tts', `VC announcement not queued: ${result.reason} (${current.guild.name})`);
+			return;
+		}
+		BotLogs('Tts', `VC announcement (${entries.length} members): "${text}" (${current.guild.name})`);
+		for (const entry of entries) {
+			database.logAuditEvent(current.guild.id, 'VOICE_TTS', entry.userId, entry.names.tag,
+				stamp(`VC announcement queued: "${text}"`), current.guild.name).catch(() => undefined);
+		}
+	},
+	onError: error => BotLogs('Tts', `VC announcement batch failed: ${error.message}`),
+});
 const voiceGreetingGuard = createVoiceGreetingGuard();
+client.on(Events.GuildDelete, guild => announcementBatches.forget(guild.id));
 
 // Who spoke last in each guild, so a run of messages from one person is read as
 // one person talking rather than as their name six times. This is the thing
@@ -1053,6 +1083,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	const guild = newState.guild || oldState.guild;
 	const botMember = guild.members.me;
 	if (newState.member.id === client.user.id && oldState.channelId && oldState.channelId !== newState.channelId) {
+		announcementBatches.cancel(guild.id);
 		const { audioQueueManager } = require('./audio_queue.js');
 		const ownedChannelId = audioQueueManager.getQueue(guild.id)[0]?.voiceChannelId;
 		if (ownedChannelId && String(ownedChannelId) !== String(newState.channelId || '')) {
@@ -1080,7 +1111,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		// Everybody has gone. Whoever turns up next is starting a new session
 		// and should be greeted, however recently they were last announced —
 		// and whoever types first is introducing themselves to a new room.
-		announceGuard.forget(guild.id);
+		announcementBatches.forget(guild.id);
 		speakerTracker.forget(guild.id);
 		voiceGreetingGuard.reset(guild.id);
 
@@ -1127,6 +1158,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	}
 
 	const currentChannel = botMember.voice.channel;
+	// Capture identifiers before awaits; later admission/flush rejects stale work.
+	const announcementDestination = announcementBatches.capture(guild.id, currentChannel.id);
 
 	const afkBringbackEnabled = toBool(await database.getGuildVar(guild.id, 'tts_afk_bringback_enabled'));
 	if (afkBringbackEnabled && newState.channelId === guild.afkChannelId && oldState.channelId === currentChannel.id && newState.member.id !== botMember.id) {
@@ -1172,23 +1205,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	const vcWelcomeEnabled = toBool(await database.getGuildVar(guild.id, 'tts_vc_welcome_enabled'));
 	const vcWelcomeTemplate = (await database.getGuildVar(guild.id, 'tts_vc_welcome_template')) || '{username} เข้าดิสมา';
 
-	/** Everything the announcement queue needs, so the three callers below agree. */
-	function speakLine(text, volume) {
-		const { addToQueue, generateUUID } = require('./audio_queue.js');
-		addToQueue(guild.id, {
-			uuid: generateUUID(),
-			name: text,
-			lang: ttsLang,
-			type: speechType,
-			guild: guild,
-			voice: ttsVoice,
-			volume: volume,
-			sender: client.user,
-			voice_channel: currentChannel,
-			connection: getOrCreateConnection(guild, currentChannel),
-		});
-	}
-
 	// Whether this event is a candidate at all — cheap, and computed from
 	// settings already read. The four announce limits are only fetched when one
 	// of these holds, so an ordinary mute or deafen costs no extra queries.
@@ -1220,99 +1236,26 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		quietTemplate = (await database.getGuildVar(guild.id, 'tts_vc_announce_quiet_template')) || quietTemplate;
 	}
 
-	/**
-	 * One line when she stops, so a channel that has just gone silent does not
-	 * read as a bot that has crashed. Said once per burst — `enteredQuiet` is
-	 * true only on the event that tripped the limit.
-	 */
-	function noticeQuiet(result, who) {
-		if (!result.enteredQuiet) return;
-		speakLine(quietTemplate, announceVolume);
-		BotLogs('Tts', `${COLOR.blue}VC announcements paused — burst at ${COLOR.white}${who} ${COLOR.gray}(${guild.name})`);
+	// Consent is checked before collecting a name. Cooldown/flood claims happen
+	// at flush, so a burst counts clips rather than discarding individual people.
+	async function collectAnnouncement(event, state, template) {
+		if (!announcementDestination || await database.getAnnounceOptOut(guild.id, state.id)) return;
+		const member = state.member || newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(state.id), null));
+		if (!member) return;
+		const dbNick = await getUserNick(guild.id, member.id);
+		const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
+		const displayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
+		const spokenNick = customNick || displayName;
+		announcementBatches.add({ destination: announcementDestination, event, userId: member.id,
+			names: { displayname: displayName, nickname: spokenNick, username: spokenNick,
+				tag: member.user?.username || displayName },
+			template, speech: { type: speechType, voice: ttsVoice, lang: ttsLang, volume: announceVolume },
+			limits: announceLimits, quietTemplate });
 	}
 
-	/**
-	 * The announcement is made for the room, but it is *this* person's name
-	 * being read out, and they never agreed to that. Checked before the guard
-	 * claims anything: a suppressed name must not consume the claim, or the
-	 * cooldown would silence the next person to arrive instead.
-	 */
-	async function optedOut(userId) {
-		return await database.getAnnounceOptOut(guild.id, userId);
-	}
-
-	// The claim is made before the member fetch on purpose. A suppressed
-	// reconnect is the common case on a busy channel, and this way it costs no
-	// Discord call at all.
-	const joinDecision = isJoinEvent && !(await optedOut(newState.id))
-		? announceGuard.claim({ guildId: guild.id, userId: newState.id, event: 'join', ...announceLimits })
-		: { speak: false, enteredQuiet: false };
-	noticeQuiet(joinDecision, newState.id);
-
-	if (joinDecision.speak) {
-		const member = newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(newState.id), null));
-		if (member) {
-			const dbNick = await getUserNick(guild.id, member.id);
-			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
-			const discordDisplayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
-			const spokenNick = customNick || discordDisplayName;
-			const userTag = member.user ? member.user.username : discordDisplayName;
-
-			const formattedWelcome = vcWelcomeTemplate
-				.replace(/{displayname}/gi, discordDisplayName)
-				.replace(/{nickname}/gi, spokenNick)
-				.replace(/{username}/gi, spokenNick)
-				.replace(/{tag}/gi, userTag)
-				.replace(/{server}/gi, guild.name);
-
-			BotLogs('Tts', `${COLOR.blue}VC Join Greeting for ${COLOR.white}${userTag}${COLOR.blue} -> "${formattedWelcome}" ${COLOR.gray}(${guild.name})`);
-			database.logAuditEvent(
-				guild.id,
-				'VOICE_TTS',
-				member.id,
-				userTag,
-				stamp(`VC Join Greeting spoken: "${formattedWelcome}"`),
-				guild.name
-			).catch(() => undefined);
-			speakLine(formattedWelcome, announceVolume);
-		}
-	}
-
+	if (isJoinEvent) await collectAnnouncement('join', newState, vcWelcomeTemplate);
 	const vcLeaveTemplate = (await database.getGuildVar(guild.id, 'tts_vc_leave_template')) || '{username} ออกจากดิสแล้ว';
-
-	const leaveDecision = isLeaveEvent && !(await optedOut(oldState.id))
-		? announceGuard.claim({ guildId: guild.id, userId: oldState.id, event: 'leave', ...announceLimits })
-		: { speak: false, enteredQuiet: false };
-	noticeQuiet(leaveDecision, oldState.id);
-
-	if (leaveDecision.speak) {
-		const member = oldState.member || newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(oldState.id), null));
-		if (member) {
-			const dbNick = await getUserNick(guild.id, member.id);
-			const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
-			const discordDisplayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
-			const spokenNick = customNick || discordDisplayName;
-			const userTag = member.user ? member.user.username : discordDisplayName;
-
-			const formattedLeave = vcLeaveTemplate
-				.replace(/{displayname}/gi, discordDisplayName)
-				.replace(/{nickname}/gi, spokenNick)
-				.replace(/{username}/gi, spokenNick)
-				.replace(/{tag}/gi, userTag)
-				.replace(/{server}/gi, guild.name);
-
-			BotLogs('Tts', `${COLOR.blue}VC Leave Goodbye for ${COLOR.white}${userTag}${COLOR.blue} -> "${formattedLeave}" ${COLOR.gray}(${guild.name})`);
-			database.logAuditEvent(
-				guild.id,
-				'VOICE_TTS',
-				member.id,
-				userTag,
-				stamp(`VC Leave Goodbye spoken: "${formattedLeave}"`),
-				guild.name
-			).catch(() => undefined);
-			speakLine(formattedLeave, announceVolume);
-		}
-	}
+	if (isLeaveEvent) await collectAnnouncement('leave', oldState, vcLeaveTemplate);
 
 	if (newState.streaming && !oldState.streaming && newState.channelId === currentChannel.id && newState.member.id !== client.user.id) {
 		const nick = await getUserNick(guild.id, newState.member.id);
