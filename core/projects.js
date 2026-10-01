@@ -6,6 +6,7 @@ const { newId, newProjectCode } = require('./ids.js');
 const notifications = require('./notifications.js');
 const projectReminders = require('./project-reminders.js');
 const projectChannelNotifications = require('./project-channel-notifications.js');
+const workflowNotifications = require('./project-workflow-notifications.js');
 const { companyEligibilitySql, requireTeamCompanyAccess } = require('./company-access.js');
 
 const PROJECT_STATES = ['planning', 'active', 'paused', 'completed', 'cancelled'];
@@ -573,10 +574,12 @@ async function getProjectTopic(code, topicId, userId) {
 }
 
 async function addEvent(client, projectId, topicId, actorUserId, type, payload) {
+	const id = newId('pev');
 	await client.query(
 		'INSERT INTO project_events (id, project_id, topic_id, actor_user_id, event_type, payload) VALUES ($1,$2,$3,$4,$5,$6)',
-		[newId('pev'), projectId, topicId, actorUserId, type, payload],
+		[id, projectId, topicId, actorUserId, type, payload],
 	);
+	return id;
 }
 
 async function listProjectEvents(code, actorUserId, options = {}) {
@@ -1300,6 +1303,10 @@ async function convertProjectToTeam(code, actorUserId, input = {}) {
 	});
 }
 
+async function topicAssigneeIds(client, projectId, topicId) {
+	return (await client.query('SELECT user_id FROM project_topic_assignees WHERE project_id=$1 AND topic_id=$2', [projectId, topicId])).rows.map(row => row.user_id);
+}
+
 async function setTopicAssignees(code, topicId, actorUserId, input = {}) {
 	assertKnownFields(input, ['userIds', 'primaryUserId', 'expectedRevision']);
 	return transaction(async (client) => {
@@ -1325,6 +1332,7 @@ async function setTopicAssignees(code, topicId, actorUserId, input = {}) {
 		const requestedPrimary = text(input.primaryUserId);
 		if (requestedPrimary && !ids.includes(requestedPrimary)) throw codedError('assignee_invalid');
 		const primary = requestedPrimary || null;
+		const previous = new Set(await topicAssigneeIds(client, project.id, topic.id));
 		await client.query('DELETE FROM project_topic_assignees WHERE project_id=$1 AND topic_id=$2', [project.id, topic.id]);
 		for (const userId of ids) await client.query(
 			'INSERT INTO project_topic_assignees (project_id, topic_id, user_id, is_primary) VALUES ($1,$2,$3,$4)',
@@ -1332,7 +1340,9 @@ async function setTopicAssignees(code, topicId, actorUserId, input = {}) {
 		);
 		const changed = await client.query('UPDATE project_topics SET revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *', [project.id, topic.id]);
 		await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1', [project.id]);
-		await addEvent(client, project.id, topic.id, actorUserId, 'assignments_changed', { userIds: ids, primaryUserId: primary });
+		const eventId = await addEvent(client, project.id, topic.id, actorUserId, 'assignments_changed', { userIds: ids, primaryUserId: primary, topicRevision: changed.rows[0].revision });
+		await workflowNotifications.enqueueWithClient(client, { project, topic: topicRow(changed.rows[0]), eventId,
+			eventType: 'project_topic_assigned', recipients: ids.filter(id => !previous.has(id)) });
 		return { topic: topicRow(changed.rows[0]), assignees: ids.map(userId => ({ userId, primary: userId === primary })) };
 	});
 }
@@ -1373,7 +1383,8 @@ async function createTopic(code, actorUserId, input = {}) {
 			topic.assignees.push({ userId, primary: index === 0 });
 		}
 		await projectReminders.rebuildForTopicWithClient(client, project.id, topic.id);
-		await addEvent(client, project.id, topic.id, actorUserId, 'topic_created', { title, number: topic.number, startsAt: schedule.startsAt, deadlineAt: schedule.deadlineAt, afterProjectTarget: Boolean(schedule.deadlineAt && project.deadlineAt && new Date(schedule.deadlineAt) > new Date(project.deadlineAt)) });
+		const eventId = await addEvent(client, project.id, topic.id, actorUserId, 'topic_created', { title, number: topic.number, startsAt: schedule.startsAt, deadlineAt: schedule.deadlineAt, afterProjectTarget: Boolean(schedule.deadlineAt && project.deadlineAt && new Date(schedule.deadlineAt) > new Date(project.deadlineAt)), topicRevision: 0 });
+		await workflowNotifications.enqueueWithClient(client, { project, topic, eventId, eventType: 'project_topic_assigned', recipients: assigneeIds });
 		const updated = await client.query('UPDATE projects SET revision = revision + 1, updated_at = now() WHERE id = $1 RETURNING revision', [project.id]);
 		return { topic, projectRevision: updated.rows[0].revision };
 	});
@@ -1433,10 +1444,16 @@ async function reportProgress(code, topicId, actorUserId, input = {}) {
 			 revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *`,
 			[project.id, topic.id, report.progress, report.workflow, report.blocked, report.blockerReason],
 		);
-		await addEvent(client, project.id, topic.id, actorUserId, 'progress_reported', {
+		const eventId = await addEvent(client, project.id, topic.id, actorUserId, 'progress_reported', {
 			progress: report.progress, workflow: report.workflow, blocked: report.blocked, summary: report.summary,
 			reason: text(input.reason) || null, correctionOfReportId: report.correctionOfReportId,
+			topicRevision: changed.rows[0].revision, previousWorkflow: topic.workflow,
 		});
+		if (report.workflow === 'in_review' && topic.workflow !== 'in_review') {
+			const reviewers = await client.query("SELECT user_id FROM project_memberships WHERE project_id=$1 AND revoked_at IS NULL AND role IN ('owner','lead')", [project.id]);
+			await workflowNotifications.enqueueWithClient(client, { project, topic: topicRow(changed.rows[0]), eventId,
+				eventType: 'project_topic_review_requested', recipients: reviewers.rows.map(row => row.user_id) });
+		}
 		if (!topic.blocked && report.blocked && report.notifyLeads) {
 			const setting = await client.query('SELECT enabled, blocker_notifications, dm_enabled FROM project_notification_settings WHERE project_id=$1', [project.id]);
 			if (setting.rows[0]?.enabled && setting.rows[0]?.dm_enabled !== false && setting.rows[0]?.blocker_notifications) {
@@ -1517,12 +1534,16 @@ async function reviewTopic(code, topicId, actorUserId, input = {}) {
 		 completion_timezone=CASE WHEN $3='completed' THEN $5 ELSE NULL END,
 		 revision=revision+1, updated_at=now() WHERE project_id=$1 AND id=$2 RETURNING *`, [project.id, topic.id, workflow, progress, project.timezone]);
 		await projectReminders.rebuildForTopicWithClient(client, project.id, topic.id);
-		await addEvent(client, project.id, topic.id, actorUserId, `topic_${action === 'return' ? 'returned' : action === 'reopen' ? 'reopened' : 'completed'}`, {
+		const eventId = await addEvent(client, project.id, topic.id, actorUserId, `topic_${action === 'return' ? 'returned' : action === 'reopen' ? 'reopened' : 'completed'}`, {
 			reason, progress, completedAt: changed.rows[0].completed_at,
+			topicRevision: changed.rows[0].revision, previousWorkflow: topic.workflow,
 			completionDeadlineAt: changed.rows[0].completion_deadline_at,
 			completionDeadlinePrecision: changed.rows[0].completion_deadline_precision,
 			completionTimezone: changed.rows[0].completion_timezone,
 		});
+		await workflowNotifications.enqueueWithClient(client, { project, topic: topicRow(changed.rows[0]), eventId,
+			eventType: `project_topic_${action === 'approve' ? 'approved' : action === 'return' ? 'returned' : 'reopened'}`,
+			recipients: await topicAssigneeIds(client, project.id, topic.id) });
 		await client.query('UPDATE projects SET revision=revision+1, updated_at=now() WHERE id=$1', [project.id]);
 		return { topic: topicRow(changed.rows[0]) };
 	});

@@ -95,7 +95,12 @@ async function claimPending(limit = 20) {
 		const valid = [];
 		for (const row of res.rows) {
 			let accessible;
-			if (['team_goal_changed', 'team_goal_due'].includes(row.event_type)) accessible = await require('./team-goal-notifications').eligible(client, row);
+			if (require('./project-workflow-notifications').isWorkflow(row.event_type)) {
+				const prepared = await require('./project-workflow-notifications').prepareWithClient(client, row);
+				accessible = Boolean(prepared);
+				if (prepared) Object.assign(row, prepared);
+			}
+			else if (['team_goal_changed', 'team_goal_due'].includes(row.event_type)) accessible = await require('./team-goal-notifications').eligible(client, row);
 			else if (row.event_type === 'project_join_requested') {
 				accessible = Boolean(row.project_id
 					&& row.project_owner_id === row.user_id
@@ -151,7 +156,8 @@ async function recheckClaimed(deliveryId) {
 		const row = delivery.rows[0];
 		if (!row || row.status !== 'sending') return false;
 		let eligible = true;
-		if (['team_goal_changed', 'team_goal_due'].includes(row.event_type)) eligible = await require('./team-goal-notifications').eligible(client, row);
+		if (require('./project-workflow-notifications').isWorkflow(row.event_type)) eligible = Boolean(await require('./project-workflow-notifications').prepareWithClient(client, row));
+		else if (['team_goal_changed', 'team_goal_due'].includes(row.event_type)) eligible = await require('./team-goal-notifications').eligible(client, row);
 		else if (row.event_type === 'project_join_requested') {
 			const check = await client.query(
 				`SELECT 1 FROM projects p JOIN project_join_requests r ON r.project_id=p.id
@@ -183,18 +189,39 @@ async function recheckClaimed(deliveryId) {
 	});
 }
 
-async function markSent(deliveryId) {
-	await query("UPDATE notification_deliveries SET status = 'sent', sent_at = now(), last_error = NULL, locked_at = NULL WHERE id = $1", [deliveryId]);
+async function prepareWorkflowDelivery(reference, destination) {
+	if (!reference || typeof reference.deliveryId !== 'string' || !Number.isSafeInteger(reference.attempt) || reference.attempt < 1
+		|| !['discord', 'email'].includes(reference.channel) || typeof destination !== 'string' || !destination) return null;
+	return transaction(async client => {
+		const row = (await client.query(`SELECT d.id,d.status,d.channel,d.attempts,e.event_type,e.payload,e.user_id
+		 FROM notification_deliveries d JOIN notification_events e ON e.id=d.event_id WHERE d.id=$1 FOR UPDATE OF d`, [reference.deliveryId])).rows[0];
+		const workflows = require('./project-workflow-notifications');
+		if (!row || !workflows.isWorkflow(row.event_type) || row.status !== 'sending' || row.channel !== reference.channel || row.attempts !== reference.attempt) return null;
+		const prepared = await workflows.prepareWithClient(client, row);
+		if (!prepared || (reference.channel === 'discord' ? prepared.discord_uid : prepared.email) !== destination) {
+			await client.query("UPDATE notification_deliveries SET status='skipped',locked_at=NULL,last_error='Workflow eligibility or destination changed' WHERE id=$1", [row.id]);
+			return null;
+		}
+		return render(prepared);
+	});
 }
 
-async function markFailed(deliveryId, error, attempts) {
+async function markSent(deliveryId, expectedAttempt = null) {
+	await query("UPDATE notification_deliveries SET status = 'sent', sent_at = now(), last_error = NULL, locked_at = NULL WHERE id = $1 AND ($2::int IS NULL OR (status='sending' AND attempts=$2))", [deliveryId, expectedAttempt]);
+}
+
+async function markSkipped(deliveryId, reason, expectedAttempt = null) {
+	await query("UPDATE notification_deliveries SET status='skipped',locked_at=NULL,last_error=$2 WHERE id=$1 AND ($3::int IS NULL OR (status='sending' AND attempts=$3))", [deliveryId, String(reason).slice(0, 500), expectedAttempt]);
+}
+
+async function markFailed(deliveryId, error, attempts, expectedAttempt = null) {
 	const terminal = Number(attempts) + 1 >= 8;
 	await query(
 		`UPDATE notification_deliveries
 		 SET status = $2, last_error = $3, locked_at = NULL,
 		     next_attempt_at = now() + make_interval(secs => LEAST(3600, 30 * power(2, LEAST(attempts, 7)))::int)
-		 WHERE id = $1`,
-		[deliveryId, terminal ? 'skipped' : 'failed', String(error?.message || error).slice(0, 500)],
+		 WHERE id = $1 AND ($4::int IS NULL OR (status='sending' AND attempts=$4))`,
+		[deliveryId, terminal ? 'skipped' : 'failed', String(error?.message || error).slice(0, 500), expectedAttempt],
 	);
 }
 
@@ -226,4 +253,4 @@ function render(delivery) {
 	};
 }
 
-module.exports = { channelsFor, enqueue, enqueueWithClient, claimPending, recheckClaimed, markSent, markFailed, render };
+module.exports = { channelsFor, enqueue, enqueueWithClient, claimPending, recheckClaimed, prepareWorkflowDelivery, markSent, markSkipped, markFailed, render };

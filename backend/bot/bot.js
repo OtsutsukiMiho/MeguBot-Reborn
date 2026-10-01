@@ -2595,33 +2595,13 @@ process.on('message', async (msg) => {
 		}
 	}
 	else if (msg.type === 'payment_notice') {
-		let delivered = 0;
-		const recipients = Array.isArray(msg.recipients) ? [...new Set(msg.recipients)] : [];
-		const message = String(msg.message || '').slice(0, 1900);
-		const components = noticeComponents(msg.cta, msg.defer);
-		// Re-checked on every recipient, not once at the top: the first refused
-		// DM is how a block announces itself, and the rest of the list must not
-		// follow it into the wall.
-		for (let i = 0; i < recipients.length; i++) {
-			const discordUid = recipients[i];
-			if (discordBlock.blocked()) break;
-			if (!/^\d{17,20}$/.test(String(discordUid)) || !message) continue;
-			const uidStr = String(discordUid);
-			const user = client.users.cache.get(uidStr)
-				|| await discordCall('opening a DM', () => client.users.fetch(uidStr), null);
-			if (user && await discordCall('sending a DM', () => user.send({ content: message, components }).then(() => true), false)) {
-				delivered++;
-			}
-			if (i < recipients.length - 1) {
-				await new Promise(resolve => setTimeout(resolve, 1000));
-			}
-		}
+		const result = await require('../../adapters/notifications/discord-delivery').deliverNotice(msg, {
+			users: client.users, discordCall, isBlocked: () => discordBlock.blocked(), noticeComponents,
+			prepareWorkflow: require('../../core/notifications').prepareWorkflowDelivery,
+			wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+		});
 		if (process.send) {
-			// `blocked` is read after the loop, so a block that arrives partway
-			// through is still reported. The dispatcher leaves the delivery
-			// pending on it and retries with backoff, which is the right shape:
-			// the notification still goes out, just after the ban.
-			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, delivered, blocked: discordBlock.blocked() });
+			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, ...result });
 		}
 	}
 	else if (msg.type === 'validate_project_channel' || msg.type === 'project_channel_notice') {

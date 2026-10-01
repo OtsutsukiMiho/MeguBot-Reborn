@@ -930,7 +930,7 @@ const en = {
 		joinRejected: "The owner declined this request. Contact them for an invitation.",
 		checkJoin: "Check request status",
 		dmEnabled: "Send personal notifications (Discord DM / email)",
-		dmHint: "Assignees receive deadline reminders and project leads receive blocker alerts through their account notification preferences. Discord DMs require a linked Discord account and DMs enabled.",
+		dmHint: "Personal notices can include assignments, review requests, returned work, approvals, reopened work, deadline reminders and blocker alerts. Your account preferences choose Discord DM or verified email. Private feedback and reasons stay on the signed-in project page. Discord DMs require a linked account and DMs enabled.",
 		joinFailed: "Could not complete this request. Please try again.",
 		title: 'Projects',
 		lede: 'Keep ownership, deadlines, and progress in one shared view.',

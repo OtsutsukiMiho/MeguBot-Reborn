@@ -1,4 +1,5 @@
 const core = require('../../core/index.js');
+const { assertDelivered } = require('./discord-delivery');
 
 // The deadline sweep.
 //
@@ -44,12 +45,12 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, log = () => u
 						if (enqueued.created) queued++;
 					}
 					else if (notice.discordUid && sendDiscord) {
-						await sendDiscord({
+						assertDelivered(await sendDiscord({
 							recipients: [notice.discordUid],
 							message: core.reminders.composeDueNotice(notice, { locale: 'th' }),
 							cta: { label: 'จ่ายเงิน', url: notice.payUrl },
 							defer: { participantId: notice.participantId, periodId: notice.periodId, label: 'ยังไม่จ่ายตอนนี้' },
-						});
+						}));
 						dmed++;
 					}
 					else {

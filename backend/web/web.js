@@ -448,14 +448,13 @@ if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
 	projectChannelTimer.unref();
 }
 
-async function sendDiscordNotice({ recipients, message, cta = null, defer = null }) {
+async function sendDiscordNotice({ recipients, message, cta = null, defer = null, workflowDelivery = null }) {
 	// Longer than the default: opening a DM and sending it is two round
 	// trips to Discord, and timing out at three seconds would report a
 	// delivery as failed while it was still on its way.
-	const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message, cta, defer }, 10_000);
-	if (!reply) throw new Error('The bot process did not answer');
-	if (reply.blocked) throw new Error('Discord is blocking this server, delivery deferred');
-	return reply;
+	const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message, cta, defer,
+		...(workflowDelivery ? { workflowDelivery } : {}) }, 10_000);
+	return require('../../adapters/notifications/discord-delivery').assertDelivered(reply);
 }
 
 // The deadline sweep. It reads Postgres every five minutes and writes into the

@@ -67,7 +67,7 @@ async function main() {
 
 	const delivered = [];
 	const dispatcher = createDispatcher({
-		sendDiscord: async notice => delivered.push({ channel: 'discord', ...notice }),
+		sendDiscord: async notice => { delivered.push({ channel: 'discord', ...notice }); return { delivered: 1, blocked: false }; },
 		sendEmail: async notice => delivered.push({ channel: 'email', ...notice }),
 	});
 	await dispatcher.drain();

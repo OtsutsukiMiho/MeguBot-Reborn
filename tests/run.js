@@ -11,6 +11,8 @@ const {
 } = require('./test-database.js');
 
 const SUITES = [
+	['discord-notification-transport.test.js', 'shared Discord notices — positive acknowledgement and transport-boundary privacy'],
+	['project-workflow-notifications.test.js', 'project topic workflows — atomic audience, review-cycle freshness and durable delivery'],
 	['reminder-delivery.test.js', 'scheduled Discord reminders — send ordering, retry, overdue recurrence and overlapping ticks'],
 	['reminder-persistence.test.js', 'scheduled reminder persistence — current/legacy PostgreSQL tables and write acknowledgements'],
 	['team-archive-disclosure.test.js', 'team archive — bilingual irreversible goal consequence and safe cancellation'],

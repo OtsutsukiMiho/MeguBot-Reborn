@@ -97,7 +97,7 @@ async function main() {
 	const sent = [];
 	const sweep = createPaymentDueSweep({
 		baseUrl: 'https://megu.test',
-		sendDiscord: async notice => sent.push(notice),
+		sendDiscord: async notice => { sent.push(notice); return { delivered: 1, blocked: false }; },
 		log: message => console.log('    [sweep]', message),
 	});
 
