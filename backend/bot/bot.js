@@ -21,7 +21,7 @@ if (fs.existsSync('.env')) {
 }
 const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
-const { getOrCreateVoiceConnection, getReadyVoiceConnection } = require('./voice_connection.js');
+const { getOrCreateVoiceConnection, getReadyVoiceConnection, getActiveVoiceSession, isSameVoiceSession } = require('./voice_connection.js');
 const {
 	isGlobalBlock,
 	isSevereRateLimit,
@@ -477,7 +477,8 @@ async function autoJoinActiveVC(guild) {
 	if (audioQueueManager.getQueue(guild.id).length > 0) return false;
 
 	let scanned = 0;
-	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2);
+	const waitingRoomId = await database.getGuildVar(guild.id, 'tts_waiting_room_channel_id');
+	const voiceChannels = guild.channels.cache.filter(channel => channel.type === 2 && channel.id !== waitingRoomId);
 	for (const [, voiceChannel] of voiceChannels) {
 		if (++scanned > AUTO_JOIN_SCAN_LIMIT) break;
 		if (guild.afkChannelId && voiceChannel.id === guild.afkChannelId) continue;
@@ -1015,7 +1016,8 @@ const announcementBatches = createVoiceAnnouncementBatcher({
 			&& !['destroyed', 'disconnected'].includes(connection.state?.status);
 		return { guild, channel, channelId, connection: matches ? connection : null,
 			ready: Boolean(channel && matches && connection.state?.status === 'ready'), serverName: guild.name,
-			memberChannelId: userId => guild.members.cache.get(userId)?.voice?.channelId };
+			memberChannelId: userId => guild.members.cache.get(userId)?.voice?.channelId,
+			hasVoiceChannel: id => guild.channels.cache.get(id)?.type === 2 };
 	},
 	enqueue(current, text, speech, entries) {
 		const { addToQueue, generateUUID } = require('./audio_queue.js');
@@ -1150,8 +1152,13 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		}
 	}
 
+	const waitingRoomId = await database.getGuildVar(guild.id, 'tts_waiting_room_channel_id');
+	const isWaitingEntry = Boolean(waitingRoomId && guild.channels.cache.get(waitingRoomId)?.type === 2
+		&& oldState.channelId !== waitingRoomId && newState.channelId === waitingRoomId
+		&& !newState.member.user?.bot && newState.member.id !== client.user.id);
+
 	if (!botMember || !botMember.voice || !botMember.voice.channel) {
-		if (newState.channelId && newState.member.id !== client.user.id) {
+		if (newState.channelId && newState.channelId !== waitingRoomId && newState.member.id !== client.user.id) {
 			void autoJoinActiveVC(guild);
 		}
 		return;
@@ -1176,7 +1183,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		return;
 	}
 
-	if (currentChannel.members.size === 1 && currentChannel.members.has(botMember.id)) {
+	if (!isWaitingEntry && currentChannel.members.size === 1 && currentChannel.members.has(botMember.id)) {
 		if (!voiceStateProcessing.has(guild.id)) {
 			const connection = getVoiceConnection(guild.id);
 			if (connection) {
@@ -1208,7 +1215,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	// Whether this event is a candidate at all — cheap, and computed from
 	// settings already read. The four announce limits are only fetched when one
 	// of these holds, so an ordinary mute or deafen costs no extra queries.
-	const isJoinEvent = vcWelcomeEnabled
+	const isJoinEvent = !isWaitingEntry && vcWelcomeEnabled
 		&& newState.channelId === currentChannel.id
 		&& oldState.channelId !== currentChannel.id
 		&& oldState.channelId !== guild.afkChannelId
@@ -1223,7 +1230,9 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 	let announceLimits = {};
 	let quietTemplate = 'คนเข้าออกเยอะ ขอเงียบแป๊บนึงนะ';
 	let announceVolume;
-	if (isJoinEvent || isLeaveEvent) {
+	let batchWindowMs;
+	if (isJoinEvent || isLeaveEvent || isWaitingEntry) {
+		batchWindowMs = await database.getGuildVar(guild.id, 'tts_vc_batch_window_ms');
 		announceVolume = ttsVolume(await database.getGuildVar(guild.id, 'tts_volume'));
 		announceLimits = {
 			// Shared by the greeting and the goodbye: one person reconnecting
@@ -1250,9 +1259,14 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 			names: { displayname: displayName, nickname: spokenNick, username: spokenNick,
 				tag: member.user?.username || displayName },
 			template, speech: { type: speechType, voice: ttsVoice, lang: ttsLang, volume: announceVolume },
-			limits: announceLimits, quietTemplate });
+			limits: event === 'waiting' ? { ...announceLimits, cooldownMs: 0 } : announceLimits, quietTemplate,
+			windowMs: batchWindowMs, sourceChannelId: event === 'waiting' ? waitingRoomId : undefined });
 	}
 
+	if (isWaitingEntry && getVoiceConnection(guild.id)?.state?.status === 'ready') {
+		await collectAnnouncement('waiting', newState, String(ttsLang).toLowerCase().startsWith('en')
+			? '{nickname} joined the waiting room' : '{nickname} เข้าห้องรอแล้ว');
+	}
 	if (isJoinEvent) await collectAnnouncement('join', newState, vcWelcomeTemplate);
 	const vcLeaveTemplate = (await database.getGuildVar(guild.id, 'tts_vc_leave_template')) || '{username} ออกจากดิสแล้ว';
 	if (isLeaveEvent) await collectAnnouncement('leave', oldState, vcLeaveTemplate);
@@ -1448,7 +1462,8 @@ client.on(Events.MessageCreate, async (message) => {
 
 	const ttsChannelId = client.ttsChannels?.get(message.guild.id);
 	if (ttsChannelId && message.channel.id === ttsChannelId) {
-		const voiceChannel = message.member?.voice.channel;
+		const session = getActiveVoiceSession(message.guild);
+		const voiceChannel = session?.channel;
 		if (!voiceChannel) {
 			await message.react('🔇').catch(() => undefined);
 			return;
@@ -1461,7 +1476,7 @@ client.on(Events.MessageCreate, async (message) => {
 			return;
 		}
 
-		const connection = getOrCreateConnection(message.guild, voiceChannel);
+		const connection = session.connection;
 		if (!connection) {
 			await message.react('❌').catch(() => undefined);
 			return;
@@ -1585,6 +1600,7 @@ client.on(Events.MessageCreate, async (message) => {
 			connection: connection,
 		};
 
+		if (!isSameVoiceSession(session, getActiveVoiceSession(message.guild))) return;
 		const result = addToQueue(message.guild.id, entry);
 		if (!result.success) {
 			await message.react('❌').catch(() => undefined);
@@ -3270,29 +3286,17 @@ process.on('message', async (msg) => {
 	}
 	else if (msg.type === 'force_add_audio_queue') {
 		try {
-			const { addToQueue, audioQueueManager } = require('./audio_queue.js');
+			const { addToQueue } = require('./audio_queue.js');
 			const guild = client.guilds.cache.get(msg.guildId);
 			if (!guild) {
 				if (process.send) process.send({ target: 'web', type: 'force_add_audio_queue_response', reqId: msg.reqId, success: false, error: 'Server not found or bot not in server.' });
 				return;
 			}
 
-			// Look for existing active queue connection or join a voice channel
-			const existingQueue = audioQueueManager.getQueue(msg.guildId);
-			let connection = existingQueue[0]?.connection || null;
-
+			const session = getActiveVoiceSession(guild);
+			const connection = session?.connection;
 			if (!connection) {
-				// Search for a voice channel with users or the first accessible voice channel
-				const voiceChannels = guild.channels.cache.filter(c => c.type === 2);
-				const targetChannel = voiceChannels.find(c => c.members && c.members.size > 0) || voiceChannels.first();
-
-				if (targetChannel) {
-					connection = getOrCreateConnection(guild, targetChannel);
-				}
-			}
-
-			if (!connection) {
-				if (process.send) process.send({ target: 'web', type: 'force_add_audio_queue_response', reqId: msg.reqId, success: false, error: 'No active voice connection or voice channel found in server.' });
+				if (process.send) process.send({ target: 'web', type: 'force_add_audio_queue_response', reqId: msg.reqId, success: false, error: 'Megu is not connected to a ready voice channel.' });
 				return;
 			}
 

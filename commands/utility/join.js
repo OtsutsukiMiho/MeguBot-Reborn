@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
+const { getReadyVoiceConnection, getActiveVoiceSession, voiceConnectionError } = require('../../backend/bot/voice_connection.js');
 
 const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 
@@ -12,12 +12,16 @@ module.exports = {
 		if (!voiceChannel) return await interaction.editReply('❌ You need to join a voice channel first!');
 
 		try {
-			await getReadyVoiceConnection(interaction.guild, voiceChannel, {
+			const connection = await getReadyVoiceConnection(interaction.guild, voiceChannel, {
 				onError: ({ error, status }) => BotLogs(
 					interaction.guild.name,
 					`${COLOR.red}Voice connection error ${COLOR.gray}[${status || 'unknown'}]${COLOR.red}: ${COLOR.white}${String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500)}`,
 				),
 			});
+			const current = getActiveVoiceSession(interaction.guild);
+			if (current?.connection !== connection || current?.channelId !== String(voiceChannel.id)) {
+				throw voiceConnectionError(new Error('Voice destination changed before the command completed.'));
+			}
 		}
 		catch (error) {
 			BotLogs(interaction.guild.name, `${COLOR.red}Could not join ${COLOR.white}${voiceChannel.name}${COLOR.red}: ${error.cause?.message || error.message}`);

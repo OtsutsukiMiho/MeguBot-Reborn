@@ -4,7 +4,7 @@ const path = require('path');
 
 const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
 const { addToQueue, audioQueueManager } = require('../../backend/bot/audio_queue.js');
-const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
+const { getActiveVoiceSession } = require('../../backend/bot/voice_connection.js');
 
 const soundsList = [
 	{ name: 'เรียกไอบอล (Megu)', value: 'ball_megu' },
@@ -41,17 +41,18 @@ module.exports = {
 	},
 
 	async execute(interaction) {
-		const voiceChannel = interaction.member.voice.channel;
+		const session = getActiveVoiceSession(interaction.guild);
+		const voiceChannel = session?.channel;
 		if (!voiceChannel) {
-			return await interaction.reply({ content: '❌ You need to join a voice channel first!', flags: MessageFlags.Ephemeral });
+			return await interaction.reply({ content: '❌ Megu is not connected to a ready voice channel.', flags: MessageFlags.Ephemeral });
 		}
 
 		const permissions = voiceChannel.permissionsFor(interaction.guild.members.me);
 		if (!permissions || !permissions.has(PermissionFlagsBits.Connect)) {
-			return await interaction.reply({ content: '❌ I do not have permission to join your voice channel!', flags: MessageFlags.Ephemeral });
+			return await interaction.reply({ content: '❌ I do not have permission to join the current voice channel!', flags: MessageFlags.Ephemeral });
 		}
 		if (!permissions.has(PermissionFlagsBits.Speak)) {
-			return await interaction.reply({ content: '❌ I do not have permission to speak in your voice channel!', flags: MessageFlags.Ephemeral });
+			return await interaction.reply({ content: '❌ I do not have permission to speak in the current voice channel!', flags: MessageFlags.Ephemeral });
 		}
 
 		const selectedSound = interaction.options.getString('sound');
@@ -66,9 +67,7 @@ module.exports = {
 		if (!audioQueueManager.canUseChannel(interaction.guild.id, voiceChannel.id)) {
 			return await interaction.reply({ content: '❌ The shared audio queue is active in another voice channel.', flags: MessageFlags.Ephemeral });
 		}
-		let connection;
-		try { connection = await getReadyVoiceConnection(interaction.guild, voiceChannel); }
-		catch { return await interaction.reply({ content: '❌ I could not establish a ready voice connection.', flags: MessageFlags.Ephemeral }); }
+		const connection = session.connection;
 
 		const entry = {
 			name: selectedSound,

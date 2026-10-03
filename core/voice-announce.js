@@ -56,8 +56,8 @@ const DEFAULT_QUIET_MS = 60 * 1000;
  */
 const MAX_ENTRIES_PER_GUILD = 1000;
 
-/** The two things she announces. Kept apart so a leave does not silence a join. */
-const EVENTS = ['join', 'leave'];
+/** Separate directions: a leave or waiting-room alert must not silence a join. */
+const EVENTS = ['join', 'leave', 'waiting'];
 
 function isEvent(value) {
 	return EVENTS.includes(value);

@@ -15,6 +15,7 @@ const core = require('../../core/index.js');
 const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
 const { createBotInviteUrl } = require('./bot-invite.js');
+const { validBatchWindow, resolveBatchWindow } = require('../../core/voice-qol-settings');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createProjectDeadlineSweep } = require('../../adapters/notifications/project-deadlines.js');
@@ -1272,6 +1273,8 @@ app.get('/api/guilds/:guildId', requireGuildAccess, async (req, res) => {
 			autorole_ids: Array.isArray(vars.autorole_ids) ? vars.autorole_ids : (vars.autorole_id ? [vars.autorole_id] : []),
 			bot_autorole_ids: Array.isArray(vars.bot_autorole_ids) ? vars.bot_autorole_ids : [],
 			tts_channel_id: vars.tts_channel_id || null,
+			tts_vc_batch_window_ms: resolveBatchWindow(vars.tts_vc_batch_window_ms),
+			tts_waiting_room_channel_id: vars.tts_waiting_room_channel_id || null,
 			tts_engine: vars.tts_engine || 'EDGE_TTS',
 			tts_lang: vars.tts_lang || 'th',
 			tts_voice: vars.tts_voice || 'th-TH-NiwatNeural',
@@ -1565,6 +1568,15 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 
 	try {
 		const oldVars = await database.getAllGuildVars(guildId);
+		const batchWindow = (req.body || {}).tts_vc_batch_window_ms === undefined ? resolveBatchWindow(oldVars.tts_vc_batch_window_ms) : (req.body || {}).tts_vc_batch_window_ms;
+		if (!validBatchWindow(batchWindow)) return res.status(400).json({ error: 'Use a batching window from 0.5 to 5 seconds.', code: 'tts_batch_window_invalid' });
+		const waitingRoom = (req.body || {}).tts_waiting_room_channel_id === undefined ? (oldVars.tts_waiting_room_channel_id || null) : (req.body || {}).tts_waiting_room_channel_id;
+		if (waitingRoom !== null && waitingRoom !== '') {
+			if (typeof waitingRoom !== 'string' || !/^\d{17,20}$/.test(waitingRoom)) return res.status(400).json({ error: 'Select an available voice channel in this server.', code: 'tts_waiting_room_invalid' });
+			const details = await sendIpcRequest({ type: 'get_guild_details', guildId }, 8000);
+			if (!details?.channels?.some(channel => channel.id === waitingRoom && channel.type === 2)) return res.status(400).json({ error: 'Select an available voice channel in this server.', code: 'tts_waiting_room_invalid' });
+		}
+
 		const desiredRoles = {
 			autorole_id: autorole_id || (Array.isArray(autorole_ids) && autorole_ids[0] ? autorole_ids[0] : null),
 			autorole_ids: Array.isArray(autorole_ids) ? autorole_ids : (autorole_id ? [autorole_id] : []),
@@ -1611,6 +1623,8 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		await database.setGuildVar(guildId, 'leave_message_template', leave_message_template || '');
 		await database.setGuildVar(guildId, 'leave_mode', leave_mode || 'text');
 		await database.setGuildVar(guildId, 'leave_embed', typeof leave_embed === 'object' && leave_embed !== null ? JSON.stringify(leave_embed) : (leave_embed || ''));
+		await database.setGuildVar(guildId, 'tts_vc_batch_window_ms', batchWindow);
+		await database.setGuildVar(guildId, 'tts_waiting_room_channel_id', waitingRoom || null);
 		await database.setGuildVar(guildId, 'tts_channel_id', tts_channel_id || null);
 		await database.setGuildVar(guildId, 'tts_engine', tts_engine || 'EDGE_TTS');
 		await database.setGuildVar(guildId, 'tts_lang', tts_lang || 'th');
@@ -1633,6 +1647,7 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		const greetingWasStored = Object.prototype.hasOwnProperty.call(savedVars, 'tts_join_greeting_enabled')
 			&& toBooleanSetting(savedVars.tts_join_greeting_enabled, false) === roomGreetingEnabled
 			&& savedVars.tts_join_greeting_text === roomGreetingText;
+		if (savedVars.tts_vc_batch_window_ms !== batchWindow || (savedVars.tts_waiting_room_channel_id || null) !== (waitingRoom || null)) throw new Error('Voice settings were not confirmed by the database.');
 		if (!greetingWasStored) {
 			throw new Error('The room greeting setting was not confirmed by the database.');
 		}
@@ -1680,7 +1695,8 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		const ttsWelcomeChanged = toBooleanSetting(tts_vc_welcome_enabled) !== toBooleanSetting(oldVars.tts_vc_welcome_enabled) || (tts_vc_welcome_template || '{username} เข้าดิสมา') !== (oldVars.tts_vc_welcome_template || '{username} เข้าดิสมา');
 		const ttsLeaveChanged = toBooleanSetting(tts_vc_leave_enabled) !== toBooleanSetting(oldVars.tts_vc_leave_enabled) || (tts_vc_leave_template || '{username} ออกจากดิสแล้ว') !== (oldVars.tts_vc_leave_template || '{username} ออกจากดิสแล้ว');
 
-		if (ttsChannelChanged || ttsEngineChanged || ttsSpamChanged || ttsLengthChanged || ttsAfkChanged || ttsRoomGreetingChanged || ttsWelcomeChanged || ttsLeaveChanged) {
+		const ttsQolChanged = batchWindow !== resolveBatchWindow(oldVars.tts_vc_batch_window_ms) || (waitingRoom || null) !== (oldVars.tts_waiting_room_channel_id || null);
+		if (ttsQolChanged || ttsChannelChanged || ttsEngineChanged || ttsSpamChanged || ttsLengthChanged || ttsAfkChanged || ttsRoomGreetingChanged || ttsWelcomeChanged || ttsLeaveChanged) {
 			const maxMsgs = tts_antispam_max_messages || 3;
 			const cooldown = tts_antispam_cooldown_seconds || 30;
 			const maxLen = tts_max_length || 200;
@@ -1698,6 +1714,8 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 			success: true,
 			message: 'Configuration saved successfully!',
 			config: {
+				tts_vc_batch_window_ms: batchWindow,
+				tts_waiting_room_channel_id: waitingRoom || null,
 				tts_join_greeting_enabled: roomGreetingEnabled,
 				tts_join_greeting_text: roomGreetingText,
 			},

@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 
 const { audioQueueManager, SOURCE } = require('../../backend/bot/audio_queue.js');
 const { parseInput } = require('../../backend/bot/youtube_provider.js');
-const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
+const { getActiveVoiceSession, isSameVoiceSession } = require('../../backend/bot/voice_connection.js');
 
 const requestTimes = new Map();
 let providerJobs = 0;
@@ -16,12 +16,12 @@ let providerJobs = 0;
 const COPY = {
 	en: {
 		disabled: 'YouTube playback is not enabled on this bot.', dependenciesUnavailable: 'YouTube playback dependencies are not ready on this bot host.', guildOnly: 'Use this command in a Discord server.',
-		joinVoice: 'Join a voice channel first.', connect: 'I cannot connect to your voice channel.', speak: 'I cannot speak in your voice channel.',
+		joinVoice: 'Megu is not connected to a ready voice channel.', connect: 'I cannot connect to the current voice channel.', speak: 'I cannot speak in the current voice channel.',
 		connectionFailed: 'I could not establish a ready voice connection. Try again shortly.',
 		otherChannel: 'The audio queue is active in another voice channel.', cooldown: 'Please wait a few seconds before requesting another video.',
 		providerBusy: 'YouTube search is busy. Try again shortly.', resolving: 'Checking YouTube…', noResults: 'No playable results were found.',
 		choose: 'Choose one result to add to the audio queue.', expired: 'This YouTube search expired. Run `/yt` again.',
-		cancelled: 'YouTube request cancelled.', changedVoice: 'You must stay in the same voice channel while choosing.',
+		cancelled: 'YouTube request cancelled.', changedVoice: 'Megu’s voice session changed. Start a new request.',
 		notYours: 'This YouTube selection belongs to another user.', preparing: 'Preparing your selected video…',
 		queued: (title, url, formattedDuration, ahead) => `Added **${title}** (<${url}>) · ${formattedDuration}\n${ahead ? `${ahead} item${ahead === 1 ? '' : 's'} ahead in the shared queue.` : 'Preparing to play now.'}`,
 		errors: {
@@ -37,12 +37,12 @@ const COPY = {
 	},
 	th: {
 		disabled: 'บอตนี้ยังไม่ได้เปิดการเล่น YouTube', dependenciesUnavailable: 'โฮสต์ของบอตยังเตรียมระบบเล่น YouTube ไม่พร้อม', guildOnly: 'ใช้คำสั่งนี้ในเซิร์ฟเวอร์ Discord',
-		joinVoice: 'เข้าห้องเสียงก่อนนะ', connect: 'Megu ไม่มีสิทธิ์เข้าห้องเสียงของคุณ', speak: 'Megu ไม่มีสิทธิ์พูดในห้องเสียงของคุณ',
+		joinVoice: 'Megu ยังไม่ได้เชื่อมต่อห้องเสียงที่พร้อมใช้งาน', connect: 'Megu ไม่มีสิทธิ์เข้าห้องเสียงที่ใช้งานอยู่', speak: 'Megu ไม่มีสิทธิ์พูดในห้องเสียงที่ใช้งานอยู่',
 		connectionFailed: 'Megu เชื่อมต่อห้องเสียงไม่สำเร็จ ลองอีกครั้งในอีกสักครู่',
 		otherChannel: 'คิวเสียงกำลังใช้งานอยู่ในห้องเสียงอื่น', cooldown: 'รอสักครู่ก่อนขอวิดีโออีกครั้ง',
 		providerBusy: 'การค้นหา YouTube กำลังยุ่ง ลองอีกครั้งในอีกสักครู่', resolving: 'กำลังตรวจสอบ YouTube…', noResults: 'ไม่พบผลลัพธ์ที่เล่นได้',
 		choose: 'เลือกหนึ่งรายการเพื่อเพิ่มลงคิวเสียง', expired: 'ผลการค้นหานี้หมดอายุแล้ว ใช้ `/yt` อีกครั้ง',
-		cancelled: 'ยกเลิกคำขอ YouTube แล้ว', changedVoice: 'ต้องอยู่ในห้องเสียงเดิมระหว่างเลือกรายการ',
+		cancelled: 'ยกเลิกคำขอ YouTube แล้ว', changedVoice: 'ห้องเสียงที่ Megu ใช้งานเปลี่ยนไปแล้ว กรุณาเริ่มคำขอใหม่',
 		notYours: 'รายการเลือก YouTube นี้เป็นของผู้ใช้อื่น', preparing: 'กำลังเตรียมวิดีโอที่เลือก…',
 		queued: (title, url, formattedDuration, ahead) => `เพิ่ม **${title}** (<${url}>) · ${formattedDuration}\n${ahead ? `มี ${ahead} รายการอยู่ข้างหน้าในคิวเสียงรวม` : 'กำลังเตรียมเล่นตอนนี้'}`,
 		errors: {
@@ -77,15 +77,16 @@ function featureEnabled(guildId, override) {
 	return guildIds.length === 0 || guildIds.includes(String(guildId || ''));
 }
 
-function voiceState(interaction, copy, manager) {
+function voiceState(interaction, copy, manager, voice) {
 	if (!interaction.guild || !interaction.member) return { error: copy.guildOnly };
-	const channel = interaction.member.voice?.channel;
+	const session = getActiveVoiceSession(interaction.guild, voice);
+	const channel = session?.channel;
 	if (!channel) return { error: copy.joinVoice };
 	const permissions = channel.permissionsFor(interaction.guild.members.me);
 	if (!permissions?.has(PermissionFlagsBits.Connect)) return { error: copy.connect };
 	if (!permissions.has(PermissionFlagsBits.Speak)) return { error: copy.speak };
 	if (!manager.canUseChannel(interaction.guild.id, channel.id)) return { error: copy.otherChannel };
-	return { channel };
+	return session;
 }
 
 function takeCooldown(guildId, userId, now = Date.now()) {
@@ -108,7 +109,7 @@ async function providerWork(task) {
 	finally { providerJobs--; }
 }
 
-async function chooseSearchResult(interaction, results, copy, voiceChannelId) {
+async function chooseSearchResult(interaction, results, copy, original, manager, voice) {
 	const requestId = randomUUID().replaceAll('-', '').slice(0, 20);
 	const selectId = `yt:select:${requestId}`;
 	const cancelId = `yt:cancel:${requestId}`;
@@ -141,8 +142,8 @@ async function chooseSearchResult(interaction, results, copy, voiceChannelId) {
 			await selected.update(reply(copy.cancelled));
 			return null;
 		}
-		const currentChannelId = selected.member?.voice?.channel?.id;
-		if (String(currentChannelId || '') !== String(voiceChannelId)) {
+		const current = voiceState(interaction, copy, manager, voice);
+		if (current.error || !isSameVoiceSession(original, current)) {
 			await selected.update(reply(copy.changedVoice));
 			return null;
 		}
@@ -166,7 +167,7 @@ async function executeYouTube(interaction, dependencies = {}) {
 	}
 	if (!interaction.inGuild?.()) return await interaction.reply({ ...reply(copy.guildOnly), flags: MessageFlags.Ephemeral });
 	await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-	const initialVoice = voiceState(interaction, copy, manager);
+	const initialVoice = voiceState(interaction, copy, manager, dependencies.voice);
 	if (initialVoice.error) return await interaction.editReply(reply(initialVoice.error));
 	if (!takeCooldown(interaction.guild.id, interaction.user.id)) return await interaction.editReply(reply(copy.cooldown));
 
@@ -178,13 +179,13 @@ async function executeYouTube(interaction, dependencies = {}) {
 		else {
 			const results = await providerWork(() => provider.search(parsed.query));
 			if (!results.length) return await interaction.editReply(reply(copy.noResults));
-			const videoId = await chooseSearchResult(interaction, results, copy, initialVoice.channel.id);
+			const videoId = await chooseSearchResult(interaction, results, copy, initialVoice, manager, dependencies.voice);
 			if (!videoId) return;
 			video = await providerWork(() => provider.getVideo(videoId));
 		}
-		const currentVoice = voiceState(interaction, copy, manager);
-		if (currentVoice.error || currentVoice.channel.id !== initialVoice.channel.id) return await interaction.editReply(reply(copy.changedVoice));
-		const connection = await getReadyVoiceConnection(interaction.guild, currentVoice.channel, { voice: dependencies.voice, timeoutMs: 15000 });
+		const currentVoice = voiceState(interaction, copy, manager, dependencies.voice);
+		if (currentVoice.error || !isSameVoiceSession(initialVoice, currentVoice)) return await interaction.editReply(reply(copy.changedVoice));
+		const connection = currentVoice.connection;
 		const result = manager.addToQueue(interaction.guild.id, interaction.guild.name, connection, video.title, {
 			source: SOURCE.YOUTUBE, type: SOURCE.YOUTUBE, engine: SOURCE.YOUTUBE,
 			videoId: video.videoId, canonicalUrl: video.url, durationSeconds: video.durationSeconds,

@@ -84,7 +84,7 @@ function route(prefix, guardSet, dependencies = {}) {
 	const start = web.indexOf(prefix), end = web.indexOf('\napp.', start + prefix.length);
 	assert.ok(start >= 0 && end > start);
 	let captured;
-	vm.runInNewContext(web.slice(start, end), { ...guardSet, ...dependencies, app: {
+	vm.runInNewContext(web.slice(start, end), { ...require('../core/voice-qol-settings'), ...guardSet, ...dependencies, app: {
 		post: (...args) => { captured = args.slice(1); }, get: (...args) => { captured = args.slice(1); },
 	} });
 	return captured;

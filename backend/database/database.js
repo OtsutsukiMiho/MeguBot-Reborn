@@ -98,12 +98,16 @@ async function initDatabase() {
 					guild_id VARCHAR(30) NOT NULL,
 					guild_name VARCHAR(100),
 					event_type VARCHAR(50) NOT NULL,
+					action_type VARCHAR(50),
 					user_id VARCHAR(30),
 					username VARCHAR(100),
 					details TEXT,
 					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 				);
 			`);
+			// Older installations predate the writer's action_type alias. Keep
+			// their history and event_type intact while upgrading on normal boot.
+			await client.query('ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action_type VARCHAR(50)');
 			await client.query(`
 				CREATE TABLE IF NOT EXISTS developer_users (
 					user_id VARCHAR(30) PRIMARY KEY,

@@ -2,6 +2,7 @@
 
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
+import { resolveBatchWindow, validBatchWindow, batchWindowFromSeconds } from '../../../core/voice-qol-settings';
 import { TabActionBar, TabFieldMessage, TabInlineActions, TabSection, TabSegmented, TabSettingRow, TabSettingsList, TabStatus, TabSwitch, TabWorkspace } from './TabWorkspace';
 
 const DEFAULT_ROOM_GREETING = 'สวัสดีชาวโลก';
@@ -27,6 +28,10 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 	const leaveTemplate = config.tts_vc_leave_template ?? DEFAULT_LEAVE_MESSAGE;
 	const channelOptions = [{ value: '', label: copy.disabled }, ...channels.map(channel => ({ value: channel.id, label: `# ${channel.name}`, subtitle: channel.parentName }))];
 	const voiceOptions = VOICES.map(voice => ({ value: voice.id, label: copy.voices[voice.labelKey], subtitle: voice.lang.toUpperCase() }));
+	const waitingOptions = [{ value: '', label: copy.disabled }, ...channels.filter(channel => channel.type === 2).map(channel => ({ value: channel.id, label: channel.name, subtitle: channel.parentName }))];
+	const batchEnabled = config.tts_vc_welcome_enabled !== false || config.tts_vc_leave_enabled !== false || channels.some(channel => channel.type === 2 && channel.id === config.tts_waiting_room_channel_id);
+	const batchValue = config.tts_vc_batch_window_ms === undefined ? resolveBatchWindow() : config.tts_vc_batch_window_ms;
+	const batchInvalid = !validBatchWindow(batchValue);
 
 	const changeVoice = value => {
 		const voice = VOICES.find(option => option.id === value);
@@ -71,6 +76,19 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 					<TabSettingRow label={copy.leaveAnnouncement} description={copy.leaveAnnouncementHelp} control={<TabSwitch checked={config.tts_vc_leave_enabled !== false} onChange={event => onChange('tts_vc_leave_enabled', event.target.checked)} label={copy.leaveAnnouncement} />} />
 					{config.tts_vc_leave_enabled !== false ? <TabSettingRow label={copy.messageLabel} stacked><input className="form-control" aria-label={copy.leaveAnnouncement} value={leaveTemplate} onChange={event => onChange('tts_vc_leave_template', event.target.value)} placeholder={DEFAULT_LEAVE_MESSAGE} />{variableButtons('tts_vc_leave_template', leaveTemplate)}</TabSettingRow> : null}
 				</TabSettingsList>
+			</TabSection>
+
+			<TabSection title={copy.waitingTitle} description={copy.waitingHelp}>
+				<TabSettingRow label={copy.waitingChannel}>
+					<CustomSelect type="channel" ariaLabel={copy.waitingChannel} value={config.tts_waiting_room_channel_id || ''} onChange={value => onChange('tts_waiting_room_channel_id', value || null)} options={waitingOptions} unavailableLabel={shared.unavailableChannel(config.tts_waiting_room_channel_id)} />
+				</TabSettingRow>
+			</TabSection>
+
+			<TabSection title={copy.batchingTitle} description={copy.batchingHelp}>
+				<TabSettingRow label={copy.batchWindow}>
+					<input type="number" className="form-control" aria-label={copy.batchWindow} aria-describedby="tts-batch-help" aria-invalid={batchInvalid} min={0.5} max={5} step={0.1} disabled={!batchEnabled} value={batchValue === '' ? '' : batchValue / 1000} onChange={event => onChange('tts_vc_batch_window_ms', batchWindowFromSeconds(event.target.value))} />
+					<div id="tts-batch-help"><TabFieldMessage>{batchInvalid ? copy.batchInvalid : copy.batchRange}</TabFieldMessage>{!batchEnabled ? <TabFieldMessage>{copy.batchDisabled}</TabFieldMessage> : null}</div>
+				</TabSettingRow>
 			</TabSection>
 
 			<TabSection title={copy.limitsTitle} description={copy.limitsDescription}>

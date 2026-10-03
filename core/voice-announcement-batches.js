@@ -2,7 +2,7 @@
 
 const { createAnnounceGuard, MAX_ENTRIES_PER_GUILD } = require('./voice-announce');
 
-const BATCH_WINDOW_MS = 1500;
+const { DEFAULT_BATCH_WINDOW_MS: BATCH_WINDOW_MS, resolveBatchWindow } = require('./voice-qol-settings');
 
 function joinNames(names, lang) {
 	if (names.length < 2) return names[0] || '';
@@ -53,10 +53,11 @@ function createVoiceAnnouncementBatcher({ lookup, enqueue, onError = () => {},
 		try {
 			const current = resolve(batch.destination);
 			if (!current?.ready) return;
+			if (batch.event === 'waiting' && !current.hasVoiceChannel?.(batch.sourceChannelId)) return;
 			const entries = [...batch.entries.values()].filter(entry => {
 				const channelId = current.memberChannelId(entry.userId);
 				// Unknown cached state is not proof that a member left.
-				return channelId !== undefined && (batch.event === 'join'
+				return channelId !== undefined && (batch.event === 'waiting' ? channelId === batch.sourceChannelId : batch.event === 'join'
 					? channelId === batch.destination.channelId : channelId !== batch.destination.channelId);
 			});
 			const result = guard.claimBatch({ guildId: batch.destination.guildId,
@@ -86,9 +87,10 @@ function createVoiceAnnouncementBatcher({ lookup, enqueue, onError = () => {},
 	return {
 		capture,
 		cancel,
-		add({ destination, event, userId, names, template, speech, limits, quietTemplate }) {
-			if (!destination || !['join', 'leave'].includes(event) || !userId || !template || !resolve(destination)) return false;
-			const key = JSON.stringify([destination.guildId, destination.channelId, event]);
+		add({ destination, event, userId, names, template, speech, limits, quietTemplate, windowMs, sourceChannelId }) {
+			if (!destination || !['join', 'leave', 'waiting'].includes(event) || !userId || !template || !resolve(destination)
+				|| (event === 'waiting' && !sourceChannelId)) return false;
+			const key = JSON.stringify([destination.guildId, destination.channelId, event, event === 'waiting' ? sourceChannelId : null]);
 			let batch = pending.get(key);
 			if (batch && (batch.destination.identity !== destination.identity || batch.destination.generation !== destination.generation)) {
 				clearTimer(batch.timer);
@@ -96,10 +98,10 @@ function createVoiceAnnouncementBatcher({ lookup, enqueue, onError = () => {},
 				batch = null;
 			}
 			if (!batch) {
-				batch = { destination: { ...destination }, event, template, speech: { ...speech },
+				batch = { destination: { ...destination }, event, sourceChannelId, template, speech: { ...speech },
 					limits: { ...limits }, quietTemplate, entries: new Map(), timer: null };
 				pending.set(key, batch);
-				batch.timer = setTimer(() => flush(key, batch), BATCH_WINDOW_MS);
+				batch.timer = setTimer(() => flush(key, batch), resolveBatchWindow(windowMs));
 				batch.timer?.unref?.();
 			}
 			if (!batch.entries.has(userId) && batch.entries.size >= MAX_ENTRIES_PER_GUILD) {

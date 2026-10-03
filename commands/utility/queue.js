@@ -2,6 +2,7 @@
 
 const { EmbedBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, escapeMarkdown } = require('discord.js');
 const { audioQueueManager } = require('../../backend/bot/audio_queue.js');
+const { getActiveVoiceSession } = require('../../backend/bot/voice_connection.js');
 
 const COPY = {
 	en: {
@@ -9,7 +10,8 @@ const COPY = {
 		current: 'Currently playing / preparing', upNext: 'Up next', none: 'No upcoming items.',
 		cleared: count => `Stopped playback and cleared ${count} item${count === 1 ? '' : 's'} from the audio queue.`,
 		alreadyEmpty: 'The audio queue is already empty.', skipped: 'Skipped the current audio item.',
-		cannotSkip: 'Only the current requester in the same voice channel or a server manager can skip this item.',
+		cannotSkip: 'Only the current requester or a server manager can skip this item.',
+		noConnection: 'Megu is not connected to a ready voice channel.',
 		manageRequired: 'You need Manage Server permission to clear the audio queue.',
 		more: count => `…and ${count} more`, total: count => `${count} item${count === 1 ? '' : 's'} total`,
 		states: { QUEUED: 'Queued', PREPARING: 'Preparing', PLAYING: 'Playing' },
@@ -19,7 +21,8 @@ const COPY = {
 		current: 'กำลังเล่น / กำลังเตรียม', upNext: 'รายการถัดไป', none: 'ไม่มีรายการถัดไป',
 		cleared: count => `หยุดการเล่นและล้าง ${count} รายการออกจากคิวเสียงแล้ว`,
 		alreadyEmpty: 'คิวเสียงว่างอยู่แล้ว', skipped: 'ข้ามรายการเสียงปัจจุบันแล้ว',
-		cannotSkip: 'เฉพาะผู้ขอรายการปัจจุบันที่อยู่ในห้องเสียงเดียวกัน หรือผู้จัดการเซิร์ฟเวอร์เท่านั้นที่ข้ามได้',
+		cannotSkip: 'เฉพาะผู้ขอรายการปัจจุบันหรือผู้จัดการเซิร์ฟเวอร์เท่านั้นที่ข้ามได้',
+		noConnection: 'Megu ยังไม่ได้เชื่อมต่อห้องเสียงที่พร้อมใช้งาน',
 		manageRequired: 'ต้องมีสิทธิ์จัดการเซิร์ฟเวอร์เพื่อล้างคิวเสียง',
 		more: count => `…และอีก ${count} รายการ`, total: count => `ทั้งหมด ${count} รายการ`,
 		states: { QUEUED: 'อยู่ในคิว', PREPARING: 'กำลังเตรียม', PLAYING: 'กำลังเล่น' },
@@ -54,6 +57,13 @@ async function executeAction(interaction, subcommand, dependencies = {}) {
 	if (!guildId) return await interaction.reply({ content: copy.empty, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
 	const queue = manager.getQueue(guildId);
 	const canManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) === true;
+	if (subcommand === 'clear' || subcommand === 'skip') {
+		const session = (dependencies.getActiveVoiceSession || getActiveVoiceSession)(interaction.guild);
+		if (!session || String(interaction.guild?.id || '') !== String(guildId)
+			|| (queue[0]?.voiceChannelId && String(queue[0].voiceChannelId) !== String(session.channel.id))) {
+			return await interaction.reply({ content: copy.noConnection, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+		}
+	}
 
 	if (subcommand === 'clear') {
 		if (!canManage) return await interaction.reply({ content: copy.manageRequired, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
@@ -67,8 +77,7 @@ async function executeAction(interaction, subcommand, dependencies = {}) {
 		const current = queue[0];
 		if (!current) return await interaction.reply({ content: copy.alreadyEmpty, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
 		const sameRequester = String(current.requestedByUserId || '') === String(interaction.user.id);
-		const sameChannel = Boolean(interaction.member?.voice?.channel?.id && String(interaction.member.voice.channel.id) === String(current.voiceChannelId || ''));
-		if (!canManage && !(sameRequester && sameChannel)) return await interaction.reply({ content: copy.cannotSkip, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+		if (!canManage && !sameRequester) return await interaction.reply({ content: copy.cannotSkip, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
 		manager.skipCurrent(guildId);
 		return await interaction.reply({ content: copy.skipped, allowedMentions: { parse: [] } });
 	}

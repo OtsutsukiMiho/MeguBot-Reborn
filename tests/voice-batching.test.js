@@ -159,6 +159,43 @@ for (const state of ['disconnected', 'moved', 'replaced', 'unready', 'unknown me
 	ok('guilds stay isolated even when user IDs and channel IDs match');
 }
 
+// Windows are immutable for a pending batch; the next batch reads the new value.
+{
+ const f=fixture(); f.add('first', 'join', {windowMs:1500}); f.time.advance(400);
+ f.add('second','join',{windowMs:3000}); f.time.advance(1100); assert.equal(f.spoken.length,1);
+ f.add('third','join',{windowMs:3000}); f.time.advance(2999); assert.equal(f.spoken.length,1);
+ f.time.advance(1); assert.equal(f.spoken.length,2); ok('configured duration is captured at batch creation');
+}
+{
+ const f=fixture(); f.current.hasVoiceChannel=id=>id==='waiting';
+ f.add('A','waiting',{sourceChannelId:'waiting',windowMs:500,template:'{nickname} joined the waiting room',limits:{cooldownMs:0}}); f.members.set('A','waiting');
+ f.add('B','waiting',{sourceChannelId:'waiting',windowMs:500,template:'{nickname} joined the waiting room',limits:{cooldownMs:0}}); f.members.set('B','waiting');
+ f.add('join','join',{windowMs:500}); f.time.advance(500);
+ assert.equal(f.spoken.length,2); assert.match(f.spoken[0].text,/nick-A และ nick-B joined the waiting room/);
+ f.add('A','waiting',{sourceChannelId:'waiting',windowMs:500,limits:{cooldownMs:0}}); f.members.set('A','waiting'); f.time.advance(500); assert.equal(f.spoken.length,3);
+ f.add('stale','waiting',{sourceChannelId:'waiting'}); f.members.set('stale','other'); f.time.advance(1500); assert.equal(f.spoken.length,3);
+ f.add('deleted','waiting',{sourceChannelId:'waiting'}); f.members.set('deleted','waiting'); f.current.hasVoiceChannel=()=>false; f.time.advance(1500); assert.equal(f.spoken.length,3);
+ ok('waiting batches group all names, remain separate, allow real re-entry and discard superseded/deleted source states');
+}
+{
+ const time=clock(), spoken=[];
+ const states=new Map(['a','b'].map(id=>[id,{guild:{},channelId:'vc',connection:{},ready:true,serverName:id,memberChannelId:()=> 'vc'}]));
+ const b=createVoiceAnnouncementBatcher({...time,lookup:id=>states.get(id),enqueue:c=>spoken.push(c.serverName)});
+ for(const [id,windowMs] of [['a',500],['b',5000]])b.add({destination:b.capture(id,'vc'),event:'join',userId:id,names:{username:id},template:'{username}',speech:{},windowMs});
+ time.advance(500); assert.deepEqual(spoken,['a']); time.advance(4500); assert.deepEqual(spoken,['a','b']); ok('different guild windows and pending batches stay isolated');
+}
+
+{
+	const f = fixture(); f.current.hasVoiceChannel = () => true;
+	const admit = (id, windowMs) => { f.add(id, 'waiting', { sourceChannelId: 'waiting', windowMs, limits: { cooldownMs: 0, floodCount: 1, floodWindowMs: 30000, quietMs: 60000 } }); f.members.set(id, 'waiting'); };
+	admit('A', 1500); f.time.advance(500); admit('B', 5000); f.time.advance(1000);
+	assert.equal(f.spoken.length, 1); assert.equal(f.spoken[0].entries.length, 2, 'Window stays captured at creation');
+	admit('C', 500); f.time.advance(500); assert.equal(f.spoken.at(-1).text, 'quiet');
+	admit('D', 500); f.time.advance(500); assert.equal(f.spoken.length, 2, 'Waiting room retains shared flood/quiet enforcement');
+	assert.equal(f.batcher.size(), 0); assert.equal(f.time.timers.size, 0);
+	ok('waiting windows are immutable and grouped clips retain flood/quiet limits without timer leaks');
+}
+
 // Execute the actual bot handler and current queue entry bridge with substituted
 // Discord/database boundaries. No login, network, or production DB is involved.
 async function integration() {
@@ -171,6 +208,7 @@ async function integration() {
 	const guild = { id: 'g', name: 'Server', afkChannelId: 'afk', members: { me: bot, cache: members },
 		channels: { cache: new Collection([['vc', channel]]) } };
 	let connection = { joinConfig: { channelId: 'vc' }, state: { status: 'ready' }, destroy() { this.state.status = 'destroyed'; } };
+	let autoJoins = 0;
 	const vars = { tts_afk_bringback_enabled: false };
 	const optedOut = new Set();
 	let nickRead = async (_g, id) => `nick-${id}`;
@@ -185,7 +223,7 @@ async function integration() {
 		// The bot's member ID and client ID are identical.
 		Events: { VoiceStateUpdate: 'voice', GuildDelete: 'delete' }, database,
 		getVoiceConnection: () => connection, getOrCreateConnection: () => { throw new Error('Batch must not create a connection'); },
-		BotLogs: () => {}, COLOR: {}, stamp: text => text, autoJoinActiveVC: async () => {},
+		BotLogs: () => {}, COLOR: {}, stamp: text => text, autoJoinActiveVC: async () => { autoJoins++; },
 		discordCall: async (_label, fn) => fn(), setTimeout: time.setTimer,
 		require: name => {
 			if (name.includes('voice-announcement-batches')) return { createVoiceAnnouncementBatcher: options => createVoiceAnnouncementBatcher({ ...options, ...time }) };
@@ -215,6 +253,34 @@ async function integration() {
 	assert.equal(queued[0].connection, connection); assert.equal(queued[0].voice_channel, channel);
 	assert.equal(queued[0].type, 'TTS'); assert.equal(queued[0].volume, 0.5); assert.equal(audits.length, 12);
 	ok('actual concurrent voice handler batches all twelve arrivals through the current audio bridge');
+ // Use actual voice handler: generic join off, alert source differs from playback destination.
+ const waiting={id:'waiting',type:2,members:new Collection()}; guild.channels.cache.set('waiting',waiting);
+ vars.tts_waiting_room_channel_id='waiting'; vars.tts_vc_welcome_enabled=false; vars.tts_lang='en'; vars.tts_vc_batch_window_ms=500;
+ const beforeWaiting=queued.length; const wa=member('waiting-a'), wb=member('waiting-b');
+ await Promise.all([event(wa,null,'waiting'),event(wb,'other','waiting')]); time.advance(500);
+ assert.equal(queued.length,beforeWaiting+1); assert.match(queued.at(-1).name,/nick-waiting-a and nick-waiting-b joined the waiting room/);
+ assert.equal(queued.at(-1).voice_channel.id,'vc');
+ await event(wa,'waiting','waiting'); time.advance(500); assert.equal(queued.length,beforeWaiting+1);
+ await event(wa,'waiting','other'); time.advance(500); assert.equal(queued.length,beforeWaiting+1);
+ await event(wa,'other','waiting'); time.advance(500); assert.equal(queued.length,beforeWaiting+2);
+ const robot=member('other-bot'); robot.user.bot=true; await event(robot,null,'waiting'); time.advance(500); assert.equal(queued.length,beforeWaiting+2);
+ optedOut.add('waiting-private'); await event(member('waiting-private'),null,'waiting'); time.advance(500); assert.equal(queued.length,beforeWaiting+2);
+ bot.voice.channel=null; bot.voice.channelId=null; const joinsBefore=autoJoins;
+ await event(member('waiting-disconnected'),null,'waiting'); time.advance(500);
+ assert.equal(autoJoins,joinsBefore); assert.equal(queued.length,beforeWaiting+2);
+ bot.voice.channel=channel; bot.voice.channelId='vc';
+ for(const status of ['destroyed','disconnected','connecting']) {
+  connection.state.status=status; await event(member('waiting-'+status),null,'waiting'); time.advance(500);
+  assert.equal(queued.length,beforeWaiting+2); connection.state.status='ready';
+ }
+ vars.tts_lang='th'; await event(member('waiting-thai'),null,'waiting'); time.advance(500);
+ assert.match(queued.at(-1).name,/เข้าห้องรอแล้ว/); vars.tts_lang='en';
+ vars.tts_waiting_room_channel_id='vc'; vars.tts_vc_welcome_enabled=true;
+ const same=member('waiting-same'); await event(same,'other','vc'); time.advance(500);
+ assert.match(queued.at(-1).name,/joined the waiting room/); assert.equal(queued.length,beforeWaiting+4);
+ delete vars.tts_waiting_room_channel_id; delete vars.tts_lang; delete vars.tts_vc_batch_window_ms; delete vars.tts_vc_welcome_enabled;
+ queued.splice(beforeWaiting); ok('actual waiting entry uses bot room, skips bots/property updates/exits, allows re-entry and overrides generic joins');
+
 	optedOut.add('private'); await event(member('private'), null, 'vc'); time.advance(BATCH_WINDOW_MS);
 	assert.equal(queued.length, 1);
 	ok('actual handler still respects announcement opt-out');

@@ -1,10 +1,10 @@
 'use strict';
 
 const {
-	VoiceConnectionStatus, entersState, getVoiceConnection, joinVoiceChannel,
+	VoiceConnectionStatus, getVoiceConnection, joinVoiceChannel,
 } = require('@discordjs/voice');
 
-const defaultVoice = { entersState, getVoiceConnection, joinVoiceChannel };
+const defaultVoice = { getVoiceConnection, joinVoiceChannel };
 const connectionMetadata = new WeakMap();
 const pendingByGuild = new Map();
 
@@ -71,14 +71,36 @@ function voiceConnectionError(cause) {
 	});
 }
 
+// Read-only: control never creates, moves or repairs a voice connection.
+function getActiveVoiceSession(guild, voice = defaultVoice) {
+	if (!guild?.id) return null;
+	const channelId = guild.members?.me?.voice?.channelId;
+	const channel = guild.channels?.cache?.get(channelId);
+	const connection = voice.getVoiceConnection(guild.id);
+	if (!channel || ![2, 13].includes(channel.type) || !connection
+		|| (channel.guildId && String(channel.guildId) !== String(guild.id))
+		|| connection.state?.status !== VoiceConnectionStatus.Ready
+		|| String(connection.joinConfig?.channelId || '') !== String(channelId || '')
+		|| (connection.joinConfig?.guildId && String(connection.joinConfig.guildId) !== String(guild.id))) return null;
+	// Preserve scalar identity: Discord can move/reconfigure this same connection.
+	return { guildId: String(guild.id), channelId: String(channelId), channel, connection };
+}
+
+function isSameVoiceSession(captured, current) {
+	return Boolean(captured && current && current.guildId && current.channelId && current.connection
+		&& captured.guildId === current.guildId && captured.channelId === current.channelId
+		&& captured.connection === current.connection);
+}
+
 function getOrCreateVoiceConnection(guild, channel, options = {}) {
 	if (!guild?.id || !channel?.id) throw voiceConnectionError(new Error('Guild and voice channel are required.'));
 	const voice = options.voice || defaultVoice;
 	let connection = voice.getVoiceConnection(guild.id);
 	const wrongChannel = connection && String(connection.joinConfig?.channelId || '') !== String(channel.id);
 	const destroyed = connection?.state?.status === VoiceConnectionStatus.Destroyed || connection?.state?.status === 'destroyed';
+	const disconnected = connection?.state?.status === VoiceConnectionStatus.Disconnected;
 	let created = false;
-	if (!connection || destroyed || wrongChannel) {
+	if (!connection || destroyed || disconnected || wrongChannel) {
 		connection = voice.joinVoiceChannel({
 			channelId: channel.id,
 			guildId: guild.id,
@@ -105,16 +127,60 @@ async function getReadyVoiceConnection(guild, channel, options = {}) {
 	const pending = pendingByGuild.get(guildId);
 	if (pending?.channelId === channelId) return pending.promise;
 
+	// One acknowledged transition at a time per guild; coalesce only the last
+	// queued target so A→B→A cannot reuse the first A and skip the final move.
 	const previous = pending?.promise.catch(() => undefined) || Promise.resolve();
 	const entry = { channelId, promise: null };
 	entry.promise = previous.then(async () => {
-		const { connection, created } = getOrCreateVoiceConnection(guild, channel, { ...options, voice });
+		let connection, created = false;
 		try {
-			await voice.entersState(connection, VoiceConnectionStatus.Ready, options.timeoutMs || 15000);
+			// Ready can persist during a channel move, and rejoin mutates joinConfig
+			// before acknowledgement. Discord.js's bot voice-state cache is updated
+			// by the gateway before voiceStateUpdate; use that public acknowledgement.
+			if (!guild.client?.on || !guild.client?.off) throw new Error('Discord voice-state events are unavailable.');
+			await new Promise((resolve, reject) => {
+				let acknowledged = false, settled = false;
+				const finish = error => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					guild.client.off('voiceStateUpdate', onVoiceState);
+					connection?.off('stateChange', check);
+					connection?.off('error', onConnectionError);
+					if (error) reject(error); else resolve();
+				};
+				const check = () => {
+					if (connection?.state?.status === VoiceConnectionStatus.Destroyed) return finish(new Error('Voice connection was destroyed.'));
+					const current = getActiveVoiceSession(guild, voice);
+					if (acknowledged && current?.connection === connection && current?.channelId === channelId) finish();
+				};
+				const onVoiceState = (_old, current) => {
+					if (String(current.guild?.id) !== guildId || current.id !== guild.members?.me?.id) return;
+					acknowledged = String(current.channelId || '') === channelId;
+					check();
+				};
+				const onConnectionError = error => finish(error);
+				const timer = setTimeout(() => finish(Object.assign(new Error('The operation was aborted'), {
+					name: 'AbortError', code: 'ABORT_ERR',
+				})), options.timeoutMs || 15000);
+				guild.client.on('voiceStateUpdate', onVoiceState);
+				try {
+					({ connection, created } = getOrCreateVoiceConnection(guild, channel, { ...options, voice }));
+					// Healthy reuse needs no new gateway event. An initiated transition
+					// must receive its own acknowledgement, even for the same target.
+					if (!created) acknowledged = String(guild.members.me?.voice?.channelId || '') === channelId;
+					connection.on('stateChange', check);
+					connection.on('error', onConnectionError);
+					check();
+				}
+				catch (error) { finish(error); }
+			});
+			const current = getActiveVoiceSession(guild, voice);
+			if (current?.connection !== connection || current?.channelId !== channelId) throw new Error('Voice destination changed before connection completed.');
 			return connection;
 		}
 		catch (cause) {
-			if (created) {
+			if (created && connection?.state?.status !== VoiceConnectionStatus.Destroyed) {
 				try { connection.destroy(); }
 				catch {
 					// The failed connection may already have destroyed itself.
@@ -130,6 +196,8 @@ async function getReadyVoiceConnection(guild, channel, options = {}) {
 }
 
 module.exports = {
+	getActiveVoiceSession,
+	isSameVoiceSession,
 	getOrCreateVoiceConnection,
 	getReadyVoiceConnection,
 	protectVoiceConnection,

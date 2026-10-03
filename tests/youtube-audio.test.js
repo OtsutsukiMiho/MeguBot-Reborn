@@ -9,8 +9,13 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const { PermissionFlagsBits } = require('discord.js');
 const { YouTubeProvider, normalizeVideo, parseInput } = require('../backend/bot/youtube_provider.js');
-const { executeYouTube, _test: youtubeTest } = require('../commands/utility/yt.js');
+const { executeYouTube: runYouTube, _test: youtubeTest } = require('../commands/utility/yt.js');
 const queueCommand = require('../commands/utility/queue.js');
+const testVoiceConnections = new Map();
+function executeYouTube(interaction, dependencies) {
+ return runYouTube(interaction, {...dependencies, voice: dependencies.voice || {getVoiceConnection:id=>testVoiceConnections.get(id)}});
+}
+const queueSession = () => ({channel:{id:'voice-a'},connection:{state:{status:'ready'}}});
 const skipCommand = require('../commands/utility/skip.js');
 const stopCommand = require('../commands/utility/stop.js');
 const { DEPLOYMENT_CONFIG_ERROR, resolveDeploymentTarget } = require('../scripts/command-deployment-target.js');
@@ -50,7 +55,7 @@ function fakeVersionChild(version) {
 
 function interactionBase(query = 'https://youtu.be/dQw4w9WgXcQ', suffix = 'a') {
 	const edits = [];
-	const channel = { id: 'voice-a', permissionsFor: () => ({ has: () => true }) };
+	const channel = { id: 'voice-a', type: 2, permissionsFor: () => ({ has: () => true }) };
 	const interaction = {
 		locale: 'en-US', guildId: `guild-${suffix}`, channelId: 'text', deferred: false, replied: false,
 		guild: { id: `guild-${suffix}`, name: 'Guild', voiceAdapterCreator: {}, members: { me: { id: 'bot' } } },
@@ -60,6 +65,9 @@ function interactionBase(query = 'https://youtu.be/dQw4w9WgXcQ', suffix = 'a') {
 		async reply(payload) { this.replied = true; edits.push(payload); return payload; },
 		async editReply(payload) { edits.push(payload); return payload; },
 	};
+	interaction.guild.members.me.voice = {channelId:channel.id,channel};
+	interaction.guild.channels = {cache:new Map([[channel.id,channel]])};
+	testVoiceConnections.set(interaction.guild.id,{joinConfig:{guildId:interaction.guild.id,channelId:channel.id},state:{status:'ready'}});
 	return { channel, edits, interaction };
 }
 
@@ -231,21 +239,25 @@ async function main() {
 	}
 
 	{
-		const { edits, interaction } = interactionBase();
+		for (const callerChannel of ['voice-a', 'voice-b', null]) {
+		const { edits, interaction } = interactionBase(undefined, `remote-${callerChannel}`);
+		interaction.member.voice.channel = callerChannel ? { id: callerChannel } : null;
 		let queued;
 		const manager = {
 			canUseChannel: () => true,
 			addToQueue(...args) { queued = args; return { success: true, id: 'item', position: 1 }; },
 		};
 		const provider = { getVideo: async () => ({ videoId: 'dQw4w9WgXcQ', title: 'A *safe* track', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', durationSeconds: 120 }) };
-		const connection = { joinConfig: { channelId: 'voice-a' }, subscribe() {} };
-		await executeYouTube(interaction, { enabled: true, manager, provider, voice: { getVoiceConnection: () => null, joinVoiceChannel: () => connection, entersState: async () => connection } });
+		const connection = { joinConfig: { channelId: 'voice-a' }, state: {status:'ready'}, subscribe() {} };
+		await executeYouTube(interaction, { enabled: true, manager, provider, voice: { getVoiceConnection: () => connection, joinVoiceChannel: () => assert.fail('remote playback never joins'), entersState: async () => connection } });
 		assert.equal(interaction.deferred, true);
 		assert.equal(queued[4].source, 'YOUTUBE');
-		assert.equal(queued[4].requestedByUserId, 'user-a');
+		assert.equal(queued[4].requestedByUserId, interaction.user.id);
 		assert.match(edits.at(-1).content, /Preparing to play now/);
 		assert.deepEqual(edits.at(-1).allowedMentions, { parse: [] });
-		ok('/yt link rechecks voice state and queues one sanitized YouTube item');
+		assert.equal(queued[2], connection); assert.equal(queued[4].voiceChannelId, 'voice-a');
+		}
+		ok('/yt link accepts same/different/no caller voice and queues one sanitized item into the existing bot session');
 	}
 
 	{
@@ -258,9 +270,9 @@ async function main() {
 			enabled: true, manager, provider,
 			voice: { getVoiceConnection: () => null, joinVoiceChannel: () => connection, entersState: async () => { throw new Error('voice timeout'); } },
 		});
-		assert.equal(destroyed, 1);
-		assert.match(edits.at(-1).content, /ready voice connection/);
-		ok('/yt destroys a newly created connection that cannot become ready');
+		assert.equal(destroyed, 0);
+		assert.match(edits.at(-1).content, /not connected to a ready voice channel/);
+		ok('/yt never creates or destroys a connection when disconnected');
 	}
 
 	{
@@ -280,7 +292,7 @@ async function main() {
 		const manager = { canUseChannel: () => true, addToQueue: () => { queued++; return { success: true, id: 'item', position: 2 }; } };
 		const result = { videoId: 'dQw4w9WgXcQ', title: 'ผลลัพธ์', channel: 'ช่อง', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', durationSeconds: 90 };
 		const provider = { search: async () => [result], getVideo: async () => result };
-		const connection = { joinConfig: { channelId: 'voice-a' }, subscribe() {} };
+		const connection = { joinConfig: { channelId: 'voice-a' }, state: {status:'ready'}, subscribe() {} };
 		await executeYouTube(interaction, { enabled: true, manager, provider, voice: { getVoiceConnection: () => connection, joinVoiceChannel: () => connection, entersState: async () => connection } });
 		assert.equal(queued, 1);
 		assert.equal(rejectedImpostor, 1);
@@ -339,6 +351,41 @@ async function main() {
 		ok('/yt Cancel ends a search without resolving or enqueueing a video');
 	}
 
+	for (const boundary of ['link', 'selection', 'selected-video']) {
+		const { edits, interaction, channel } = interactionBase(boundary === 'link' ? 'https://youtu.be/dQw4w9WgXcQ' : 'search', `same-object-${boundary}`);
+		const connection = testVoiceConnections.get(interaction.guild.id), queued = [];
+		const movedChannel = { ...channel, id: 'voice-b' }; interaction.guild.channels.cache.set(movedChannel.id, movedChannel);
+		let release, markPending, hold = true, creates = 0, videoLookups = 0;
+		const pending = new Promise(resolve => { markPending = resolve; });
+		const wait = value => new Promise(resolve => { release = () => resolve(value); markPending(); });
+		const video = { videoId: 'dQw4w9WgXcQ', title: 'Track', channel: 'Channel', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', durationSeconds: 60 };
+		const selected = { user: interaction.user, guildId: interaction.guildId, values: [video.videoId], async update(payload) { edits.push(payload); } };
+		const message = { async awaitMessageComponent({ filter }) {
+			selected.customId = edits.at(-1).components[0].components[0].data.custom_id;
+			assert.equal(filter(selected), true);
+			return hold && boundary === 'selection' ? wait(selected) : selected;
+		} };
+		interaction.editReply = async payload => { edits.push(payload); return payload.components?.length ? message : payload; };
+		const manager = { canUseChannel: () => true, addToQueue: (...args) => { queued.push(args); return { success: true, position: 1 }; } };
+		const provider = { search: async () => [video], getVideo: async () => { videoLookups++; return hold && boundary !== 'selection' ? wait(video) : video; } };
+		const voice = { getVoiceConnection: id => testVoiceConnections.get(id), joinVoiceChannel: () => { creates++; assert.fail('Remote playback never joins'); } };
+		const running = executeYouTube(interaction, { enabled: true, manager, provider, voice }); await pending;
+		interaction.guild.members.me.voice.channelId = movedChannel.id; interaction.guild.members.me.voice.channel = movedChannel;
+		connection.joinConfig.channelId = movedChannel.id;
+		assert.equal(testVoiceConnections.get(interaction.guild.id), connection, 'Move reuses the same connection');
+		release(); await running;
+		assert.equal(queued.length, 0, `Same-object bot move at ${boundary} must reject, never silently retarget`);
+		assert.match(edits.at(-1).content, /voice session changed/);
+		if (boundary === 'selection') assert.equal(videoLookups, 0, 'Stale selection is rejected before further provider work');
+		hold = false; interaction.user = { ...interaction.user, id: interaction.user.id + '-fresh' };
+		interaction.options.getString = () => video.url;
+		await executeYouTube(interaction, { enabled: true, manager, provider, voice });
+		assert.equal(queued.length, 1); assert.equal(queued[0][2], connection);
+		assert.equal(queued[0][4].voiceChannelId, connection.joinConfig.channelId);
+		assert.equal(queued[0][4].voiceChannelId, 'voice-b'); assert.equal(creates, 0);
+		ok(`/yt ${boundary} boundary rejects same-object A→B move; fresh B request remains valid`);
+	}
+
 	{
 		const { edits, interaction } = interactionBase('voice change', 'voice-change');
 		const result = { videoId: 'dQw4w9WgXcQ', title: 'Result', channel: 'Channel', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', durationSeconds: 90 };
@@ -351,6 +398,8 @@ async function main() {
 			async awaitMessageComponent({ filter }) {
 				selected.customId = edits.at(-1).components[0].components[0].data.custom_id;
 				assert.equal(filter(selected), true);
+				interaction.guild.members.me.voice.channelId='voice-b';
+				interaction.guild.members.me.voice.channelId='voice-b';
 				return selected;
 			},
 		};
@@ -358,11 +407,11 @@ async function main() {
 			edits.push(payload);
 			return payload.components?.length ? message : payload;
 		};
-		const manager = { canUseChannel: () => true, addToQueue: () => assert.fail('a moved requester must not enqueue') };
+		const manager = { canUseChannel: () => true, addToQueue: () => assert.fail('a changed bot session must not enqueue') };
 		const provider = { search: async () => [result], getVideo: async () => assert.fail('a moved requester must not resolve the selection') };
 		await executeYouTube(interaction, { enabled: true, manager, provider });
-		assert.match(edits.at(-1).content, /stay in the same voice channel/);
-		ok('/yt rejects a search selection after the requester changes voice channel');
+		assert.match(edits.at(-1).content, /voice session changed/);
+		ok('/yt rejects a search selection after the bot session changes');
 	}
 
 	{
@@ -383,15 +432,15 @@ async function main() {
 		assert.equal(guildOnly.interaction.deferred, false);
 
 		const noVoice = interactionBase('no voice', 'no-voice');
-		noVoice.interaction.member.voice.channel = null;
+		noVoice.interaction.guild.members.me.voice.channelId = null;
 		await executeYouTube(noVoice.interaction, { enabled: true, manager, provider: {} });
-		assert.match(noVoice.edits.at(-1).content, /Join a voice channel/);
+		assert.match(noVoice.edits.at(-1).content, /not connected to a ready voice channel/);
 
 		const noSpeak = interactionBase('no speak', 'no-speak');
 		noSpeak.channel.permissionsFor = () => ({ has: permission => permission === PermissionFlagsBits.Connect });
 		await executeYouTube(noSpeak.interaction, { enabled: true, manager, provider: {} });
 		assert.match(noSpeak.edits.at(-1).content, /cannot speak/);
-		ok('/yt rejects DMs, missing voice membership, and missing Speak permission independently');
+		ok('/yt rejects DMs, missing bot connection, and missing Speak permission independently');
 	}
 
 	{
@@ -532,24 +581,24 @@ async function main() {
 			memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild ? false : false },
 			options: { getSubcommand: () => 'skip' }, async reply(payload) { replies.push(payload); },
 		};
-		await queueCommand.execute(interaction, { manager });
+		await queueCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.equal(skipped, 0);
 		assert.match(replies[0].content, /Only the current requester/);
 		interaction.user.id = 'owner';
-		await queueCommand.execute(interaction, { manager });
+		await queueCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.equal(skipped, 1);
 		interaction.options.getSubcommand = () => 'clear';
 		interaction.user.id = 'other';
-		await queueCommand.execute(interaction, { manager });
+		await queueCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.match(replies.at(-1).content, /Manage Server/);
 		interaction.options.getSubcommand = () => 'skip';
 		interaction.memberPermissions.has = permission => permission === PermissionFlagsBits.ManageGuild;
-		await queueCommand.execute(interaction, { manager });
+		await queueCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.equal(skipped, 2);
 		interaction.options.getSubcommand = () => 'clear';
-		await queueCommand.execute(interaction, { manager });
+		await queueCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.equal(cleared, 1);
-		ok('queue controls enforce requester/channel ownership and allow server managers');
+		ok('queue controls enforce requester ownership and live-session safety and allow server managers');
 	}
 
 	{
@@ -568,14 +617,14 @@ async function main() {
 			memberPermissions: { has: () => false },
 			async reply(payload) { replies.push(payload); },
 		};
-		await skipCommand.execute(interaction, { manager });
-		await stopCommand.execute(interaction, { manager });
+		await skipCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
+		await stopCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.equal(skipped, 0);
 		assert.equal(cleared, 0);
 		assert.match(replies[0].content, /Only the current requester/);
 		assert.match(replies[1].content, /Manage Server/);
 		interaction.memberPermissions.has = permission => permission === PermissionFlagsBits.ManageGuild;
-		await stopCommand.execute(interaction, { manager });
+		await stopCommand.execute(interaction, { manager, getActiveVoiceSession: queueSession });
 		assert.equal(cleared, 1);
 		ok('legacy skip and stop commands cannot bypass the shared queue authorization policy');
 	}

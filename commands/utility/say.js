@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { addToQueue, audioQueueManager } = require('../../backend/bot/audio_queue.js');
 const { BotLogs, COLOR } = require('../../backend/bot/bot_functions.js');
-const { getReadyVoiceConnection } = require('../../backend/bot/voice_connection.js');
+const { getActiveVoiceSession } = require('../../backend/bot/voice_connection.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -33,10 +33,11 @@ module.exports = {
 		),
 
 	async execute(interaction) {
-		const voiceChannel = interaction.member.voice.channel;
+		const session = getActiveVoiceSession(interaction.guild);
+		const voiceChannel = session?.channel;
 		if (!voiceChannel) {
 			return await interaction.reply({
-				content: '❌ You need to join a voice channel first!',
+				content: '❌ Megu is not connected to a ready voice channel.',
 				flags: MessageFlags.Ephemeral,
 			});
 		}
@@ -46,14 +47,12 @@ module.exports = {
 		const engine = interaction.options.getString('engine') || 'google';
 		const permissions = voiceChannel.permissionsFor(interaction.guild.members.me);
 		if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
-			return await interaction.reply({ content: '❌ I need Connect and Speak permissions in your voice channel.', flags: MessageFlags.Ephemeral });
+			return await interaction.reply({ content: '❌ I need Connect and Speak permissions in the current voice channel.', flags: MessageFlags.Ephemeral });
 		}
 		if (!audioQueueManager.canUseChannel(interaction.guild.id, voiceChannel.id)) {
 			return await interaction.reply({ content: '❌ The shared audio queue is active in another voice channel.', flags: MessageFlags.Ephemeral });
 		}
-		let connection;
-		try { connection = await getReadyVoiceConnection(interaction.guild, voiceChannel); }
-		catch { return await interaction.reply({ content: '❌ I could not establish a ready voice connection.', flags: MessageFlags.Ephemeral }); }
+		const connection = session.connection;
 
 		const type = engine === 'edge' ? 'TTS' : 'GOOGLE_TTS';
 
