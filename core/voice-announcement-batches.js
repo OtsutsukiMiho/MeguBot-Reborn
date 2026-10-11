@@ -2,7 +2,8 @@
 
 const { createAnnounceGuard, MAX_ENTRIES_PER_GUILD } = require('./voice-announce');
 
-const { DEFAULT_BATCH_WINDOW_MS: BATCH_WINDOW_MS, resolveBatchWindow } = require('./voice-qol-settings');
+const { DEFAULT_BATCH_WINDOW_MS: BATCH_WINDOW_MS, resolveBatchWindow, TEXT_TTS_FIELDS } = require('./voice-qol-settings');
+const TEMPLATE_FIELDS = new RegExp(`{(${TEXT_TTS_FIELDS.join('|')})}`, 'gi');
 
 function joinNames(names, lang) {
 	if (names.length < 2) return names[0] || '';
@@ -10,11 +11,32 @@ function joinNames(names, lang) {
 	return `${names.slice(0, -1).join(', ')} ${and} ${names.at(-1)}`;
 }
 
-function formatAnnouncement(template, entries, lang, serverName) {
-	return template.replace(/{(displayname|nickname|username|tag|server)}/gi, (_, field) => {
+function announcementNames(member, dbNick) {
+	const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
+	const displayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
+	const spokenNick = customNick || displayName;
+	return { displayname: displayName, nickname: spokenNick, username: spokenNick,
+		tag: member.user?.username || displayName };
+}
+
+function formatAnnouncement(template, entries, lang, serverName, message) {
+	return template.replace(TEMPLATE_FIELDS, (token, field) => {
 		const key = field.toLowerCase();
+		if (key === 'message') return message === undefined ? token : message;
 		return key === 'server' ? serverName : joinNames(entries.map(entry => entry.names[key]), lang);
 	});
+}
+
+// The message has already passed the channel's filtering/normalization. Bound
+// the complete clip without allowing a long wrapper/name to erase its body.
+function formatTextTts(template, names, serverName, message, maxLength) {
+	const entries = [{ names }];
+	const render = body => formatAnnouncement(template, entries, '', serverName, body).replace(/[<>]/g, '');
+	const result = render(message);
+	if (result.length <= maxLength) return result;
+	const slots = (template.match(/{message}/gi) || []).length;
+	const available = Math.floor((maxLength - render('').length) / slots);
+	return available > 0 ? render(message.substring(0, available)) : message.substring(0, maxLength);
 }
 
 /**
@@ -121,4 +143,4 @@ function createVoiceAnnouncementBatcher({ lookup, enqueue, onError = () => {},
 	};
 }
 
-module.exports = { createVoiceAnnouncementBatcher, BATCH_WINDOW_MS, formatAnnouncement };
+module.exports = { createVoiceAnnouncementBatcher, BATCH_WINDOW_MS, formatAnnouncement, announcementNames, formatTextTts };

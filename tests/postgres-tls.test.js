@@ -55,6 +55,7 @@ function capturePool(file, env) {
 			if (name === 'pg') return { Pool };
 			if (name.endsWith('/postgres-connection.js')) return { ...policy, postgresConnectionOptions: value => policy.postgresConnectionOptions(value, env) };
 			if (name.endsWith('/pool-config.js')) return { poolMax: () => 1 };
+			if (name.endsWith('/voice-qol-settings.js')) return require('../core/voice-qol-settings');
 			if (name.endsWith('/bot_functions.js')) return { BotLogs: () => {}, COLOR: {} };
 			if (name === './log.js') return { log: () => {} };
 			return require(name);

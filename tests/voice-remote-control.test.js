@@ -61,6 +61,7 @@ async function main() {
 	const textEnd = source.indexOf('\n\tconst input = message.content.trim();', textStart);
 	const vars = { tts_speaker_names_enabled: false, tts_antispam_max_messages: 1 };
 	const context = { PermissionFlagsBits: discord.PermissionFlagsBits, client: { ttsChannels: new Map([['g', 'text']]) }, getActiveVoiceSession: session, isSameVoiceSession,
+		...require('../core/voice-announcement-batches'), ...require('../core/voice-qol-settings'), getUserNick: async () => 'CustomNick',
 		database: { getGuildVar: async (_id, key) => vars[key] }, userTtsHistoryMap: new Map(), BotLogs: () => {}, COLOR: {},
 		ttsVolume: () => 0.5, toBool: value => Boolean(value), setTimeout: () => {},
 		require: () => ({ generateUUID: () => 'id', addToQueue: (_g, entry) => { queued.push(entry); return { success: true }; } }),
@@ -75,6 +76,32 @@ async function main() {
 		msg.channel.id = 'other'; msg.content = 'Other'; await handle(msg); assert.equal(queued.length, before + 1);
 	}
 	vars.tts_antispam_enabled = false; vars.tts_max_length = 20;
+	vars.tts_channel_template = '{displayname} says {message}'; vars.tts_max_length = 200;
+	for (const callerChannel of ['a', 'b', null]) {
+		const msg = { guild, channel: { id: 'text' }, member: { nickname: 'Alice', voice: { channelId: callerChannel } }, author: { id: 'custom', username: 'Account' }, content: 'hello https://example.test <speak>safe</speak> {server}', react: async () => {} };
+		const before=queued.length; await handle(msg);
+		assert.equal(queued.length,before+1); assert.equal(queued.at(-1).voice_channel.id,'a');
+		assert.equal(queued.at(-1).name,'Alice says hello ลิงก์ speaksafe/speak {server}', 'Sanitize before single-pass substitution; body tokens remain literal');
+	}
+	const sayBefore=queued.length;
+	await command('say').execute({ guild, member: {}, user: { id: 'custom' }, options: { getString: key => key === 'text' ? 'hello' : null }, reply: async () => {} });
+	assert.equal(queued.length,sayBefore+1); assert.equal(queued.at(-1).name,'hello','Configured wrapper never affects /say');
+	vars.tts_channel_template = '{nickname} / {username} / {tag}: {message}';
+	await handle({guild,channel:{id:'text'},member:{displayName:'Discord'},author:{id:'names',username:'Account'},content:'Hello',react:async()=>{}});
+	assert.equal(queued.at(-1).name,'CustomNick / CustomNick / Account: Hello');
+	vars.tts_channel_template = 'x'.repeat(290) + '{message}'; vars.tts_max_length = 20;
+	await handle({guild,channel:{id:'text'},member:{},author:{id:'long',username:'Long'},content:'body survives',react:async()=>{}});
+	assert.equal(queued.at(-1).name,'body survives','An oversized wrapper cannot erase the message body');
+	vars.tts_channel_template = '{message} / {message}';
+	await handle({guild,channel:{id:'text'},member:{},author:{id:'bounded',username:'Long'},content:'abcdefghijklmno',react:async()=>{}});
+	assert.equal(queued.at(-1).name,'abcdefgh / abcdefgh');
+	assert.ok(queued.at(-1).name.length <= 20,'Final clip remains within the existing maximum');
+	delete vars.tts_channel_template; vars.tts_max_length = 200; vars.tts_speaker_names_enabled = true;
+	Object.assign(context, require('../core/voice-announce'), { speakerTracker: require('../core/voice-announce').createSpeakerTracker() });
+	await handle({guild,channel:{id:'text'},member:{displayName:'Discord'},author:{id:'legacy',username:'Account'},content:'Hello',react:async()=>{}});
+	assert.equal(queued.at(-1).name,'CustomNick บอกว่า Hello','Missing wrapper preserves released speaker attribution when enabled');
+	vars.tts_speaker_names_enabled = false;
+	delete vars.tts_channel_template; vars.tts_max_length = 20;
 	const cleanMessage = { guild, channel: { id: 'text' }, member: {}, author: { id: 'clean', username: 'Clean' }, content: 'hello https://example.test <b>long message</b>', react: async () => {} };
 	await handle(cleanMessage); assert.equal(queued.at(-1).name.length, 20); assert.ok(!queued.at(-1).name.includes('https://')); assert.ok(!queued.at(-1).name.includes('<'));
 	const readVar = context.database.getGuildVar;

@@ -7,7 +7,7 @@ assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname));
 const guild = '811111111111111111', voice = '822222222222222222', text = '833333333333333333', otherGuild = '844444444444444444';
 (async () => {
 	const browser = await chromium.launch({ headless: true, executablePath: process.env.MEGU_BROWSER_EXECUTABLE });
-	const output = path.resolve('.impeccable/review/voice-qol'); fs.mkdirSync(output, { recursive: true });
+	const output = path.resolve('.impeccable/review/voice-templates'); fs.mkdirSync(output, { recursive: true });
 	let captures = 0;
 	try {
 		for (const [lang, theme, width] of [['en', 'light', 390], ['th', 'dark', 768], ['en', 'dark', 1440], ['th', 'light', 1440]]) {
@@ -30,7 +30,10 @@ const guild = '811111111111111111', voice = '822222222222222222', text = '833333
 			const page = await context.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
 			await page.goto(`${base}/servers/${guild}?tab=tts`);
 			const input = page.getByRole('spinbutton', { name: c.batchWindow, exact: true });
+			const waitingTemplate = page.getByRole('textbox', { name: c.waitingTemplate, exact: true });
+			const channelTemplate = page.getByRole('textbox', { name: c.channelTemplate, exact: true });
 			await input.waitFor(); assert.equal(await input.inputValue(), '3.2'); assert.ok(await input.isDisabled());
+			assert.ok(await waitingTemplate.isDisabled()); assert.ok(await channelTemplate.isDisabled());
 			await page.getByText(c.batchDisabled, { exact: true }).waitFor();
 			const select = page.getByRole('button', { name: c.waitingChannel, exact: true });
 			await select.focus(); await select.press('ArrowDown');
@@ -38,23 +41,38 @@ const guild = '811111111111111111', voice = '822222222222222222', text = '833333
 			assert.equal(await list.getByRole('option').count(), 2, 'Only disabled plus supported voice channel, never text');
 			await list.press('End'); assert.ok(await list.getAttribute('aria-activedescendant')); await list.press('Enter');
 			assert.ok(await select.evaluate(el => el === document.activeElement), 'Selection returns focus');
+			assert.ok(await waitingTemplate.isEnabled()); await waitingTemplate.fill('{nickname} awaits help');
+			const textSelect = page.getByRole('button', { name: c.channelLabel, exact: true });
+			await textSelect.click(); const textList = page.getByRole('listbox', { name: c.channelLabel, exact: true });
+			await textList.press('End'); await textList.press('Enter');
+			assert.ok(await channelTemplate.isEnabled()); await channelTemplate.fill('{displayname} says');
+			await page.getByRole('button', { name: copy.servers.saveChanges, exact: true }).click();
+			assert.equal(saves.length, 0, 'Invalid template cannot submit');
+			assert.ok(await channelTemplate.evaluate(el => el === document.activeElement), 'Invalid template receives focus');
+			await channelTemplate.fill('{displayname} says {message}');
 			assert.ok(await input.isEnabled()); await input.fill('0.4'); assert.equal(await input.getAttribute('aria-invalid'), 'true');
 			await page.getByText(c.batchInvalid, { exact: true }).waitFor();
 			await input.fill('3.2'); await page.getByRole('button', { name: copy.servers.saveChanges, exact: true }).click();
 			await page.getByRole('region', { name: copy.servers.unsavedTitle, exact: true }).waitFor({ state: 'hidden' });
 			assert.equal(saves.length, 1); assert.equal(saves[0].tts_vc_batch_window_ms, 3200); assert.equal(saves[0].tts_waiting_room_channel_id, voice);
+			assert.equal(saves[0].tts_waiting_room_template, '{nickname} awaits help'); assert.equal(saves[0].tts_channel_template, '{displayname} says {message}');
 			await page.reload(); await input.waitFor(); assert.equal(await input.inputValue(), '3.2'); assert.ok(await input.isEnabled());
+			assert.equal(await waitingTemplate.inputValue(), '{nickname} awaits help'); assert.equal(await channelTemplate.inputValue(), '{displayname} says {message}');
 			await select.click(); await list.press('Escape'); assert.ok(await select.evaluate(el => el === document.activeElement));
 			await input.scrollIntoViewIfNeeded(); await page.evaluate(() => document.fonts.ready);
 			assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No horizontal overflow');
 			await page.screenshot({ path: path.join(output, `${lang}-${theme}-${width}.png`), fullPage: true }); captures++;
 			await select.click(); await list.press('Home'); await list.press('Enter');
+			await textSelect.click(); await textList.press('Home'); await textList.press('Enter');
+			assert.ok(await waitingTemplate.isDisabled()); assert.ok(await channelTemplate.isDisabled());
 			assert.ok(await input.isDisabled()); assert.equal(await input.inputValue(), '3.2', 'Disabling waiting room retains the window');
 			await page.getByRole('button', { name: copy.servers.saveChanges, exact: true }).click();
 			await page.getByRole('region', { name: copy.servers.unsavedTitle, exact: true }).waitFor({ state: 'hidden' });
 			assert.equal(saves.at(-1).tts_waiting_room_channel_id, null); assert.equal(saves.at(-1).tts_vc_batch_window_ms, 3200);
+			assert.equal(saves.at(-1).tts_waiting_room_template, '{nickname} awaits help'); assert.equal(saves.at(-1).tts_channel_template, '{displayname} says {message}');
 			await page.goto(`${base}/servers/${otherGuild}?tab=tts`); await input.waitFor();
 			assert.equal(await input.inputValue(), '0.5', 'Server switching cannot inherit another guild window'); assert.ok(await input.isDisabled());
+			assert.equal(await waitingTemplate.inputValue(), ''); assert.equal(await channelTemplate.inputValue(), '');
 			await page.goto(`${base}/servers/${guild}?tab=tts`); await input.waitFor(); assert.equal(await input.inputValue(), '3.2');
 			const otherLang = lang === 'en' ? 'th' : 'en', otherCopy = require('../app/copy/' + otherLang).serverTabs.tts;
 			await page.evaluate(locale => localStorage.setItem('megu-lang', locale), otherLang); await page.reload();

@@ -15,6 +15,7 @@ const before = { autorole_id: high, autorole_ids: [low], bot_autorole_ids: [] };
 const cleared = { autorole_id: low, autorole_ids: [], bot_autorole_ids: [] };
 function boundary(pool, directory) {
 	return vm.runInNewContext(`${sanitize}\n${implementation}\ncompareAndSetGuildRoleVars`, {
+		validVoiceTemplate: require('../core/voice-qol-settings').validVoiceTemplate,
 		pool, fs, path, VARS_DIR: directory, isValidSnowflake: id => /^\d{17,20}$/.test(id), clearGuildVarCache: () => {},
 	});
 }

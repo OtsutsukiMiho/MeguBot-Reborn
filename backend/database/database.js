@@ -4,6 +4,7 @@ const path = require('path');
 const { BotLogs, COLOR } = require('../bot/bot_functions.js');
 const { poolMax } = require('../../core/pool-config.js');
 const { postgresConnectionOptions, isLocalDatabaseUrl } = require('../../core/postgres-connection.js');
+const { validVoiceTemplate } = require('../../core/voice-qol-settings.js');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const VARS_DIR = path.join(DATA_DIR, 'variables');
@@ -203,6 +204,32 @@ function sanitizeDbValue(val) {
 	return val;
 }
 
+// These two settings are spoken text, not JSON documents. Keep their validated
+// literal value across individual reads and whole-document copy-forward writes.
+function sanitizeGuildVar(key, value, writing = false) {
+	const kind = key === 'tts_channel_template' ? 'text' : key === 'tts_waiting_room_template' ? 'waiting' : null;
+	if (!kind) return sanitizeDbValue(value);
+	if (validVoiceTemplate(value, kind)) return value || null;
+	if (writing) throw new Error(`Invalid voice template setting: ${key}`);
+	return null; // Previously corrupt values retain the safe runtime default.
+}
+function sanitizeGuildVars(vars) {
+	if (!vars || typeof vars !== 'object' || Array.isArray(vars)) {
+		const decoded = sanitizeDbValue(vars);
+		// Retain legacy whole-document decoding without allowing a serialized
+		// object to bypass the two field-specific checks. Other fields stay as-is.
+		if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
+			for (const key of ['tts_channel_template', 'tts_waiting_room_template']) {
+				if (Object.hasOwn(decoded, key)) decoded[key] = sanitizeGuildVar(key, decoded[key]);
+			}
+		}
+		return decoded;
+	}
+	const cleaned = {};
+	for (const [key, value] of Object.entries(vars)) cleaned[key] = sanitizeGuildVar(key, value);
+	return cleaned;
+}
+
 /**
  * A guild setting is read far more often than it is written, and reading one is
  * a round trip.
@@ -272,7 +299,7 @@ async function readGuildVar(guildId, key) {
 				[guildId, key],
 			);
 			if (res.rows.length > 0 && res.rows[0].val !== null) {
-				return sanitizeDbValue(res.rows[0].val);
+				return sanitizeGuildVar(key, res.rows[0].val);
 			}
 			return null;
 		}
@@ -287,7 +314,7 @@ async function readGuildVar(guildId, key) {
 		if (fs.existsSync(dbPath)) {
 			try {
 				const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-				return data[key] !== undefined ? sanitizeDbValue(data[key]) : null;
+				return data[key] !== undefined ? sanitizeGuildVar(key, data[key]) : null;
 			}
 			catch {
 				return null;
@@ -305,7 +332,7 @@ async function getAllGuildVars(guildId) {
 				[guildId],
 			);
 			if (res.rows.length > 0 && res.rows[0].variables) {
-				return sanitizeDbValue(res.rows[0].variables);
+				return sanitizeGuildVars(res.rows[0].variables);
 			}
 			return {};
 		}
@@ -320,7 +347,7 @@ async function getAllGuildVars(guildId) {
 		if (fs.existsSync(dbPath)) {
 			try {
 				const raw = JSON.parse(fs.readFileSync(dbPath, 'utf8')) || {};
-				return sanitizeDbValue(raw);
+				return sanitizeGuildVars(raw);
 			}
 			catch {
 				return {};
@@ -342,7 +369,7 @@ async function compareAndSetGuildRoleVars(guildId, before, desired) {
 			await client.query('BEGIN');
 			await client.query("INSERT INTO guild_variables (guild_id, variables) VALUES ($1, '{}'::jsonb) ON CONFLICT (guild_id) DO NOTHING", [guildId]);
 			const row = await client.query('SELECT variables FROM guild_variables WHERE guild_id = $1 FOR UPDATE', [guildId]);
-			const matches = same(sanitizeDbValue(row.rows[0].variables || {}));
+			const matches = same(sanitizeGuildVars(row.rows[0].variables || {}));
 			if (matches) await client.query("UPDATE guild_variables SET variables = COALESCE(variables, '{}'::jsonb) || $2::jsonb WHERE guild_id = $1", [guildId, update]);
 			await client.query('COMMIT');
 			return matches;
@@ -360,7 +387,7 @@ async function compareAndSetGuildRoleVars(guildId, before, desired) {
 	try { lock = fs.openSync(lockPath, 'wx'); }
 	catch (error) { if (error.code === 'EEXIST') return false; throw error; }
 	try {
-		const current = fs.existsSync(dbPath) ? sanitizeDbValue(JSON.parse(fs.readFileSync(dbPath, 'utf8'))) : {};
+		const current = fs.existsSync(dbPath) ? sanitizeGuildVars(JSON.parse(fs.readFileSync(dbPath, 'utf8'))) : {};
 		if (!same(current)) return false;
 		fs.writeFileSync(dbPath, JSON.stringify({ ...current, ...update }, null, 4));
 		return true;
@@ -369,7 +396,7 @@ async function compareAndSetGuildRoleVars(guildId, before, desired) {
 }
 
 async function setGuildVar(guildId, key, value) {
-	const cleanValue = sanitizeDbValue(value);
+	const cleanValue = sanitizeGuildVar(key, value, true);
 	// Before the write, not after: if the write throws, the cached value is now
 	// of unknown accuracy either way, and serving a stale setting is the failure
 	// this whole mechanism has to avoid.
@@ -397,7 +424,7 @@ async function setGuildVar(guildId, key, value) {
 		let guildData = {};
 		if (fs.existsSync(dbPath)) {
 			try {
-				guildData = sanitizeDbValue(JSON.parse(fs.readFileSync(dbPath, 'utf8'))) || {};
+				guildData = sanitizeGuildVars(JSON.parse(fs.readFileSync(dbPath, 'utf8'))) || {};
 			}
 			catch {
 				guildData = {};

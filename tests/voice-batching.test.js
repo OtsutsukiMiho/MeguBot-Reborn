@@ -226,7 +226,8 @@ async function integration() {
 		BotLogs: () => {}, COLOR: {}, stamp: text => text, autoJoinActiveVC: async () => { autoJoins++; },
 		discordCall: async (_label, fn) => fn(), setTimeout: time.setTimer,
 		require: name => {
-			if (name.includes('voice-announcement-batches')) return { createVoiceAnnouncementBatcher: options => createVoiceAnnouncementBatcher({ ...options, ...time }) };
+			if (name.includes('voice-announcement-batches')) return { ...require('../core/voice-announcement-batches'), createVoiceAnnouncementBatcher: options => createVoiceAnnouncementBatcher({ ...options, ...time }) };
+			if (name.includes('voice-qol-settings')) return require('../core/voice-qol-settings');
 			if (name.includes('core/voice-announce')) return require('../core/voice-announce');
 			if (name === './audio_queue.js') return { generateUUID: () => 'id', audioQueueManager: { getQueue: () => [], clearQueue: () => {} },
 				clearQueue: () => {}, addToQueue: (_g, entry) => { queued.push(entry); return { success: true }; } };
@@ -278,6 +279,27 @@ async function integration() {
  vars.tts_waiting_room_channel_id='vc'; vars.tts_vc_welcome_enabled=true;
  const same=member('waiting-same'); await event(same,'other','vc'); time.advance(500);
  assert.match(queued.at(-1).name,/joined the waiting room/); assert.equal(queued.length,beforeWaiting+4);
+ time.advance(60000); // Independent burst: do not spend the released flood budget on this fixture.
+ vars.tts_waiting_room_template='{nickname} await help in {server}';
+ const customStart=queued.length, ca=member('custom-A'), cb=member('custom-B');
+ await event(ca,null,'vc'); time.advance(500);
+ assert.equal(queued.length,customStart+1); assert.equal(queued.at(-1).name,'nick-custom-A await help in Server');
+ await event(ca,'vc','other'); time.advance(500);
+ const groupStart=queued.length;
+ await Promise.all([event(ca,'other','vc'),event(cb,null,'vc')]);
+ vars.tts_waiting_room_template='{nickname} changed'; vars.tts_vc_batch_window_ms=5000;
+ time.advance(500);
+ assert.equal(queued.length,groupStart+1,'Same-room waiting burst produces exactly one item, without generic join');
+ assert.equal(queued.at(-1).name,'nick-custom-A and nick-custom-B await help in Server');
+ for(const text of ['nick-custom-A','nick-custom-B','await help']) assert.equal(queued.at(-1).name.split(text).length-1,1);
+ vars.tts_waiting_room_template='{nickname} await help in {server}'; vars.tts_vc_batch_window_ms=500;
+ await event(cb,'vc','other'); time.advance(500);
+ await event(cb,'other','vc'); time.advance(500);
+ assert.equal(queued.at(-1).name,'nick-custom-B await help in Server','Custom template works on re-entry');
+ const disconnectedCount=queued.length; connection.state.status='destroyed';
+ await event(member('custom-disconnected'),null,'vc'); time.advance(500);
+ assert.equal(queued.length,disconnectedCount); connection.state.status='ready';
+ delete vars.tts_waiting_room_template;
  delete vars.tts_waiting_room_channel_id; delete vars.tts_lang; delete vars.tts_vc_batch_window_ms; delete vars.tts_vc_welcome_enabled;
  queued.splice(beforeWaiting); ok('actual waiting entry uses bot room, skips bots/property updates/exits, allows re-entry and overrides generic joins');
 

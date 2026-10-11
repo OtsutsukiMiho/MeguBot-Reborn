@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { validVoiceTemplate } from '../../../core/voice-qol-settings';
 import { useRouter } from 'next/navigation';
 import {
 	ArrowLeft,
@@ -74,7 +75,7 @@ const GROUP_ORDER = ['community', 'people', 'safety', 'voice', 'tools', 'you'];
 const CONFIG_TOOL_KEYS = {
 	welcome: ['welcome_channel_id', 'welcome_message_template', 'welcome_mode', 'welcome_embed', 'leave_channel_id', 'leave_message_template', 'leave_mode', 'leave_embed'],
 	autorole: ['autorole_id', 'autorole_ids', 'bot_autorole_ids'],
-	tts: ['tts_vc_batch_window_ms', 'tts_waiting_room_channel_id', 'tts_channel_id', 'tts_engine', 'tts_lang', 'tts_voice', 'tts_ignore_prefix', 'tts_max_length', 'tts_antispam_enabled', 'tts_antispam_max_messages', 'tts_antispam_cooldown_seconds', 'tts_afk_bringback_enabled', 'tts_join_greeting_enabled', 'tts_join_greeting_text', 'tts_vc_welcome_enabled', 'tts_vc_welcome_template', 'tts_vc_leave_enabled', 'tts_vc_leave_template'],
+	tts: ['tts_waiting_room_template', 'tts_channel_template', 'tts_vc_batch_window_ms', 'tts_waiting_room_channel_id', 'tts_channel_id', 'tts_engine', 'tts_lang', 'tts_voice', 'tts_ignore_prefix', 'tts_max_length', 'tts_antispam_enabled', 'tts_antispam_max_messages', 'tts_antispam_cooldown_seconds', 'tts_afk_bringback_enabled', 'tts_join_greeting_enabled', 'tts_join_greeting_text', 'tts_vc_welcome_enabled', 'tts_vc_welcome_template', 'tts_vc_leave_enabled', 'tts_vc_leave_template'],
 	honeypot: ['honeypot_channel_id'],
 };
 
@@ -335,6 +336,13 @@ export default function ServerConfigPage({ params }) {
 
 	async function handleSaveAll() {
 		if (!configDirty && !automodDirty) return true;
+		if (configDirty) for (const [key, kind, id] of [['tts_waiting_room_template', 'waiting', 'tts-waiting-template'], ['tts_channel_template', 'text', 'tts-channel-template']]) {
+			if (config[key] !== undefined && !validVoiceTemplate(config[key], kind)) {
+				setSaveError(t.serverTabs.tts.errors[key + '_invalid']);
+				document.getElementById(id)?.focus();
+				return false;
+			}
+		}
 		setSaving(true);
 		setSaveError('');
 		try {

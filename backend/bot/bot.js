@@ -1004,7 +1004,8 @@ const {
 	shortSpeakerName,
 	cooldownMsFromSeconds,
 } = require('../../core/voice-announce.js');
-const { createVoiceAnnouncementBatcher } = require('../../core/voice-announcement-batches.js');
+const { createVoiceAnnouncementBatcher, formatTextTts, announcementNames } = require('../../core/voice-announcement-batches.js');
+const { waitingRoomTemplate, textTtsTemplate } = require('../../core/voice-qol-settings.js');
 const announcementBatches = createVoiceAnnouncementBatcher({
 	lookup(guildId) {
 		const guild = client.guilds.cache.get(guildId);
@@ -1252,20 +1253,16 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 		const member = state.member || newState.member || (await discordCall('fetching a voice member', () => guild.members.fetch(state.id), null));
 		if (!member) return;
 		const dbNick = await getUserNick(guild.id, member.id);
-		const customNick = (dbNick && dbNick !== 'ใครไม่รู้') ? dbNick : null;
-		const displayName = member.nickname || member.displayName || member.user?.globalName || member.user?.username || 'User';
-		const spokenNick = customNick || displayName;
 		announcementBatches.add({ destination: announcementDestination, event, userId: member.id,
-			names: { displayname: displayName, nickname: spokenNick, username: spokenNick,
-				tag: member.user?.username || displayName },
+			names: announcementNames(member, dbNick),
 			template, speech: { type: speechType, voice: ttsVoice, lang: ttsLang, volume: announceVolume },
 			limits: event === 'waiting' ? { ...announceLimits, cooldownMs: 0 } : announceLimits, quietTemplate,
 			windowMs: batchWindowMs, sourceChannelId: event === 'waiting' ? waitingRoomId : undefined });
 	}
 
 	if (isWaitingEntry && getVoiceConnection(guild.id)?.state?.status === 'ready') {
-		await collectAnnouncement('waiting', newState, String(ttsLang).toLowerCase().startsWith('en')
-			? '{nickname} joined the waiting room' : '{nickname} เข้าห้องรอแล้ว');
+		await collectAnnouncement('waiting', newState, waitingRoomTemplate(
+			await database.getGuildVar(guild.id, 'tts_waiting_room_template'), ttsLang));
 	}
 	if (isJoinEvent) await collectAnnouncement('join', newState, vcWelcomeTemplate);
 	const vcLeaveTemplate = (await database.getGuildVar(guild.id, 'tts_vc_leave_template')) || '{username} ออกจากดิสแล้ว';
@@ -1553,8 +1550,17 @@ client.on(Events.MessageCreate, async (message) => {
 		// from becoming the noise it is meant to prevent, and it is also why the
 		// name itself does not need a length limit — see core/voice-announce.js.
 		let spokenText = cleanText;
+		const channelTemplate = await database.getGuildVar(message.guild.id, 'tts_channel_template');
 		const speakerNamesEnabled = toBool(await database.getGuildVar(message.guild.id, 'tts_speaker_names_enabled'), true);
-		if (speakerNamesEnabled) {
+		if (channelTemplate) {
+			const names = announcementNames({ ...message.member, user: message.member?.user || message.author },
+				await getUserNick(message.guild.id, message.author.id));
+			// Substitute once after message cleanup. Values containing tokens are
+			// literal text, never another template or provider markup.
+			spokenText = formatTextTts(textTtsTemplate(channelTemplate), names,
+				message.guild.name, cleanText, ttsMaxLength);
+		}
+		else if (speakerNamesEnabled) {
 			// The name is resolved *before* asking whether to say it. shouldName()
 			// records this speaker as a side effect, so calling it first and then
 			// finding there is no name to say would consume the attribution and

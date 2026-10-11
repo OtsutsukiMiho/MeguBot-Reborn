@@ -77,6 +77,8 @@ const SUITES = [
 	['voice-announce.test.js', 'saying who arrived — once, not once per reconnect'],
 	['voice-batching.test.js', 'voice membership batches — grouped workload and fresh connection/channel checks'],
 	['voice-qol-settings.test.js', 'voice settings — batching duration, waiting room validation and persistence'],
+	['voice-template-persistence.test.js', 'voice templates — literal storage, sanitizer boundary and escape rejection'],
+	['voice-templates-ui.test.js', 'voice templates — EN/TH fields, defaults, validation and retained disabled values'],
 	['voice-remote-control.test.js', 'remote voice — existing ready guild session and preserved permissions'],
 	['health-log.test.js', 'the health log — it describes an incident, it never causes one'],
 	['locales.test.js', 'the locale registry — a third language is translations, not code'],

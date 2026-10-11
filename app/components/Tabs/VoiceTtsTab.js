@@ -2,7 +2,7 @@
 
 import CustomSelect from '../CustomSelect';
 import { useCopy } from '../../copy';
-import { resolveBatchWindow, validBatchWindow, batchWindowFromSeconds } from '../../../core/voice-qol-settings';
+import { resolveBatchWindow, validBatchWindow, batchWindowFromSeconds, MAX_TEMPLATE_LENGTH, ANNOUNCEMENT_FIELDS, TEXT_TTS_FIELDS, validVoiceTemplate, waitingRoomTemplate } from '../../../core/voice-qol-settings';
 import { TabActionBar, TabFieldMessage, TabInlineActions, TabSection, TabSegmented, TabSettingRow, TabSettingsList, TabStatus, TabSwitch, TabWorkspace } from './TabWorkspace';
 
 const DEFAULT_ROOM_GREETING = 'สวัสดีชาวโลก';
@@ -26,6 +26,8 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 	const roomGreeting = config.tts_join_greeting_text ?? DEFAULT_ROOM_GREETING;
 	const joinTemplate = config.tts_vc_welcome_template ?? DEFAULT_JOIN_MESSAGE;
 	const leaveTemplate = config.tts_vc_leave_template ?? DEFAULT_LEAVE_MESSAGE;
+	const waitingTemplate = config.tts_waiting_room_template ?? '';
+	const channelTemplate = config.tts_channel_template ?? '';
 	const channelOptions = [{ value: '', label: copy.disabled }, ...channels.map(channel => ({ value: channel.id, label: `# ${channel.name}`, subtitle: channel.parentName }))];
 	const voiceOptions = VOICES.map(voice => ({ value: voice.id, label: copy.voices[voice.labelKey], subtitle: voice.lang.toUpperCase() }));
 	const waitingOptions = [{ value: '', label: copy.disabled }, ...channels.filter(channel => channel.type === 2).map(channel => ({ value: channel.id, label: channel.name, subtitle: channel.parentName }))];
@@ -39,9 +41,9 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 		if (voice) onChange('tts_lang', voice.lang);
 	};
 	const append = (key, current, token) => onChange(key, `${current}${current.endsWith(' ') ? '' : ' '}${token}`);
-	const variableButtons = (key, current, variables = MESSAGE_VARIABLES) => (
+	const variableButtons = (key, current, variables = MESSAGE_VARIABLES, disabled = false) => (
 		<TabInlineActions align="start">
-			{variables.map(token => <button key={token} type="button" className="btn btn-secondary btn-sm" onClick={() => append(key, current, token)}>{token}</button>)}
+			{variables.map(token => <button key={token} type="button" className="btn btn-secondary btn-sm" disabled={disabled} onClick={() => append(key, current, token)}>{token}</button>)}
 		</TabInlineActions>
 	);
 
@@ -54,6 +56,11 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 			<TabSection title={copy.destinationTitle} description={copy.destinationDescription}>
 				<TabSettingRow label={copy.channelLabel}>
 					<CustomSelect type="channel" ariaLabel={copy.channelLabel} placeholder={copy.channelPlaceholder} value={config.tts_channel_id || ''} onChange={value => onChange('tts_channel_id', value || null)} options={channelOptions} unavailableLabel={shared.unavailableChannel(config.tts_channel_id)} />
+				</TabSettingRow>
+				<TabSettingRow label={<label htmlFor="tts-channel-template">{copy.channelTemplate}</label>} description={copy.channelTemplateHelp} stacked>
+					<input id="tts-channel-template" className="form-control" aria-label={copy.channelTemplate} aria-describedby="tts-channel-template-help" aria-invalid={!validVoiceTemplate(channelTemplate, 'text')} disabled={!config.tts_channel_id} maxLength={MAX_TEMPLATE_LENGTH} value={channelTemplate} onChange={event => onChange('tts_channel_template', event.target.value)} placeholder="{message}" />
+					<div id="tts-channel-template-help"><TabFieldMessage>{copy.channelTemplateRules}</TabFieldMessage></div>
+					{variableButtons('tts_channel_template', channelTemplate, TEXT_TTS_FIELDS.map(field => `{${field}}`), !config.tts_channel_id)}
 				</TabSettingRow>
 			</TabSection>
 
@@ -81,6 +88,11 @@ export default function VoiceTtsTab({ config, channels = [], onChange }) {
 			<TabSection title={copy.waitingTitle} description={copy.waitingHelp}>
 				<TabSettingRow label={copy.waitingChannel}>
 					<CustomSelect type="channel" ariaLabel={copy.waitingChannel} value={config.tts_waiting_room_channel_id || ''} onChange={value => onChange('tts_waiting_room_channel_id', value || null)} options={waitingOptions} unavailableLabel={shared.unavailableChannel(config.tts_waiting_room_channel_id)} />
+				</TabSettingRow>
+				<TabSettingRow label={<label htmlFor="tts-waiting-template">{copy.waitingTemplate}</label>} description={copy.waitingTemplateHelp} stacked>
+					<input id="tts-waiting-template" className="form-control" aria-label={copy.waitingTemplate} aria-describedby="tts-waiting-template-help" aria-invalid={!validVoiceTemplate(waitingTemplate, 'waiting')} disabled={!config.tts_waiting_room_channel_id} maxLength={MAX_TEMPLATE_LENGTH} value={waitingTemplate} onChange={event => onChange('tts_waiting_room_template', event.target.value)} placeholder={waitingRoomTemplate(null, config.tts_lang || 'th')} />
+					<div id="tts-waiting-template-help"><TabFieldMessage>{copy.waitingTemplateRules}</TabFieldMessage></div>
+					{variableButtons('tts_waiting_room_template', waitingTemplate, ANNOUNCEMENT_FIELDS.map(field => `{${field}}`), !config.tts_waiting_room_channel_id)}
 				</TabSettingRow>
 			</TabSection>
 

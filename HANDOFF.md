@@ -2,6 +2,133 @@
 
 Branch: `main`
 
+## Custom Voice/TTS Templates — RELEASE PREPARATION PASS; approved 20-file scoped commit, 11 October 2026
+
+Independent **VOICE TEMPLATE QOL RELEASE GATE PASS** and isolated live pilot PASS remain authoritative. Commit creation is authorized; pushing/deployment require separate exact-SHA authorization. Baseline/main: ce32703de1b9e45aed9e7f94b8d57912c0577729. All 18 original pilot/Auditor source-test fingerprints still match; no implementation or pilot was restarted.
+
+**Exact user-approved manifest: 20 files, 18 modified and two new.** Documentation scope is Custom Templates implementation/audit/remediation/pilot/release history only. The older uncommitted Voice QoL production-rollout sections and summary edits are excluded and preserved in the working tree.
+
+1. app/components/Tabs/VoiceTtsTab.js
+2. app/servers/[guildId]/page.js
+3. app/copy/en.js
+4. app/copy/th.js
+5. backend/bot/bot.js
+6. backend/database/database.js
+7. backend/web/web.js
+8. core/voice-announcement-batches.js
+9. core/voice-qol-settings.js
+10. tests/console-role-settings.test.js
+11. tests/run.js
+12. tests/voice-batching.test.js
+13. tests/voice-qol-settings.test.js
+14. tests/voice-qol.browser.js
+15. tests/voice-remote-control.test.js
+16. tests/voice-template-persistence.test.js (NEW)
+17. tests/voice-templates-ui.test.js (NEW)
+18. tests/postgres-tls.test.js
+19. HANDOFF.md
+20. COMPANY_IMPLEMENTATION_STATUS.md
+
+The conditional scope extension is satisfied: tests/postgres-tls.test.js adds only `if (name.endsWith('/voice-qol-settings.js')) return require('../core/voice-qol-settings');`. Before correction the unchanged VM loader failed MODULE_NOT_FOUND on the database module's new helper import; after correction the real helper loads and the TLS suite PASS. Every pre-existing assertion, expectation, policy and stub is unchanged; no new mock, bypass, product fix or production configuration change. **Narrow independent Auditor review PASS, no material findings**, including independent TLS execution and whitespace verification. This is the only source/test delta from the original approved fingerprints.
+
+**Final focused verification PASS: 16 top-level suites**: voice-qol-settings, voice-template-persistence (--postgres), voice-templates-ui (compiled EN/TH), voice-batching, voice-remote-control, voice-announce, voice-connection, audio-queue, youtube-audio, console-authorization, server-tabs-ui, copy, custom-select-keyboard, autorole-command, database-pool and postgres-tls. Unchanged completed suites reused; only affected/pending checks rerun. Fresh local PostgreSQL persistence includes five cases and the DB-backed console-role-settings child. Destination guard, independent driver host/port/database and connected-database checks pass at 127.0.0.1:5432 / megubot_workflow_test. Existing disposable data/settings preserved and public-schema fingerprints unchanged after fixture restoration; no production database used.
+
+**Safe production build PASS**, 12/12 static pages, after the approved fixture addition. Existing vendor-ocr + next build in a baseline-plus-approved-overlay directory, without private environment files or untracked Company routes; minimal environment, no production bot/provider credentials, guarded loopback database configuration, no bot launch or production mutation. Cached generated OCR assets are build input only. One non-blocking multiple-lockfile/workspace-root inference warning; no setting changed. All 18 release JS parser checks and whitespace PASS. Scoped credential, artifact, pilot-identity and debug-residue checks must remain clean in the final index before commit.
+
+Read-only production readiness: user confirms last-known Render Auto-Deploy OFF/manual, FRONTEND_URL https://megubot-reborn-67.onrender.com and unchanged production settings/environment. No new environment variable, dependency or schema migration required. Fresh PostgreSQL/schema/TLS, Discord/voice, existing TTS/providers, reminders and workflow notification health are **PENDING post-deployment smoke**; historical smoke is not substituted for current evidence.
+
+Final staging uses explicit implementation/test paths and documentation blobs composed from HEAD plus Custom Templates sections only. Exclude/preserve .gitignore, app/companies/, private environments, logs, captures, local DB/runtime artifacts and unrelated documentation. One intended commit message: feat: add customizable Voice and TTS templates. After verified commit, stop for explicit SHA authorization to origin/main. No push, deployment, production configuration change or manufactured production event is authorized. Known process-local coordination, external Discord/provider/cache timing and non-exactly-once limitations remain unchanged.
+
+The earlier blocked preparation record below is historical; scope approval, restored disposable DB, fresh checks and independent one-file review above resolve its blockers.
+
+## Custom Voice/TTS Templates — historical release-preparation checkpoint before scope approval, 11 October 2026
+
+The user confirms **VOICE TEMPLATE QOL RELEASE GATE PASS** and authorizes one scoped commit only; no push/deployment authorization. HEAD/main remains ce32703de1b9e45aed9e7f94b8d57912c0577729; index empty. All 18 pilot/Auditor source-test snapshot fingerprints match unchanged. No implementation audit/pilot repeated or application source edited.
+
+**Approved manifest: 19 paths (15 modified implementation/test paths, two new tests, two selectively staged records).**
+- Implementation/localization: app/components/Tabs/VoiceTtsTab.js; app/servers/[guildId]/page.js; app/copy/en.js; app/copy/th.js; backend/bot/bot.js; backend/database/database.js; backend/web/web.js; core/voice-announcement-batches.js; core/voice-qol-settings.js.
+- Tests: tests/console-role-settings.test.js; tests/run.js; tests/voice-batching.test.js; tests/voice-qol-settings.test.js; tests/voice-qol.browser.js (actual repository name); tests/voice-remote-control.test.js; NEW tests/voice-template-persistence.test.js; NEW tests/voice-templates-ui.test.js.
+- Records: HANDOFF.md; COMPANY_IMPLEMENTATION_STATUS.md, Custom Templates implementation/audit/remediation/pilot/release sections ONLY. Older uncommitted Voice QoL rollout additions (including duplicate historical sections) and summary edits are separable and remain excluded/unmodified. No .gitignore, app/companies, environments, captures/logs/runtime/DB artifacts.
+
+Final verification: 13 completed focused suites PASS (compiled EN/TH templates UI, batching 38, remote-control/literal isolation/legacy attribution, announcements 47, connection 15, queue 24, YouTube 32, console authorization 122, server-tabs UI, copy 25, CustomSelect keyboard, autorole-command and database-pool). Four deterministic template persistence cases PASS; its optional real-PG case and voice-qol-settings optional PG case encounter ECONNREFUSED at the approved loopback destination before writes. Operator asked to start the existing container without recreation. Prior independent real PostgreSQL/DB-backed role evidence remains valid because relevant fingerprints are unchanged; fresh optional checks are not falsely reported as PASS. An incorrectly named autorole entry in temporary tooling was corrected to the existing autorole-command suite; no product failure.
+
+**New release compatibility blocker:** unchanged tests/postgres-tls.test.js executes the changed database module through a VM whose fallback require resolves the new ../../core/voice-qol-settings.js import relative to the test file. Original suite cannot finish assertions (MODULE_NOT_FOUND). A one-line fixture-only proposal loads the actual pure helper through ../core/voice-qol-settings.js; diagnostic copy PASS covers trusted TLS/hostname, untrusted rejection, URL policy, pool constructors and remote fail-closed behavior. No assertion or product/TLS code change. Proposal saved in ignored .tmp/voice-template-postgres-tls-fixture-proposal.patch; actual working test file untouched. This path is outside the approved 19-file manifest: explicit approval to add it as a 20th path is pending. No staging/commit until scope is resolved; no implicit waiver of the failing current test.
+
+**Safe production build PASS**, 12/12 static pages, using the existing vendor-ocr + next build script in an isolated baseline-plus-approved-overlay directory without private env files, untracked Company routes or frontend imports of backend startup. Minimal environment contains no bot/provider production credentials; DB URL pinned/guarded to 127.0.0.1:5432 / megubot_workflow_test; no bot launch or production mutation. Existing generated OCR cache reused as build input only. One non-blocking Next workspace-root inference warning (multiple lockfiles); no configuration change. Build finished before the diagnostic TLS test-only edit; product source remains identical. 17 release JS parser checks, whitespace and scoped credential/pilot-ID/debug/artifact review PASS.
+
+Production readiness is PENDING read-only confirmation/post-deployment smoke where unavailable; no fresh health claim inferred from old evidence. No new env variable, dependency or schema migration needed. Existing production configuration is untouched. Release records/temp evidence updated only; unrelated tree preserved. Next: approve/independently review the concrete one-line fixture scope extension as appropriate, finish or explicitly reuse accepted DB evidence, refresh the scoped candidate records, then stage/verify/commit and request exact-SHA push authorization. Nothing pushed/deployed.
+
+## Custom Voice/TTS Templates — ISOLATED LIVE PILOT COMPLETE / PASS, 11 October 2026
+
+**Final isolated pilot result: PASS. A–F and final quiet observation PASS; independent RELEASE-GATE review is appropriate, production release remains unauthorized.** Operator heard one custom single Waiting Room clip, then one two-member clip (“เมกเหลี่ยม และ SIX SEVEN อยู่ห้องรอ”), both names once/Thai conjunction/no generic duplicate/bot move/error. Configured-channel ordinary message actually sent was “ลาบ”; clarified audible result “extremist5263 บอกว่า ลาบ”, one sender/wrapper/body/clip, no duplicate attribution/error. Initial incomplete audio report clarified without another message. /say hello with Google spoke only hello once, no wrapper/name/move/error. All audio/runtime observations are operator-reported, not agent-triggered events or invented timing. Save/reload/cache refresh PASS for exact custom values; initial suggested-wording report corrected to actual saved values without another save or product change.
+
+Operator cleared both templates through LOCAL dashboard; save/reload/cache refresh/no errors confirmed. Existing deleteGuildVar then removed only these two pilot-added keys against guarded loopback PostgreSQL, restoring exact original ABSENT state. Read-only before/after verification proves all captured originals match and a server-side fingerprint of every non-template guild setting is unchanged. Actual DB getter resolves absent and null to the same null; effective Waiting Room default {nickname} เข้าห้องรอแล้ว, channel wrapper {message}, original legacy attribution policy retained. Final dashboard reload WITHOUT saving showed reset/default fields and unchanged other settings. **Five quiet minutes** with no commands/messages/moves/settings changes: no duplicate/stuck audio, retry/error flood, reconnect loop, provider/template-fallback error, cache mismatch or audit/database error. Final guarded read-only DB recheck again matches immutable original settings. No schema/bootstrap or production access. All original snapshots remain intact; source/test fingerprints unchanged.
+
+No required live case is unexecuted and no reproducible product defect was found. Grouping interval was not measured; one real two-member grouped clip is the live evidence. Sender was outside Megu's VC; no separate no-VC regression was repeated. Previous audited Voice QoL behaviors/tests remain preserved, with no repeated full pilot or deterministic suite. Records in ignored .tmp/voice-template-pilot-evidence.json and original/source snapshots. HEAD remains ce32703de1b9e45aed9e7f94b8d57912c0577729; index empty. Existing Custom Templates work/untracked tests, .gitignore, app/companies/ and private artifacts preserved. No staging, commit, push, deploy or production mutation. Known process-local/external-state/provider limits unchanged. Next is independent release-gate review only.
+
+User confirms the narrow independent Auditor recheck PASS, including persistence/sanitizer and escaped-brace remediations, and real PostgreSQL verification PASS. A small isolated Discord pilot is approved; production release is NOT approved. Preserve the original FAIL/remediation records below. Current HEAD remains ce32703de1b9e45aed9e7f94b8d57912c0577729; Custom Templates implementation/tests remain uncommitted and unrelated work is preserved. No implementation audit or already-passed tests repeated.
+
+Preflight only: current source contains both template settings, the keyed persistence protection and corrected escaped-brace validator. Initial read-only connection failed with ECONNREFUSED; after the operator started the existing container without recreation, the existing test URL guard, independent pg driver destination and connected database checks PASS at exactly 127.0.0.1:5432 / megubot_workflow_test. Original allowlisted persisted settings captured in ignored .tmp/voice-template-pilot-original-settings.json before any modifications. One guild row, 467655562658578432: both tts_waiting_room_template and tts_channel_template ABSENT (not null/custom); Waiting Room 1205221580502736917, TTS channel 1311966588232142939, window 1000ms, language th, engine GOOGLE_TTS, voice th-TH-NiwatNeural. Local dashboard :3000 and API :3001/health return 200. No database write or Discord event performed. Current isolated bot/guild/channel identity, candidate/runtime freshness/shared configuration, Ready session/keeper, consenting participant count and clean startup still await operator confirmation. Historical names are references, not current confirmations. Exact absent-key restoration must use existing deletion semantics if dashboard reset persists null; do not substitute displayed defaults or silently claim null is identical storage.
+
+Runtime preflight update: user confirms authorized MeguBot#0670 / 887531368836370483, The マギ†verse, Lijiang Tower (China), ห้องรอติดต่อ, 🌌tiores-tts and three consenting humans (keeper/two movers); all three DB URL variables point to the disposable loopback database. Independent sanitized process metadata shows bot/web and Next dev share the local launcher; bot/web started 11 October 12:38:33 Asia/Bangkok, after the latest relevant source updates on 10 October, with no --env-file argument. Local ports 3000/3001 map to those processes; 5432 is loopback. Original allowlisted settings were re-read in a read-only transaction and exactly match the immutable snapshot. Candidate source/test fingerprints recorded in ignored local evidence. Actual logged-in bot identity, Ready voice connection/keeper and clean startup logs still require operator observation; app terminal logs/authenticated Discord state are unavailable to the agent. No live event, source edit or settings write.
+
+**Preflight COMPLETE**, operator-confirmed: actual logged-in MeguBot#0670, Ready in Lijiang Tower (China), keeper present, latest restarted candidate/shared loopback configuration, accessible dashboard, healthy Express/Next and no observed startup/schema/DB/runtime error. No test message/voice movement; production untouched. Independent read-only recheck proves exact originals unchanged; both template keys ABSENT, channel/window/language/engine/voice values retained as recorded above. Candidate source/test fingerprints unchanged. Original states plus operator evidence recorded in ignored .tmp/voice-template-pilot-evidence.json; no setting write.
+
+Pilot A observation: operator reports successful save/reload/cache refresh for {nickname} กรุณารอสักครู่ and {displayname} แจ้งว่า {message}, no errors/other changes/events. Independent read-only PostgreSQL read instead finds exact valid strings {nickname} อยู่ห้องรอ and {displayname} บอกว่า {message}; all other captured channel/window/speech settings unchanged. Pilot B PAUSED pending confirmation of intended wording and current local dashboard URL/guild/reload values. No product defect classified and no blind resave requested. Discrepancy evidence retained in ignored pilot record; original absent-key snapshot unchanged.
+
+**Pilot A PASS after wording clarification:** operator confirms exact reload values {nickname} อยู่ห้องรอ and {displayname} บอกว่า {message}, matching the independent PostgreSQL read; save/reload/cache refresh successful, no validation/runtime error or other setting/event change. Earlier suggested-value report is superseded by this actual-value clarification; no resave or product fix. Use these approved custom strings for subsequent spoken expectations. Original absent-key snapshot preserved.
+
+Next: Pilot B single human Waiting Room entry, after confirming the mover starts outside that room and the keeper/bot remain in playback. Continue one controlled step at a time. No commit/staging/push/deploy, production connection/settings change or source correction during this pilot. Temporary preflight tooling remains ignored local evidence only.
+
+## NEW follow-up: Voice templates — 10 October 2026
+
+### Audit remediation — 10 October 2026
+
+**Both audit defects corrected locally; narrow independent Auditor recheck
+REQUIRED. No live pilot or release authorized.** Generic `sanitizeDbValue` is
+unchanged; keyed/document normalization now preserves literal template strings
+through reads, JSON/PG writes, copy-forward and role updates. Shared validation
+rejects escaped braces, Unicode/hex/control escape forms and unsafe controls.
+Empty/null still resets; unrelated settings retain existing sanitizer behavior.
+
+The actual handler → real sanitizer/storage → reload → runtime regression failed
+against pre-fix source and now passes. Real approved PostgreSQL and DB-backed role
+settings tests PASS at verified `127.0.0.1:5432/megubot_workflow_test`; persistent
+settings/schema fingerprints are unchanged. This resolves the initial DB PENDING
+record below. Batching, remote TTS, legacy attribution, literal `/say`, settings
+authorization and EN/TH checks pass. Previously corrupt templates need a valid
+resave; no automatic reconstruction. Nothing committed, pushed, deployed or
+changed in production. Detailed cases/grammar/results are in the remediation
+checkpoint in `COMPANY_IMPLEMENTATION_STATUS.md`.
+
+**Initial implementation record (superseded by the remediation above):**
+
+Local implementation is ready for independent audit, based on released Voice QoL
+commit `ce32703de1b9e45aed9e7f94b8d57912c0577729`. Completed production rollout
+history below is unchanged. Nothing committed, pushed, deployed or live-piloted.
+
+New nullable guild settings: `tts_waiting_room_template`, `tts_channel_template`.
+Blank/null resets; omitted settings preserve saved values. Disabling a destination
+retains its template. Waiting defaults follow speech language: `{nickname} joined
+the waiting room` (EN) / `{nickname} เข้าห้องรอแล้ว` (otherwise). Wrapper default
+is `{message}`; unconfigured/reset guilds retain released speaker attribution,
+while explicit custom wrappers replace that attribution.
+
+Reuse `{displayname}`, `{nickname}`, `{username}`, `{tag}`, `{server}`; add only
+`{message}` for channel TTS. Waiting requires a member-name token; channel TTS
+requires message. Server validation precedes writes: 300 characters, known
+case-insensitive tokens, no malformed/literal/escaped braces, markup or unsafe
+controls. Old join/leave contracts remain unchanged. Waiting renders once at
+batch flush with the localized member list. Channel TTS renders after message
+sanitization and keeps clip/queue/rate/session limits; oversized wrapper overhead
+falls back to the message. `/say` stays literal; other playback is excluded.
+EN/TH controls reuse the existing dirty/save flow and preserve text across locales.
+
+Focused deterministic checks and four synthetic browser cases pass. Actual JSON
+persistence passes; real PostgreSQL template tests and existing DB-backed role
+settings regression await a disposable local test database. No live Discord or
+production access. See the new milestone in `COMPANY_IMPLEMENTATION_STATUS.md`.
+
 ## Voice QoL controlled release — pre-commit verification PASS, 3 October 2026
 
 The user confirms the independent **VOICE QOL RELEASE GATE PASS** and authorizes exactly one release commit. The authoritative 27-file manifest below/in COMPANY_IMPLEMENTATION_STATUS.md remains unchanged: 22 modified tracked files and five required new files. All application/test file fingerprints remained unchanged during final verification; only these two approved records receive this release checkpoint. No future custom Waiting Room template, configured-text TTS wrapper or /say templating implementation is included.
