@@ -271,11 +271,19 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 
 /** Edit the card a component was pressed on, or the one named in a custom id. */
 async function refreshCard(core, interaction, code, messageId = null) {
-	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
+	// The card belongs to its server and channel, wherever the press came
+	// from. A panel or DM has no server language, and its own channel is not
+	// where the card lives: editing there answers Unknown Message.
+	const bill = await core.activities.getActivityByCode(code);
+	if (!bill) return;
+	const guild = bill.guildId ? interaction.client?.guilds?.cache?.get(bill.guildId) : null;
+	const locale = interaction.guildLocale || guild?.preferredLocale || interaction.locale;
+	const rendered = await renderCard(core, code, locale);
 	if (!rendered) return;
-	const payload = { content: rendered.content, components: cardButtons(code, T[card.langOf(interaction.guildLocale || interaction.locale)], rendered.monthly), allowedMentions: NO_PINGS };
+	const payload = { content: rendered.content, components: cardButtons(code, T[card.langOf(locale)], rendered.monthly), allowedMentions: NO_PINGS };
+	const channel = (bill.channelId && interaction.client?.channels?.cache?.get(bill.channelId)) || interaction.channel;
 	try {
-		if (messageId && interaction.channel) await interaction.channel.messages.edit(messageId, payload);
+		if (messageId && channel) await channel.messages.edit(messageId, payload);
 		else if (interaction.message?.editable) await interaction.message.edit(payload);
 	}
 	catch (error) {

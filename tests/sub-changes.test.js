@@ -148,6 +148,26 @@ async function main() {
 		assert.match(cardText, /ตั้งแต่.*: ฿500\.00\/เดือน หาร 2 คน/);
 		ok('once money has arrived, price, joins and removals wait for next month, and the card says so');
 
+		// The same panel used from a DM, by someone whose Discord is in English:
+		// the card is still edited in its own channel, in the server's language.
+		const channelEdits = [];
+		call = fake({ customId: `evt:pricesave:${code}:card1`, user: fig, kind: 'modal', fields: { getTextInputValue: () => '500' } });
+		Object.assign(call, {
+			guildId: null, guildLocale: undefined, locale: 'en-US',
+			channel: { messages: { edit: async () => { throw new Error('Unknown Message'); } } },
+		});
+		call.client = {
+			...call.client,
+			channels: { cache: new Map([['223456789012345678', { messages: { edit: async (id, value) => channelEdits.push({ id, ...value }) } }]]) },
+			guilds: { cache: new Map([[GUILD, { preferredLocale: 'th' }]]) },
+		};
+		await event.handleComponent(call, { core });
+		assert.equal(channelEdits.length, 1);
+		assert.equal(channelEdits[0].id, 'card1');
+		assert.match(channelEdits[0].content, /หาร/, 'the card keeps the server language');
+		assert.match(lastText(call), /starts from/, 'the panel answers in the presser\'s language');
+		ok('a panel used from a DM still redraws the card in its own channel and language');
+
 		// Om changes his mind: "Count me in" cancels his leaving.
 		call = fake({ customId: `evt:join:${code}`, user: om, kind: 'button' });
 		await event.handleComponent(call, { core });
