@@ -146,7 +146,10 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	}
 
 	const link = `${siteUrl()}/a/${candidate.code}`;
-	if (notifyOwner && candidate.ownerDiscordUid && candidate.ownerDiscordUid !== String(senderDiscordUid)) {
+	// Told: whoever the money went to, since they are the one who can see
+	// whether it arrived. That is the owner unless someone else's card pays.
+	const receiverUid = candidate.payeeDiscordUid || candidate.ownerDiscordUid;
+	if (notifyOwner && receiverUid && receiverUid !== String(senderDiscordUid)) {
 		const detail = result.autoConfirmed
 			? 'Megu จับคู่สลิปและลงยอดให้อัตโนมัติแล้ว ถ้าเงินไม่เข้าจริง กดปุ่มด้านล่างเพื่อย้อนผลพร้อมใส่เหตุผล'
 			: `ยังไม่ลงว่าได้รับเงิน เช็กบัญชีแล้วกดปุ่มด้านล่าง ดูสลิปได้ที่ลิงก์ ที่ต้องตรวจเองเพราะ\n${heldReasons(result.reasons) || '• ต้องตรวจด้วยตนเอง'}`;
@@ -155,13 +158,13 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 		// guardRestClient() records it below every call — so this is not the
 		// swallowed failure DISCORD-RATE-LIMITS.md rule 3 forbids.
 		try {
-			await notifyOwner(candidate.ownerDiscordUid, {
+			await notifyOwner(receiverUid, {
 				content: `**${candidate.participantName}** แจ้งจ่าย ${money(amountSatang)} ให้ **${candidate.title}**\n${detail}\n${link}`,
 				components: ownerDecisionButtons(candidate.code, payment.id, { autoConfirmed: result.autoConfirmed }),
 			});
 		}
 		catch (error) {
-			console.warn(`[Megu] Could not DM the organiser of ${candidate.code}: ${error.message}`);
+			console.warn(`[Megu] Could not DM the receiver of ${candidate.code}: ${error.message}`);
 		}
 	}
 

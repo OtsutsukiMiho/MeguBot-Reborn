@@ -218,22 +218,32 @@ function organizerNote({ activity, payeeHasPromptPay, shareUrl, period = null, l
 	const others = activity.participants.filter(p => p.userId !== activity.ownerUserId);
 	const reachable = others.filter(p => p.discordUid);
 	const unlinked = others.filter(p => !p.discordUid && !p.userId);
+	// Somebody other than the organiser receives the money: a subscription on
+	// a friend's card. The PromptPay line is then about them, not "you".
+	const payee = activity.payee || null;
+	const payeeRow = payee?.participantId ? activity.participants.find(p => p.id === payee.participantId) : null;
+	const payeeIsOther = payeeRow
+		? payeeRow.userId !== activity.ownerUserId
+		: Boolean(payee?.userId && payee.userId !== activity.ownerUserId);
+	const payeeName = payee ? inert(payee.displayName) : '';
 	const lines = [];
 	if (lang === 'th') {
-		lines.push(`สร้าง **${inert(activity.title)}** แล้ว · Megu เตือนผ่าน DM ได้ ${reachable.length} จาก ${others.length} คน`);
+		lines.push(`สร้าง **${inert(activity.title)}** แล้ว Megu เตือนผ่าน DM ได้ ${reachable.length} จาก ${others.length} คน`);
 		if (unlinked.length > 0) {
 			lines.push(`**${unlinked.map(p => inert(p.displayName)).join(', ')}** ไม่ได้ใช้ Discord ส่งลิงก์นี้ให้เขาเข้าไปกดเลือกชื่อตัวเอง จะผูก Discord เพื่อให้ Megu ทักเตือนก็ได้ ไม่ผูกก็จ่ายได้เหมือนกัน`);
 		}
 		lines.push(shareUrl);
-		if (!payeeHasPromptPay) lines.push('⚠️ ยังไม่มีพร้อมเพย์ของคุณ คนอื่นจะยังแนบสลิปไม่ได้ กด **ตั้งพร้อมเพย์** ด้านล่าง');
+		if (payeeIsOther) lines.push(`ทุกคนโอนคืนเข้าพร้อมเพย์ของ **${payeeName}**${payeeHasPromptPay ? '' : ' ซึ่งยังไม่ได้ตั้ง ระหว่างนี้ยังไม่มีใครแนบสลิปได้'}`);
+		else if (!payeeHasPromptPay) lines.push('ยังไม่มีพร้อมเพย์ของคุณ คนอื่นจะยังแนบสลิปไม่ได้ กด **ตั้งพร้อมเพย์** ด้านล่าง');
 	}
 	else {
-		lines.push(`Created **${inert(activity.title)}** · Megu can remind ${reachable.length} of ${others.length} people by DM`);
+		lines.push(`Created **${inert(activity.title)}**. Megu can remind ${reachable.length} of ${others.length} people by DM`);
 		if (unlinked.length > 0) {
-			lines.push(`**${unlinked.map(p => inert(p.displayName)).join(', ')}** ${unlinked.length === 1 ? 'is' : 'are'} not on Discord. Send them this link to pick their name — linking Discord lets Megu remind them, but they can pay either way.`);
+			lines.push(`**${unlinked.map(p => inert(p.displayName)).join(', ')}** ${unlinked.length === 1 ? 'is' : 'are'} not on Discord. Send them this link to pick their name. Linking Discord lets Megu remind them, but they can pay either way.`);
 		}
 		lines.push(shareUrl);
-		if (!payeeHasPromptPay) lines.push('⚠️ You have no PromptPay yet, so nobody can send a slip. Press **Set PromptPay** below.');
+		if (payeeIsOther) lines.push(`Everyone pays **${payeeName}** back by PromptPay${payeeHasPromptPay ? '.' : ', who has not set it yet, so nobody can send a slip until then.'}`);
+		else if (!payeeHasPromptPay) lines.push('You have no PromptPay yet, so nobody can send a slip. Press **Set PromptPay** below.');
 	}
 	if (monthlyLine) lines.splice(1, 0, monthlyLine);
 	return lines.join('\n');

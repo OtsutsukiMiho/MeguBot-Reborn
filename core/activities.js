@@ -746,6 +746,36 @@ async function setPayee(activityId, participantId) {
 	return rowToActivity(res.rows[0]);
 }
 
+/**
+ * Whose card the subscription is on. That person fronted the money, so this
+ * month's bill is marked as paid by them and everybody's share goes to their
+ * PromptPay. Later months copy the bill, so they follow without being told.
+ *
+ * Refused once any money has been sent for the month: a slip already checked
+ * against one person's account must not quietly become a debt to another.
+ */
+async function setRecurringPayer(activityId, participantId, { periodId }) {
+	return transaction(async (client) => {
+		const locked = await client.query('SELECT kind FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw codedError('activity_not_found');
+		if (locked.rows[0].kind !== 'recurring') throw codedError('not_recurring');
+		const member = await client.query('SELECT id FROM participants WHERE id = $1 AND activity_id = $2', [participantId, activityId]);
+		if (!member.rows.length) throw codedError('participant_not_in_activity');
+		const sent = await client.query(
+			`SELECT 1 FROM payments p
+			 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
+			 WHERE p.activity_id = $1 AND p.status IN ('pending', 'confirmed')
+			   AND (p.period_id = $2 OR pa.period_id = $2)
+			 LIMIT 1`,
+			[activityId, periodId],
+		);
+		if (sent.rows.length) throw codedError('payer_locked');
+		await client.query('UPDATE activities SET payee_participant_id = $2, updated_at = now() WHERE id = $1', [activityId, participantId]);
+		await client.query('UPDATE expenses SET paid_by = $3 WHERE activity_id = $1 AND period_id = $2', [activityId, periodId, participantId]);
+		return { participantId };
+	});
+}
+
 function getActivity(id) {
 	return loadActivity('id', id);
 }
@@ -2123,6 +2153,18 @@ async function listPaymentCandidatesForDiscord(discordUid, guildId = null, searc
 			 WHERE user_id = $1 AND provider = 'discord' LIMIT 1`,
 			[activity.ownerUserId],
 		);
+		// The person the money goes to is the one who can tell whether it
+		// arrived. On a subscription that is often not the owner.
+		const payeeRow = activity.payee?.participantId
+			? activity.participants.find(item => item.id === activity.payee.participantId)
+			: null;
+		const payeeIdentity = !payeeRow?.discordUid && activity.payee?.userId
+			? await query(
+				`SELECT provider_uid FROM identities
+				 WHERE user_id = $1 AND provider = 'discord' LIMIT 1`,
+				[activity.payee.userId],
+			)
+			: null;
 		candidates.push({
 			activityId: activity.id,
 			code: activity.code,
@@ -2133,6 +2175,7 @@ async function listPaymentCandidatesForDiscord(discordUid, guildId = null, searc
 			payee: activity.payee,
 			ownerUserId: activity.ownerUserId,
 			ownerDiscordUid: ownerIdentity.rows[0]?.provider_uid || null,
+			payeeDiscordUid: payeeRow?.discordUid || payeeIdentity?.rows[0]?.provider_uid || null,
 			periods,
 			outstandingSatang: periods.reduce((total, period) => total + period.outstandingSatang, 0),
 		});
@@ -2195,6 +2238,7 @@ module.exports = {
 	settlement,
 	resolvePayee,
 	setPayee,
+	setRecurringPayer,
 	attachSlip,
 	getSlip,
 	forgetOldSlips,

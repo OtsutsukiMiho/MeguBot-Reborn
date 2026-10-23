@@ -65,7 +65,14 @@ const T = {
 		needAmount: raw => `อ่านยอด "${raw}" ไม่ออก ใส่เป็นตัวเลข เช่น 419 แล้วลองใหม่นะ`,
 		badDueDay: raw => `วันที่ "${raw}" ใช้ไม่ได้ ใส่ 1–28 (ทุกเดือนมีวันนั้นแน่นอน)`,
 		joinSub: 'ขอหารด้วย',
-		notOwner: 'เฉพาะเจ้าของบิลเท่านั้นที่ยืนยันหรือปฏิเสธรายการนี้ได้',
+		notOwner: 'เฉพาะเจ้าของบิลหรือคนรับเงินเท่านั้นที่ยืนยันหรือปฏิเสธรายการนี้ได้',
+		ownerOnly: 'เฉพาะเจ้าของบิลเท่านั้นที่เปลี่ยนคนจ่ายได้',
+		payerPick: 'ใครเป็นคนจ่ายค่าบริการ (เงินจะโอนเข้าพร้อมเพย์ของคนนี้)',
+		payerMe: name => `${name} (คุณ)`,
+		payerLocked: 'เดือนนี้มีคนโอนเข้ามาแล้ว เลยเปลี่ยนคนจ่ายไม่ได้ เดี๋ยวเงินที่โอนไปแล้วจะเข้าผิดคน',
+		payerAsked: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ Megu ส่ง DM ไปขอให้แล้ว ระหว่างนี้ยังไม่มีใครแนบสลิปได้`,
+		payerUnreachable: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ และ Megu ส่ง DM หาไม่ได้ บอกให้เขาตั้งพร้อมเพย์ ไม่อย่างนั้นยังไม่มีใครแนบสลิปได้`,
+		payerDm: title => `คุณถูกตั้งเป็นคนจ่ายค่าบริการ **${title}** เพื่อนๆ จะโอนส่วนของตัวเองเข้าพร้อมเพย์ของคุณทุกเดือน\nกด **ตั้งพร้อมเพย์** ด้านล่างเพื่อให้ทุกคนเริ่มแนบสลิปได้`,
 		paymentGone: 'ไม่พบรายการจ่ายนี้แล้ว',
 		decided: 'รายการนี้ถูกจัดการไปแล้ว',
 		rejectTitle: 'ยังไม่ได้รับเงิน', undoTitle: 'ย้อนผลการยืนยัน',
@@ -115,7 +122,14 @@ const T = {
 		needAmount: raw => `Could not read "${raw}" as an amount. Enter a number such as 419 and try again.`,
 		badDueDay: raw => `"${raw}" is not a usable day. Use 1–28, which every month has.`,
 		joinSub: 'Count me in',
-		notOwner: 'Only the person who owns this bill can confirm or reject it.',
+		notOwner: 'Only the owner of this bill or the person receiving the money can confirm or reject it.',
+		ownerOnly: 'Only the owner of this bill can change who pays.',
+		payerPick: 'Whose card pays for it (everyone pays this person back)',
+		payerMe: name => `${name} (you)`,
+		payerLocked: 'Someone has already sent money this month, so the payer cannot change now. It would send their transfer to the wrong person.',
+		payerAsked: name => `${name} has no PromptPay yet. Megu sent them a DM asking for it. Nobody can send a slip until then.`,
+		payerUnreachable: name => `${name} has no PromptPay yet and Megu could not DM them. Ask them to set it, or nobody can send a slip.`,
+		payerDm: title => `You are now the one paying for **${title}**. Everyone sends their share to your PromptPay each month.\nPress **Set PromptPay** below so they can start sending slips.`,
 		paymentGone: 'This payment no longer exists.',
 		decided: 'This payment has already been handled.',
 		rejectTitle: 'Not received', undoTitle: 'Undo confirmation',
@@ -347,22 +361,121 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 
 	const rendered = await renderCard(core, activity.code, interaction.guildLocale || interaction.locale);
 	activity = rendered.activity;
-	await interaction.editReply({
+	const posted = await interaction.editReply({
 		content: rendered.content,
 		components: cardButtons(activity.code, T[card.langOf(interaction.guildLocale || interaction.locale)], monthly),
 		allowedMentions: { parse: [], users: rendered.mentionUids },
 	});
 
-	const payeeHasPromptPay = Boolean(activity.payee?.promptpayId);
-	const note = card.organizerNote({ activity, payeeHasPromptPay, shareUrl: shareUrl(activity.code), period: rendered.period, locale: interaction.locale });
 	await interaction.followUp({
-		content: [note, ...notes].join('\n'),
+		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly }),
+		content: [organizerNoteFor(activity, rendered.period, interaction.locale), ...notes].join('\n'),
 		flags: EPHEMERAL,
 		allowedMentions: NO_PINGS,
-		components: payeeHasPromptPay ? [] : [new ActionRowBuilder().addComponents(
-			new ButtonBuilder().setCustomId(`${PREFIX}:pp`).setStyle(ButtonStyle.Primary).setLabel(t.setPromptPay),
-		)],
 	});
+}
+
+function organizerNoteFor(activity, period, locale) {
+	return card.organizerNote({
+		activity,
+		payeeHasPromptPay: Boolean(activity.payee?.promptpayId),
+		shareUrl: shareUrl(activity.code),
+		period,
+		locale,
+	});
+}
+
+/**
+ * What the organiser can do next, under the note: set PromptPay when the money
+ * comes to them and they have none, and on a subscription, say whose card it
+ * is on. The card's message id rides in the menu so the card can be redrawn
+ * after a pick; without it the menu would edit this private message instead.
+ */
+function organizerFollowUp(t, activity, period, interaction, { cardMessageId, monthly }) {
+	const rows = [];
+	const payeeIsMe = !activity.payee?.userId || activity.payee.userId === activity.ownerUserId;
+	if (payeeIsMe && !activity.payee?.promptpayId) {
+		rows.push(new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:pp`).setStyle(ButtonStyle.Primary).setLabel(t.setPromptPay),
+		));
+	}
+	const choices = activity.participants.filter(p => p.discordUid).slice(0, 25);
+	if (monthly && cardMessageId && choices.length > 1) {
+		const current = activity.payee?.participantId;
+		rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+			.setCustomId(`${PREFIX}:payer:${activity.code}:${cardMessageId}`)
+			.setPlaceholder(t.payerPick)
+			.addOptions(choices.map(p => ({
+				label: p.discordUid === interaction.user.id ? t.payerMe(p.displayName).slice(0, 100) : p.displayName.slice(0, 100),
+				value: p.id,
+				default: p.id === current,
+			})))));
+	}
+	return { components: rows };
+}
+
+// ── whose card the subscription is on ──────────────────────────────────────
+
+async function onPayerPick(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	await interaction.deferUpdate();
+	let activity = await core.activities.getActivityByCode(code);
+	if (!activity) return interaction.editReply({ content: t.gone, components: [] });
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	if (!account || account.id !== activity.ownerUserId) return interaction.followUp({ content: t.ownerOnly, flags: EPHEMERAL });
+	const payer = activity.participants.find(p => p.id === interaction.values[0] && p.discordUid);
+	if (!payer) return interaction.followUp({ content: t.failed, flags: EPHEMERAL });
+
+	const period = core.activities.currentPeriod(activity);
+	try {
+		await core.activities.setRecurringPayer(activity.id, payer.id, { periodId: period?.id || null });
+	}
+	catch (error) {
+		if (error.code === 'payer_locked') return interaction.followUp({ content: t.payerLocked, flags: EPHEMERAL });
+		throw error;
+	}
+
+	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
+	activity = rendered.activity;
+	await refreshCard(core, interaction, code, cardMessageId);
+
+	const lines = [organizerNoteFor(activity, rendered.period, interaction.locale)];
+	const isMe = payer.discordUid === interaction.user.id;
+	if (!isMe && !activity.payee?.promptpayId) {
+		const asked = await askPayerForPromptPay(interaction.client, payer, activity);
+		lines.push(asked ? t.payerAsked(card.inert(payer.displayName)) : t.payerUnreachable(card.inert(payer.displayName)));
+	}
+	return interaction.editReply({
+		content: lines.join('\n'),
+		allowedMentions: NO_PINGS,
+		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId, monthly: true }),
+	});
+}
+
+/**
+ * One DM to the person now receiving the money, because nobody can send a
+ * slip until they have a PromptPay number. It is sent once, on the pick, in
+ * answer to the organiser pressing something (DISCORD-RATE-LIMITS.md rule 1).
+ */
+async function askPayerForPromptPay(client, payer, activity) {
+	const t = T.th;
+	try {
+		const user = await client.users.fetch(payer.discordUid);
+		await user.send({
+			content: t.payerDm(card.inert(activity.title)),
+			components: [new ActionRowBuilder().addComponents(
+				new ButtonBuilder().setCustomId(`${PREFIX}:pp`).setStyle(ButtonStyle.Primary).setLabel(t.setPromptPay),
+			)],
+			allowedMentions: NO_PINGS,
+		});
+		return true;
+	}
+	catch (error) {
+		// A closed DM is the ordinary case. A Discord refusal has already been
+		// recorded by the block guard in the REST client.
+		console.warn(`[Megu] Could not ask the payer of ${activity.code} for PromptPay: ${error.message}`);
+		return false;
+	}
 }
 
 // ── "I'm in" ───────────────────────────────────────────────────────────────
@@ -538,7 +651,9 @@ async function decisionTarget(core, interaction, code, paymentId, from) {
 	const activity = await core.activities.getActivityByCode(code);
 	if (!activity) return { error: t.gone };
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
-	if (!account || account.id !== activity.ownerUserId) return { error: t.notOwner };
+	// The owner, or whoever the money went to: they are the one who can see it.
+	const allowed = account && (account.id === activity.ownerUserId || account.id === activity.payee?.userId);
+	if (!allowed) return { error: t.notOwner };
 	const payment = activity.payments.find(p => p.id === paymentId);
 	if (!payment) return { error: t.paymentGone };
 	if (payment.status !== from) return { error: t.decided };
@@ -664,6 +779,9 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 		}
 		else if (interaction.isStringSelectMenu() && action === 'claim') {
 			return await onClaim(interaction, core, code, extra);
+		}
+		else if (interaction.isStringSelectMenu() && action === 'payer') {
+			return await onPayerPick(interaction, core, code, extra);
 		}
 	}
 	catch (error) {
