@@ -133,6 +133,7 @@ const SUITES = [
 	['event-command.test.js', '/event — a bill from one modal, claimed and joined from Discord, paid from a button'],
 	['payment-decision-buttons.test.js', 'slip decisions: confirm, reject and undo from the organiser DM, owner only, payer told'],
 	['sub-payer.test.js', 'subscription payer: picked under the bill, owed by everyone, kept next month, fixed once money arrives'],
+	['sub-changes.test.js', 'subscription changes: price, leaving and joining, this month while unpaid and next month after'],
 	['sub-command.test.js', '/sub — a monthly bill from one modal, rolled into next month, announced once on its due day'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];

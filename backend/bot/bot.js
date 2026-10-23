@@ -894,7 +894,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 	// /event: the bill card's buttons and modals, and the "send slip" button on
 	// a due-date DM, all carry the `evt:` prefix and belong to the command that
 	// drew them.
-	else if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu())
+	else if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu() || interaction.isUserSelectMenu())
 		&& interaction.customId.startsWith('evt:')) {
 		const eventCommand = interaction.client.commands.get('event');
 		if (eventCommand?.handleComponent) await eventCommand.handleComponent(interaction);

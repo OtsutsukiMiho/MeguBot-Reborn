@@ -36,6 +36,9 @@ const COPY = {
 		dueLine: (name, amount) => `• ${name} ยังค้าง ${amount}`,
 		dueHowTo: 'โอนแล้วกด **แนบสลิป** ด้านล่าง',
 		monthlyNote: (due, period) => `Megu จะเปิดรอบใหม่ให้ทุกเดือน และเตือนคนที่ยังไม่จ่าย ${due} (รอบแรก: ${period})`,
+		startsFrom: period => `(เริ่ม${period})`,
+		lastMonth: '(เดือนสุดท้าย)',
+		upcoming: (period, total, count) => `ตั้งแต่${period}: ${total}/เดือน หาร ${count} คน`,
 	},
 	en: {
 		heading: (title, total, count) => (total
@@ -56,6 +59,9 @@ const COPY = {
 		dueLine: (name, amount) => `• ${name} still owes ${amount}`,
 		dueHowTo: 'Paid? Press **Send slip** below',
 		monthlyNote: (due, period) => `Megu opens a new month automatically and reminds whoever has not paid on ${due} (first month: ${period})`,
+		startsFrom: period => `(from ${period})`,
+		lastMonth: '(last month)',
+		upcoming: (period, total, count) => `From ${period}: ${total}/month split by ${count}`,
 	},
 };
 
@@ -153,7 +159,7 @@ function planRoster({ organizer, picked = [], guests = [], splitMode = 'with_me'
  * @param {number} [input.maxLines]
  * @returns {{ content: string, mentionUids: string[] }}
  */
-function eventCardMessage({ activity, settlement, payee = null, period = null, locale = 'th', maxLines = 20 }) {
+function eventCardMessage({ activity, settlement, payee = null, period = null, upcoming = null, locale = 'th', maxLines = 20 }) {
 	const lang = langOf(locale);
 	const copy = COPY[lang];
 	const money = satang => formatMoney(satang, activity.currency || 'THB', lang);
@@ -168,7 +174,14 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, l
 		? copy.monthly(inert(activity.title), money(total), sharers.length, formatPeriod(period?.key, lang), formatDueDay(activity.dueDay, lang))
 		: copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.length)];
 
-	const shown = activity.participants.slice(0, maxLines);
+	// A monthly card is about this month and the next. Somebody who left an
+	// earlier month has no share in either and is not listed.
+	const joining = new Set(upcoming?.join || []);
+	const leaving = new Set(upcoming?.leave || []);
+	const roster = monthly
+		? activity.participants.filter(p => (rowsById.get(p.id)?.owes || 0) > 0 || p.id === payeeId || joining.has(p.id))
+		: activity.participants;
+	const shown = roster.slice(0, maxLines);
 	for (const p of shown) {
 		const row = rowsById.get(p.id) || { owes: 0, outstanding: 0, pending: 0 };
 		const parts = [`• ${label(p)}`];
@@ -181,9 +194,14 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, l
 			else if (row.pending > 0) parts.push(`· 🧾 ${copy.checking}`);
 		}
 		if (!p.discordUid && !p.userId) parts.push(`· _${copy.notLinked}_`);
+		if (joining.has(p.id) && !(row.owes > 0)) parts.push(copy.startsFrom(formatPeriod(upcoming.periodKey, lang)));
+		else if (leaving.has(p.id)) parts.push(copy.lastMonth);
 		lines.push(parts.join(' '));
 	}
-	if (activity.participants.length > shown.length) lines.push(copy.more(activity.participants.length - shown.length));
+	if (roster.length > shown.length) lines.push(copy.more(roster.length - shown.length));
+	if (monthly && upcoming) {
+		lines.push(copy.upcoming(formatPeriod(upcoming.periodKey, lang), money(upcoming.amountSatang), upcoming.sharerIds.length));
+	}
 
 	lines.push('');
 	if (total === 0) {

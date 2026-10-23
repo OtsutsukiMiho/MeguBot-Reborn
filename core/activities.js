@@ -70,6 +70,7 @@ function rowToActivity(row) {
 		dueDay: row.due_day,
 		paymentDueAt: row.payment_due_at || null,
 		payeeParticipantId: row.payee_participant_id || null,
+		recurringChange: row.recurring_change || null,
 		guildId: row.guild_id,
 		channelId: row.channel_id,
 		createdAt: row.created_at,
@@ -1353,6 +1354,21 @@ async function copyPreviousPeriod(client, activityId, key, periodId) {
 	);
 	if (!previous.rows.length) return;
 	const expenses = await client.query('SELECT * FROM expenses WHERE activity_id = $1 AND period_id = $2 ORDER BY id FOR SHARE', [activityId, previous.rows[0].id]);
+
+	// A change that was waiting for this month: the new price and people, split
+	// evenly, instead of a copy of last month. Only a single-bill month has an
+	// unambiguous "the price", which is what changeSubscription() allows.
+	const waiting = await client.query('SELECT recurring_change FROM activities WHERE id = $1', [activityId]);
+	const change = waiting.rows[0]?.recurring_change;
+	if (change && key >= change.from && expenses.rows.length === 1) {
+		const [expense] = expenses.rows;
+		const shares = await client.query('SELECT participant_id FROM shares WHERE expense_id = $1 ORDER BY id', [expense.id]);
+		const target = applySubscriptionChange(shares.rows.map(r => r.participant_id), Number(expense.amount_satang), change);
+		await insertEvenExpense(client, { activityId, periodId, label: expense.label, paidBy: expense.paid_by, ...target });
+		await client.query('UPDATE activities SET recurring_change = NULL WHERE id = $1', [activityId]);
+		return;
+	}
+
 	for (const expense of expenses.rows) {
 		const shares = await client.query('SELECT participant_id, amount_satang FROM shares WHERE expense_id = $1', [expense.id]);
 		if (shares.rows.reduce((sum, share) => sum + BigInt(share.amount_satang), 0n) !== BigInt(expense.amount_satang)) {
@@ -1368,6 +1384,129 @@ async function copyPreviousPeriod(client, activityId, key, periodId) {
 			await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expenseId, share.participant_id, share.amount_satang]);
 		}
 	}
+}
+
+// ── a subscription that changes ─────────────────────────────────────────────
+
+function nextPeriodKey(key) {
+	const [year, month] = key.split('-').map(Number);
+	const next = new Date(Date.UTC(year, month, 1));
+	return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Fold a new change into one already waiting. The latest word on a person or the price wins. */
+function mergeSubscriptionChange(previous, change) {
+	const leave = new Set(previous?.leave || []);
+	const join = new Set(previous?.join || []);
+	for (const id of change.leave || []) { leave.add(id); join.delete(id); }
+	for (const id of change.join || []) { join.add(id); leave.delete(id); }
+	return {
+		amountSatang: change.amountSatang ?? previous?.amountSatang ?? null,
+		leave: [...leave],
+		join: [...join],
+	};
+}
+
+/** Who shares the bill and for how much once a change is applied. Order is kept, newcomers last. */
+function applySubscriptionChange(sharerIds, amountSatang, change) {
+	const leave = new Set(change?.leave || []);
+	const ids = sharerIds.filter(id => !leave.has(id));
+	for (const id of change?.join || []) if (!ids.includes(id) && !leave.has(id)) ids.push(id);
+	return { sharerIds: ids, amountSatang: change?.amountSatang ?? amountSatang };
+}
+
+async function insertEvenExpense(client, { activityId, periodId, label, paidBy, sharerIds, amountSatang }) {
+	const resolved = resolveSplit(amountSatang, sharerIds, null);
+	const expenseId = newId('exp');
+	await client.query(
+		`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by, split_mode, split_values)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+		[expenseId, activityId, periodId, label, amountSatang, paidBy, resolved.mode, resolved.values ? JSON.stringify(resolved.values) : null],
+	);
+	for (const [participantId, share] of Object.entries(resolved.split)) {
+		await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expenseId, participantId, share]);
+	}
+	return expenseId;
+}
+
+/**
+ * Change a monthly bill: a new price, people joining, people leaving.
+ *
+ * While nobody has sent money for the current month it is simply rewritten.
+ * Once someone has, this month stays as everybody already agreed to and paid
+ * against, and the change waits for next month (`recurring_change`). That is
+ * the rule the user chose; the alternative was refunds and top-ups by hand.
+ *
+ * The person whose card pays cannot leave: they are the one being paid back.
+ * Bills with more than one cost a month are edited on the web instead, since
+ * "the price" would not mean one thing.
+ *
+ * @returns {{ when: 'now'|'next', periodKey: string, sharerIds: string[], amountSatang: number }}
+ */
+async function changeSubscription(activityId, change, { now = new Date() } = {}) {
+	const amountSatang = change.amountSatang == null ? null : Number(change.amountSatang);
+	if (amountSatang != null && (!Number.isSafeInteger(amountSatang) || amountSatang <= 0)) throw codedError('amount_invalid');
+	return transaction(async (client) => {
+		const locked = await client.query('SELECT kind, payee_participant_id, recurring_change FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw codedError('activity_not_found');
+		if (locked.rows[0].kind !== 'recurring') throw codedError('not_recurring');
+		const roster = new Set((await client.query('SELECT id FROM participants WHERE activity_id = $1', [activityId])).rows.map(r => r.id));
+		for (const id of [...(change.join || []), ...(change.leave || [])]) {
+			if (!roster.has(id)) throw codedError('participant_not_in_activity');
+		}
+
+		const key = periodKeyFor(now);
+		const period = await client.query('SELECT id FROM periods WHERE activity_id = $1 AND period_key = $2', [activityId, key]);
+		if (!period.rows.length) throw codedError('period_missing');
+		const periodId = period.rows[0].id;
+		const expenses = await client.query('SELECT * FROM expenses WHERE period_id = $1 FOR UPDATE', [periodId]);
+		if (expenses.rows.length !== 1) throw codedError('change_needs_web');
+		const [expense] = expenses.rows;
+		const payer = locked.rows[0].payee_participant_id || expense.paid_by;
+		if ((change.leave || []).includes(payer) || (change.leave || []).includes(expense.paid_by)) throw codedError('payer_cannot_leave');
+
+		const shares = await client.query('SELECT participant_id FROM shares WHERE expense_id = $1 ORDER BY id', [expense.id]);
+		const merged = mergeSubscriptionChange(locked.rows[0].recurring_change, { ...change, amountSatang });
+		const target = applySubscriptionChange(shares.rows.map(r => r.participant_id), Number(expense.amount_satang), merged);
+		if (target.sharerIds.length === 0) throw codedError('nobody_left');
+
+		const sent = await client.query(
+			`SELECT 1 FROM payments p
+			 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
+			 WHERE p.activity_id = $1 AND p.status IN ('pending', 'confirmed')
+			   AND (p.period_id = $2 OR pa.period_id = $2)
+			 LIMIT 1`,
+			[activityId, periodId],
+		);
+		if (!sent.rows.length) {
+			const resolved = resolveSplit(target.amountSatang, target.sharerIds, null);
+			await client.query(
+				'UPDATE expenses SET amount_satang = $2, split_mode = $3, split_values = $4::jsonb WHERE id = $1',
+				[expense.id, target.amountSatang, resolved.mode, resolved.values ? JSON.stringify(resolved.values) : null],
+			);
+			await client.query('DELETE FROM shares WHERE expense_id = $1', [expense.id]);
+			for (const [participantId, share] of Object.entries(resolved.split)) {
+				await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expense.id, participantId, share]);
+			}
+			// This month already is the new plan, so nothing is left waiting.
+			await client.query('UPDATE activities SET recurring_change = NULL, updated_at = now() WHERE id = $1', [activityId]);
+			return { when: 'now', periodKey: key, ...target };
+		}
+
+		const from = nextPeriodKey(key);
+		await client.query('UPDATE activities SET recurring_change = $2::jsonb, updated_at = now() WHERE id = $1', [activityId, JSON.stringify({ ...merged, from })]);
+		return { when: 'next', periodKey: from, ...target };
+	});
+}
+
+/** What next month will look like, when a change is waiting for it. For the card. */
+function upcomingSubscription(activity, period) {
+	const change = activity.recurringChange;
+	if (!change || !period) return null;
+	const expenses = activity.expenses.filter(e => e.periodId === period.id);
+	if (expenses.length !== 1) return null;
+	const sharers = activity.shares.filter(s => s.expenseId === expenses[0].id).map(s => s.participantId);
+	return { periodKey: change.from, join: change.join || [], leave: change.leave || [], ...applySubscriptionChange(sharers, expenses[0].amountSatang, change) };
 }
 
 // ── money axis ──────────────────────────────────────────────────────────────
@@ -2239,6 +2378,9 @@ module.exports = {
 	resolvePayee,
 	setPayee,
 	setRecurringPayer,
+	changeSubscription,
+	upcomingSubscription,
+	nextPeriodKey,
 	attachSlip,
 	getSlip,
 	forgetOldSlips,

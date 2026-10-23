@@ -5,6 +5,7 @@ const {
 } = require('discord.js');
 const defaultCore = require('../../core/index.js');
 const card = require('../../core/event-card.js');
+const { formatPeriod } = require('../../core/format.js');
 const { submitDiscordSlip, ownerDecisionButtons, parseBaht, money, siteUrl } = require('../../adapters/discord/slip-submit.js');
 
 // `/event ตีแบด` — start a shared bill without leaving the chat.
@@ -25,6 +26,7 @@ const NO_PINGS = { parse: [] };
 
 const T = {
 	th: {
+		lang: 'th',
 		guildOnly: 'ใช้ /event ในเซิร์ฟเวอร์ที่กลุ่มคุยกันนะ',
 		modalTitle: 'บิลใหม่',
 		title: 'ชื่อกิจกรรม', titleHint: 'เช่น ตีแบดเสาร์นี้',
@@ -73,6 +75,21 @@ const T = {
 		payerAsked: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ Megu ส่ง DM ไปขอให้แล้ว ระหว่างนี้ยังไม่มีใครแนบสลิปได้`,
 		payerUnreachable: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ และ Megu ส่ง DM หาไม่ได้ บอกให้เขาตั้งพร้อมเพย์ ไม่อย่างนั้นยังไม่มีใครแนบสลิปได้`,
 		payerDm: title => `คุณถูกตั้งเป็นคนจ่ายค่าบริการ **${title}** เพื่อนๆ จะโอนส่วนของตัวเองเข้าพร้อมเพย์ของคุณทุกเดือน\nกด **ตั้งพร้อมเพย์** ด้านล่างเพื่อให้ทุกคนเริ่มแนบสลิปได้`,
+		leave: 'ออกจากบิล', manage: 'จัดการ',
+		leaveConfirm: title => `ออกจาก **${title}** ใช่ไหม ถ้าเดือนนี้มีคนจ่ายแล้ว คุณยังต้องจ่ายส่วนของเดือนนี้ และจะไม่ถูกเรียกเก็บตั้งแต่เดือนหน้า`,
+		leftNow: 'ออกจากบิลแล้ว ส่วนของคุณถูกหารให้คนที่เหลือ',
+		leftNext: period => `ออกจากบิลแล้ว เดือนนี้ยังต้องจ่ายส่วนของคุณ ตั้งแต่${period}จะไม่ถูกเรียกเก็บ`,
+		alreadyLeaving: period => `คุณจะออกจากบิลตั้งแต่${period}อยู่แล้ว ถ้าเปลี่ยนใจ กด **ขอหารด้วย**`,
+		payerCannotLeave: 'คนจ่ายค่าบริการออกจากบิลไม่ได้ ให้เจ้าของบิลเปลี่ยนคนจ่ายก่อน',
+		lastPerson: 'ถ้าออก บิลนี้จะไม่เหลือใครหารเลย',
+		changeNeedsWeb: 'บิลนี้มีหลายรายการต่อเดือน แก้ได้ที่เว็บ',
+		manageTitle: title => `จัดการ **${title}**`,
+		manageNow: (total, count) => `เดือนนี้ ${total} หาร ${count} คน`,
+		priceButton: 'เปลี่ยนราคา', priceTitle: 'ราคาใหม่ต่อเดือน', priceLabel: 'ยอดต่อเดือน (บาท)',
+		addPeople: 'เพิ่มคนหารด้วย', removePeople: 'เอาคนออกจากบิล',
+		changedNow: (total, count) => `เปลี่ยนแล้ว เดือนนี้ ${total} หาร ${count} คน`,
+		changedNext: (period, total, count) => `เดือนนี้มีคนโอนเข้ามาแล้ว เลยเริ่มใช้ตั้งแต่${period}: ${total} หาร ${count} คน`,
+		joinedNext: period => `เพิ่มคุณเข้าบิลแล้ว เดือนนี้มีคนจ่ายแล้ว เลยเริ่มหารตั้งแต่${period}`,
 		paymentGone: 'ไม่พบรายการจ่ายนี้แล้ว',
 		decided: 'รายการนี้ถูกจัดการไปแล้ว',
 		rejectTitle: 'ยังไม่ได้รับเงิน', undoTitle: 'ย้อนผลการยืนยัน',
@@ -82,6 +99,7 @@ const T = {
 		undoneLine: reason => `คุณย้อนผลการยืนยันแล้ว เหตุผล: ${reason}`,
 	},
 	en: {
+		lang: 'en',
 		guildOnly: 'Use /event in the server your group talks in.',
 		modalTitle: 'New bill',
 		title: 'What is it', titleHint: 'e.g. Badminton on Saturday',
@@ -130,6 +148,21 @@ const T = {
 		payerAsked: name => `${name} has no PromptPay yet. Megu sent them a DM asking for it. Nobody can send a slip until then.`,
 		payerUnreachable: name => `${name} has no PromptPay yet and Megu could not DM them. Ask them to set it, or nobody can send a slip.`,
 		payerDm: title => `You are now the one paying for **${title}**. Everyone sends their share to your PromptPay each month.\nPress **Set PromptPay** below so they can start sending slips.`,
+		leave: 'Leave', manage: 'Manage',
+		leaveConfirm: title => `Leave **${title}**? If anyone has paid this month you still owe this month's share, and you will not be billed from next month.`,
+		leftNow: 'You left the bill. Your share was split among the others.',
+		leftNext: period => `You left the bill. You still owe this month's share; from ${period} you will not be billed.`,
+		alreadyLeaving: period => `You already leave from ${period}. Changed your mind? Press **Count me in**.`,
+		payerCannotLeave: 'The person paying for the service cannot leave. The owner has to change who pays first.',
+		lastPerson: 'If you leave, nobody is left to share this bill.',
+		changeNeedsWeb: 'This bill has several costs a month. Change it on the web.',
+		manageTitle: title => `Manage **${title}**`,
+		manageNow: (total, count) => `This month ${total} split by ${count}`,
+		priceButton: 'Change price', priceTitle: 'New monthly price', priceLabel: 'Amount per month (THB)',
+		addPeople: 'Add people to share it', removePeople: 'Remove people from the bill',
+		changedNow: (total, count) => `Changed. This month is ${total} split by ${count}.`,
+		changedNext: (period, total, count) => `Someone has already paid this month, so this starts from ${period}: ${total} split by ${count}.`,
+		joinedNext: period => `You are on the bill. Someone has already paid this month, so your share starts from ${period}.`,
 		paymentGone: 'This payment no longer exists.',
 		decided: 'This payment has already been handled.',
 		rejectTitle: 'Not received', undoTitle: 'Undo confirmation',
@@ -166,11 +199,19 @@ async function ensureOrganizer(core, user) {
 }
 
 function cardButtons(code, t, monthly = false) {
-	return [new ActionRowBuilder().addComponents(
+	const row = new ActionRowBuilder().addComponents(
 		new ButtonBuilder().setCustomId(`${PREFIX}:pay:${code}`).setStyle(ButtonStyle.Primary).setLabel(t.pay),
 		new ButtonBuilder().setCustomId(`${PREFIX}:join:${code}`).setStyle(ButtonStyle.Secondary).setLabel(monthly ? t.joinSub : t.join),
-		new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(shareUrl(code)).setLabel(t.open),
-	)];
+	);
+	// A subscription runs for months, so people come and go and the price moves.
+	if (monthly) {
+		row.addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:leave:${code}`).setStyle(ButtonStyle.Secondary).setLabel(t.leave),
+			new ButtonBuilder().setCustomId(`${PREFIX}:manage:${code}`).setStyle(ButtonStyle.Secondary).setLabel(t.manage),
+		);
+	}
+	row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(shareUrl(code)).setLabel(t.open));
+	return [row];
 }
 
 async function renderCard(core, code, locale) {
@@ -185,7 +226,8 @@ async function renderCard(core, code, locale) {
 		period = core.activities.currentPeriod(activity);
 	}
 	const settlement = core.activities.settlement(activity, period?.id ?? null);
-	const built = card.eventCardMessage({ activity, settlement, payee: activity.payee, period, locale });
+	const upcoming = period ? core.activities.upcomingSubscription(activity, period) : null;
+	const built = card.eventCardMessage({ activity, settlement, payee: activity.payee, period, upcoming, locale });
 	return { activity, settlement, period, monthly: activity.kind === 'recurring', ...built };
 }
 
@@ -201,9 +243,20 @@ function isMine(activity, discordUid, userId) {
  * what somebody already paid against, which is a decision for the organiser.
  */
 async function resplitForNewcomer(core, activity, newcomerId) {
-	// A monthly bill is re-divided for the current month only; later months
-	// copy it, so the newcomer is in those too. Earlier months are history.
-	const period = activity.kind === 'recurring' ? core.activities.currentPeriod(activity) : null;
+	// A monthly bill takes the newcomer this month while nobody has paid, and
+	// from next month otherwise. Before this, a join after the first transfer
+	// added a name that no later month ever billed.
+	if (activity.kind === 'recurring') {
+		try {
+			const result = await core.activities.changeSubscription(activity.id, { join: [newcomerId] });
+			return result.when === 'now' ? 'resplit' : 'next';
+		}
+		catch (error) {
+			if (error.code === 'change_needs_web') return 'skipped';
+			throw error;
+		}
+	}
+	const period = null;
 	const expenses = activity.expenses.filter(e => !period || e.periodId === period.id);
 	if (expenses.length === 0) return 'none';
 	const standing = core.activities.settlement(activity, period?.id ?? null);
@@ -399,24 +452,29 @@ function organizerFollowUp(t, activity, period, interaction, { cardMessageId, mo
 			new ButtonBuilder().setCustomId(`${PREFIX}:pp`).setStyle(ButtonStyle.Primary).setLabel(t.setPromptPay),
 		));
 	}
-	const choices = activity.participants.filter(p => p.discordUid).slice(0, 25);
-	if (monthly && cardMessageId && choices.length > 1) {
-		const current = activity.payee?.participantId;
-		rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
-			.setCustomId(`${PREFIX}:payer:${activity.code}:${cardMessageId}`)
-			.setPlaceholder(t.payerPick)
-			.addOptions(choices.map(p => ({
-				label: p.discordUid === interaction.user.id ? t.payerMe(p.displayName).slice(0, 100) : p.displayName.slice(0, 100),
-				value: p.id,
-				default: p.id === current,
-			})))));
-	}
+	const payer = monthly && cardMessageId ? payerSelect(t, activity, interaction, `${PREFIX}:payer:${activity.code}:${cardMessageId}`) : null;
+	if (payer) rows.push(payer);
 	return { components: rows };
+}
+
+/** The "whose card pays" menu, or null when there is nobody else to pick. */
+function payerSelect(t, activity, interaction, customId) {
+	const choices = activity.participants.filter(p => p.discordUid).slice(0, 25);
+	if (choices.length < 2) return null;
+	const current = activity.payee?.participantId;
+	return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+		.setCustomId(customId)
+		.setPlaceholder(t.payerPick)
+		.addOptions(choices.map(p => ({
+			label: (p.discordUid === interaction.user.id ? t.payerMe(p.displayName) : p.displayName).slice(0, 100),
+			value: p.id,
+			default: p.id === current,
+		}))));
 }
 
 // ── whose card the subscription is on ──────────────────────────────────────
 
-async function onPayerPick(interaction, core, code, cardMessageId) {
+async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel = false } = {}) {
 	const t = copyFor(interaction);
 	await interaction.deferUpdate();
 	let activity = await core.activities.getActivityByCode(code);
@@ -441,10 +499,14 @@ async function onPayerPick(interaction, core, code, cardMessageId) {
 
 	const lines = [organizerNoteFor(activity, rendered.period, interaction.locale)];
 	const isMe = payer.discordUid === interaction.user.id;
+	let asked = null;
 	if (!isMe && !activity.payee?.promptpayId) {
-		const asked = await askPayerForPromptPay(interaction.client, payer, activity);
-		lines.push(asked ? t.payerAsked(card.inert(payer.displayName)) : t.payerUnreachable(card.inert(payer.displayName)));
+		asked = await askPayerForPromptPay(interaction.client, payer, activity)
+			? t.payerAsked(card.inert(payer.displayName))
+			: t.payerUnreachable(card.inert(payer.displayName));
+		lines.push(asked);
 	}
+	if (fromPanel) return interaction.editReply(managePanel(t, core, activity, rendered.period, interaction, cardMessageId, asked));
 	return interaction.editReply({
 		content: lines.join('\n'),
 		allowedMentions: NO_PINGS,
@@ -487,7 +549,18 @@ async function onJoin(interaction, core, code) {
 	if (activity.guildId && activity.guildId !== interaction.guildId) return interaction.reply({ content: t.wrongServer, flags: EPHEMERAL });
 
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
-	if (isMine(activity, interaction.user.id, account?.id)) return interaction.reply({ content: t.alreadyIn, flags: EPHEMERAL });
+	const mine = isMine(activity, interaction.user.id, account?.id);
+	if (mine) {
+		// On a monthly bill "already in" depends on the month: someone who left,
+		// or is about to, presses this to come back.
+		if (activity.kind !== 'recurring' || sharesThisMonth(core, activity, mine.id) && !leavingSoon(activity, mine.id)) {
+			return interaction.reply({ content: t.alreadyIn, flags: EPHEMERAL });
+		}
+		await interaction.deferReply({ flags: EPHEMERAL });
+		const outcome = await resplitForNewcomer(core, activity, mine.id);
+		await refreshCard(core, interaction, code);
+		return interaction.editReply(joinReply(t, core, activity, outcome));
+	}
 
 	// Somebody typed "Ton" before Ton pressed the button. Ask which row is
 	// them rather than adding a second Ton who owes the same money twice.
@@ -506,7 +579,25 @@ async function onJoin(interaction, core, code) {
 	await interaction.deferReply({ flags: EPHEMERAL });
 	const outcome = await addMe(core, interaction, activity, account);
 	await refreshCard(core, interaction, code);
-	return interaction.editReply(outcome === 'skipped' ? `${t.joined}\n${t.paidAlready}` : t.joined);
+	return interaction.editReply(joinReply(t, core, activity, outcome));
+}
+
+function sharesThisMonth(core, activity, participantId) {
+	const period = core.activities.currentPeriod(activity);
+	return activity.shares.some(s => s.participantId === participantId && s.amountSatang > 0 && (!period || s.periodId === period.id));
+}
+
+function leavingSoon(activity, participantId) {
+	return (activity.recurringChange?.leave || []).includes(participantId);
+}
+
+function joinReply(t, core, activity, outcome) {
+	if (outcome === 'skipped') return `${t.joined}\n${t.paidAlready}`;
+	if (outcome === 'next') {
+		const period = core.activities.currentPeriod(activity);
+		return t.joinedNext(formatPeriod(period ? core.activities.nextPeriodKey(period.key) : null, t.lang));
+	}
+	return t.joined;
 }
 
 async function addMe(core, interaction, activity, account) {
@@ -532,7 +623,7 @@ async function onClaim(interaction, core, code, cardMessageId) {
 	let reply;
 	if (choice === 'new') {
 		const outcome = await addMe(core, interaction, activity, account);
-		reply = outcome === 'skipped' ? `${t.joined}\n${t.paidAlready}` : t.joined;
+		reply = joinReply(t, core, activity, outcome);
 	}
 	else {
 		const row = activity.participants.find(p => p.id === choice);
@@ -634,6 +725,195 @@ async function onPromptPaySave(interaction, core) {
 		throw error;
 	}
 	return interaction.editReply(t.ppSaved);
+}
+
+// ── a subscription that changes: leaving, the price, who is on it ──────────
+
+/** One sentence for what changeSubscription() did: this month, or from next. */
+function changeResult(t, result) {
+	const total = money(result.amountSatang);
+	return result.when === 'now'
+		? t.changedNow(total, result.sharerIds.length)
+		: t.changedNext(formatPeriod(result.periodKey, t.lang), total, result.sharerIds.length);
+}
+
+/** The refusals changeSubscription() can give, as sentences. Anything else is a fault. */
+function changeRefusal(t, error) {
+	return {
+		payer_cannot_leave: t.payerCannotLeave,
+		nobody_left: t.lastPerson,
+		change_needs_web: t.changeNeedsWeb,
+		amount_invalid: t.needAmount(''),
+	}[error.code] || null;
+}
+
+async function onLeave(interaction, core, code) {
+	const t = copyFor(interaction);
+	const activity = await core.activities.getActivityByCode(code);
+	if (!activity) return interaction.reply({ content: t.gone, flags: EPHEMERAL });
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	const mine = isMine(activity, interaction.user.id, account?.id);
+	if (!mine || !sharesThisMonth(core, activity, mine.id)) return interaction.reply({ content: t.notInBill, flags: EPHEMERAL });
+	if (mine.id === activity.payee?.participantId) return interaction.reply({ content: t.payerCannotLeave, flags: EPHEMERAL });
+	if (leavingSoon(activity, mine.id)) {
+		return interaction.reply({ content: t.alreadyLeaving(formatPeriod(activity.recurringChange.from, t.lang)), flags: EPHEMERAL });
+	}
+	// Asked once more, because it moves money for everybody else.
+	return interaction.reply({
+		content: t.leaveConfirm(card.inert(activity.title)),
+		components: [new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:leaveok:${code}:${interaction.message.id}`).setStyle(ButtonStyle.Danger).setLabel(t.leave),
+		)],
+		flags: EPHEMERAL,
+	});
+}
+
+async function onLeaveConfirm(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	await interaction.deferUpdate();
+	const activity = await core.activities.getActivityByCode(code);
+	if (!activity) return interaction.editReply({ content: t.gone, components: [] });
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	const mine = isMine(activity, interaction.user.id, account?.id);
+	if (!mine) return interaction.editReply({ content: t.notInBill, components: [] });
+	let result;
+	try {
+		result = await core.activities.changeSubscription(activity.id, { leave: [mine.id] });
+	}
+	catch (error) {
+		const refusal = changeRefusal(t, error);
+		if (!refusal) throw error;
+		return interaction.editReply({ content: refusal, components: [] });
+	}
+	await refreshCard(core, interaction, code, cardMessageId);
+	const content = result.when === 'now' ? t.leftNow : t.leftNext(formatPeriod(result.periodKey, t.lang));
+	return interaction.editReply({ content, components: [] });
+}
+
+/**
+ * The owner's panel for a running subscription: the price, who is on it and
+ * whose card pays. It hangs off the card rather than the note under it, which
+ * Discord forgets as soon as the organiser reloads.
+ */
+function managePanel(t, core, activity, period, interaction, cardMessageId, extra = null) {
+	const settlement = core.activities.settlement(activity, period?.id ?? null);
+	const sharers = settlement.rows.filter(row => row.owes > 0);
+	const upcoming = core.activities.upcomingSubscription(activity, period);
+	const lines = [t.manageTitle(card.inert(activity.title)), t.manageNow(money(settlement.total), sharers.length)];
+	if (upcoming) lines.push(changeResult(t, { when: 'next', ...upcoming }));
+	if (extra) lines.push(extra);
+
+	const ids = `${activity.code}:${cardMessageId}`;
+	const rows = [
+		new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:price:${ids}`).setStyle(ButtonStyle.Secondary).setLabel(t.priceButton),
+		),
+		new ActionRowBuilder().addComponents(new UserSelectMenuBuilder()
+			.setCustomId(`${PREFIX}:addp:${ids}`).setPlaceholder(t.addPeople).setMinValues(1).setMaxValues(10)),
+	];
+	const leaving = new Set(upcoming?.leave || []);
+	const removable = activity.participants
+		.filter(p => sharers.some(row => row.participantId === p.id) && p.id !== activity.payee?.participantId && !leaving.has(p.id))
+		.slice(0, 25);
+	if (removable.length > 0) {
+		rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+			.setCustomId(`${PREFIX}:rmp:${ids}`).setPlaceholder(t.removePeople)
+			.setMinValues(1).setMaxValues(removable.length)
+			.addOptions(removable.map(p => ({ label: p.displayName.slice(0, 100), value: p.id })))));
+	}
+	const payer = payerSelect(t, activity, interaction, `${PREFIX}:payerm:${ids}`);
+	if (payer) rows.push(payer);
+	return { content: lines.join('\n'), components: rows, allowedMentions: NO_PINGS };
+}
+
+/** The bill, its current month, and whether the person pressing owns it. */
+async function ownerView(core, interaction, code) {
+	const t = copyFor(interaction);
+	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
+	if (!rendered) return { error: t.gone };
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	if (!account || account.id !== rendered.activity.ownerUserId) return { error: t.ownerOnly };
+	return { activity: rendered.activity, period: rendered.period };
+}
+
+async function onManage(interaction, core, code) {
+	const t = copyFor(interaction);
+	const view = await ownerView(core, interaction, code);
+	if (view.error) return interaction.reply({ content: view.error, flags: EPHEMERAL });
+	return interaction.reply({ ...managePanel(t, core, view.activity, view.period, interaction, interaction.message.id), flags: EPHEMERAL });
+}
+
+async function onPriceButton(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	const view = await ownerView(core, interaction, code);
+	if (view.error) return interaction.reply({ content: view.error, flags: EPHEMERAL });
+	const expense = view.activity.expenses.find(e => e.periodId === view.period?.id);
+	const upcoming = core.activities.upcomingSubscription(view.activity, view.period);
+	const current = upcoming?.amountSatang ?? expense?.amountSatang ?? null;
+	return interaction.showModal(new ModalBuilder()
+		.setCustomId(`${PREFIX}:pricesave:${code}:${cardMessageId}`)
+		.setTitle(t.priceTitle)
+		.addLabelComponents(new LabelBuilder().setLabel(t.priceLabel).setTextInputComponent(new TextInputBuilder()
+			.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true)
+			.setValue(current ? (current / 100).toFixed(2) : ''))));
+}
+
+/** Run one change from the panel, redraw the card and the panel, and say what happened. */
+async function applyFromPanel(interaction, core, code, cardMessageId, change) {
+	const t = copyFor(interaction);
+	await interaction.deferUpdate();
+	const view = await ownerView(core, interaction, code);
+	if (view.error) return interaction.followUp({ content: view.error, flags: EPHEMERAL });
+	let result;
+	try {
+		result = await core.activities.changeSubscription(view.activity.id, change);
+	}
+	catch (error) {
+		const refusal = changeRefusal(t, error);
+		if (!refusal) throw error;
+		return interaction.followUp({ content: refusal, flags: EPHEMERAL });
+	}
+	await refreshCard(core, interaction, code, cardMessageId);
+	const fresh = await ownerView(core, interaction, code);
+	return interaction.editReply(managePanel(t, core, fresh.activity, fresh.period, interaction, cardMessageId, changeResult(t, result)));
+}
+
+async function onPriceSave(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	const raw = interaction.fields.getTextInputValue('amount').trim();
+	const amountSatang = parseBaht(raw);
+	if (!amountSatang) return interaction.reply({ content: t.needAmount(raw), flags: EPHEMERAL });
+	return applyFromPanel(interaction, core, code, cardMessageId, { amountSatang });
+}
+
+async function onAddPeople(interaction, core, code, cardMessageId) {
+	const view = await ownerView(core, interaction, code);
+	if (view.error) return interaction.reply({ content: view.error, flags: EPHEMERAL });
+	// A Discord account already on the roster (someone who left, say) comes
+	// back as the same row, so their history stays in one place.
+	const ids = [];
+	for (const user of interaction.users.values()) {
+		if (user.bot) continue;
+		const existing = view.activity.participants.find(p => p.discordUid === user.id);
+		if (existing) {
+			ids.push(existing.id);
+			continue;
+		}
+		const account = await core.users.findByIdentity('discord', user.id);
+		const added = await core.activities.addParticipant(view.activity.id, {
+			displayName: interaction.members?.get(user.id)?.displayName || user.globalName || user.username,
+			discordUid: user.id,
+			userId: account?.id || null,
+			rsvp: 'yes',
+		});
+		ids.push(added.id);
+	}
+	if (ids.length === 0) return interaction.deferUpdate();
+	return applyFromPanel(interaction, core, code, cardMessageId, { join: ids });
+}
+
+function onRemovePeople(interaction, core, code, cardMessageId) {
+	return applyFromPanel(interaction, core, code, cardMessageId, { leave: [...interaction.values] });
 }
 
 // ── the organiser's answer to a slip, from the DM that asked ───────────────
@@ -770,18 +1050,26 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 			if (action === 'ppsave') return await onPromptPaySave(interaction, core);
 			if (action === 'pnosave') return await onDecisionReason(interaction, core, 'pno', code, extra);
 			if (action === 'pundosave') return await onDecisionReason(interaction, core, 'pundo', code, extra);
+			if (action === 'pricesave') return await onPriceSave(interaction, core, code, extra);
 		}
 		else if (interaction.isButton()) {
 			if (action === 'join') return await onJoin(interaction, core, code);
 			if (action === 'pay') return await onPay(interaction, core, code);
 			if (action === 'pp') return await onPromptPayButton(interaction);
+			if (action === 'leave') return await onLeave(interaction, core, code);
+			if (action === 'leaveok') return await onLeaveConfirm(interaction, core, code, extra);
+			if (action === 'manage') return await onManage(interaction, core, code);
+			if (action === 'price') return await onPriceButton(interaction, core, code, extra);
 			if (DECISIONS[action]) return await onDecisionButton(interaction, core, action, code, extra);
 		}
-		else if (interaction.isStringSelectMenu() && action === 'claim') {
-			return await onClaim(interaction, core, code, extra);
+		else if (interaction.isStringSelectMenu()) {
+			if (action === 'claim') return await onClaim(interaction, core, code, extra);
+			if (action === 'payer') return await onPayerPick(interaction, core, code, extra);
+			if (action === 'payerm') return await onPayerPick(interaction, core, code, extra, { fromPanel: true });
+			if (action === 'rmp') return await onRemovePeople(interaction, core, code, extra);
 		}
-		else if (interaction.isStringSelectMenu() && action === 'payer') {
-			return await onPayerPick(interaction, core, code, extra);
+		else if (interaction.isUserSelectMenu?.() && action === 'addp') {
+			return await onAddPeople(interaction, core, code, extra);
 		}
 	}
 	catch (error) {
