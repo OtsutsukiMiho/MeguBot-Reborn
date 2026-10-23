@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const defaultCore = require('../../core/index.js');
 const { readDiscordSlip, stampWhen } = require('./payment-evidence.js');
 
@@ -31,6 +32,26 @@ const HELD = {
 function heldReasons(reasons = []) {
 	return reasons.map(code => `• ${HELD[code] || code}`).join('\n');
 }
+
+// The organiser's answer, on the DM that asked for it. Before these the only
+// way to say "that is not a slip" was the web, which a Discord-only group never
+// opens. The custom ids carry the `evt:` prefix, so `/event` handles them
+// wherever the DM came from (`/จ่าย` or a card's pay button).
+const DECISION_LABELS = { confirm: 'ได้รับแล้ว', reject: 'ยังไม่เข้า', undo: 'เงินไม่เข้า ย้อนผล' };
+
+function ownerDecisionButtons(code, paymentId, { autoConfirmed = false } = {}) {
+	const row = new ActionRowBuilder();
+	if (autoConfirmed) {
+		row.addComponents(new ButtonBuilder().setCustomId(`evt:pundo:${code}:${paymentId}`).setStyle(ButtonStyle.Secondary).setLabel(DECISION_LABELS.undo));
+	}
+	else {
+		row.addComponents(
+			new ButtonBuilder().setCustomId(`evt:pok:${code}:${paymentId}`).setStyle(ButtonStyle.Success).setLabel(DECISION_LABELS.confirm),
+			new ButtonBuilder().setCustomId(`evt:pno:${code}:${paymentId}`).setStyle(ButtonStyle.Danger).setLabel(DECISION_LABELS.reject),
+		);
+	}
+	return [row];
+}
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function money(satang) {
@@ -55,7 +76,7 @@ function parseBaht(value) {
  * @param {number} input.amountSatang
  * @param {{ url: string, contentType?: string, size?: number }} input.attachment
  * @param {string} input.senderDiscordUid
- * @param {(uid: string, content: string) => Promise<unknown>} [input.notifyOwner]
+ * @param {(uid: string, message: { content: string, components: object[] }) => Promise<unknown>} [input.notifyOwner]
  * @returns {Promise<string>} the reply to show the payer
  */
 async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDiscordUid, notifyOwner = null, core = defaultCore }) {
@@ -127,14 +148,17 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	const link = `${siteUrl()}/a/${candidate.code}`;
 	if (notifyOwner && candidate.ownerDiscordUid && candidate.ownerDiscordUid !== String(senderDiscordUid)) {
 		const detail = result.autoConfirmed
-			? 'Megu จับคู่สลิปและลงยอดให้อัตโนมัติแล้ว หากเงินไม่เข้าจริงให้เปิดเว็บแล้วย้อนผลพร้อมใส่เหตุผล'
-			: `ยังไม่ลงว่าได้รับเงิน เปิดลิงก์เพื่อดูสลิปแล้วกดยืนยันเอง เพราะ:\n${heldReasons(result.reasons) || '• ต้องตรวจด้วยตนเอง'}`;
+			? 'Megu จับคู่สลิปและลงยอดให้อัตโนมัติแล้ว ถ้าเงินไม่เข้าจริง กดปุ่มด้านล่างเพื่อย้อนผลพร้อมใส่เหตุผล'
+			: `ยังไม่ลงว่าได้รับเงิน เช็กบัญชีแล้วกดปุ่มด้านล่าง ดูสลิปได้ที่ลิงก์ ที่ต้องตรวจเองเพราะ\n${heldReasons(result.reasons) || '• ต้องตรวจด้วยตนเอง'}`;
 		// The payment is already recorded; a closed DM must not turn that into
 		// an error for the payer. A refusal still reaches the block guard —
 		// guardRestClient() records it below every call — so this is not the
 		// swallowed failure DISCORD-RATE-LIMITS.md rule 3 forbids.
 		try {
-			await notifyOwner(candidate.ownerDiscordUid, `💸 **${candidate.participantName}** แจ้งจ่าย ${money(amountSatang)} · **${candidate.title}**\n${detail}\n${link}`);
+			await notifyOwner(candidate.ownerDiscordUid, {
+				content: `**${candidate.participantName}** แจ้งจ่าย ${money(amountSatang)} ให้ **${candidate.title}**\n${detail}\n${link}`,
+				components: ownerDecisionButtons(candidate.code, payment.id, { autoConfirmed: result.autoConfirmed }),
+			});
 		}
 		catch (error) {
 			console.warn(`[Megu] Could not DM the organiser of ${candidate.code}: ${error.message}`);
@@ -147,4 +171,4 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	return `${status}\n${link}`;
 }
 
-module.exports = { submitDiscordSlip, heldReasons, parseBaht, money, siteUrl, MAX_SLIP_BYTES };
+module.exports = { submitDiscordSlip, ownerDecisionButtons, DECISION_LABELS, heldReasons, parseBaht, money, siteUrl, MAX_SLIP_BYTES };

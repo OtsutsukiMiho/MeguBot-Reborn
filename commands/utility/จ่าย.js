@@ -58,9 +58,9 @@ module.exports = {
 			amountSatang: Math.round(interaction.options.getNumber('จำนวน', true) * 100),
 			attachment: interaction.options.getAttachment('สลิป', true),
 			senderDiscordUid: interaction.user.id,
-			notifyOwner: async (uid, content) => {
+			notifyOwner: async (uid, message) => {
 				const owner = await interaction.client.users.fetch(uid);
-				await owner.send(content);
+				await owner.send({ ...message, allowedMentions: { parse: [] } });
 			},
 		});
 		await interaction.editReply(reply);

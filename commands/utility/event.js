@@ -5,7 +5,7 @@ const {
 } = require('discord.js');
 const defaultCore = require('../../core/index.js');
 const card = require('../../core/event-card.js');
-const { submitDiscordSlip, parseBaht, money, siteUrl } = require('../../adapters/discord/slip-submit.js');
+const { submitDiscordSlip, ownerDecisionButtons, parseBaht, money, siteUrl } = require('../../adapters/discord/slip-submit.js');
 
 // `/event ตีแบด` — start a shared bill without leaving the chat.
 //
@@ -65,6 +65,14 @@ const T = {
 		needAmount: raw => `อ่านยอด "${raw}" ไม่ออก ใส่เป็นตัวเลข เช่น 419 แล้วลองใหม่นะ`,
 		badDueDay: raw => `วันที่ "${raw}" ใช้ไม่ได้ ใส่ 1–28 (ทุกเดือนมีวันนั้นแน่นอน)`,
 		joinSub: 'ขอหารด้วย',
+		notOwner: 'เฉพาะเจ้าของบิลเท่านั้นที่ยืนยันหรือปฏิเสธรายการนี้ได้',
+		paymentGone: 'ไม่พบรายการจ่ายนี้แล้ว',
+		decided: 'รายการนี้ถูกจัดการไปแล้ว',
+		rejectTitle: 'ยังไม่ได้รับเงิน', undoTitle: 'ย้อนผลการยืนยัน',
+		reasonLabel: 'เหตุผล (คนจ่ายจะเห็นข้อความนี้)',
+		confirmedLine: 'คุณยืนยันแล้วว่าได้รับเงิน',
+		rejectedLine: reason => `คุณปฏิเสธรายการนี้แล้ว เหตุผล: ${reason}`,
+		undoneLine: reason => `คุณย้อนผลการยืนยันแล้ว เหตุผล: ${reason}`,
 	},
 	en: {
 		guildOnly: 'Use /event in the server your group talks in.',
@@ -107,6 +115,14 @@ const T = {
 		needAmount: raw => `Could not read "${raw}" as an amount. Enter a number such as 419 and try again.`,
 		badDueDay: raw => `"${raw}" is not a usable day. Use 1–28, which every month has.`,
 		joinSub: 'Count me in',
+		notOwner: 'Only the person who owns this bill can confirm or reject it.',
+		paymentGone: 'This payment no longer exists.',
+		decided: 'This payment has already been handled.',
+		rejectTitle: 'Not received', undoTitle: 'Undo confirmation',
+		reasonLabel: 'Reason (the payer will see this)',
+		confirmedLine: 'You confirmed this payment arrived.',
+		rejectedLine: reason => `You rejected this payment. Reason: ${reason}`,
+		undoneLine: reason => `You undid the confirmation. Reason: ${reason}`,
 	},
 };
 
@@ -464,9 +480,9 @@ async function onSlip(interaction, core, code) {
 		attachment,
 		senderDiscordUid: interaction.user.id,
 		core,
-		notifyOwner: async (uid, content) => {
+		notifyOwner: async (uid, message) => {
 			const owner = await interaction.client.users.fetch(uid);
-			await owner.send(content);
+			await owner.send({ ...message, allowedMentions: { parse: [] } });
 		},
 	});
 	await interaction.editReply(reply);
@@ -507,6 +523,126 @@ async function onPromptPaySave(interaction, core) {
 	return interaction.editReply(t.ppSaved);
 }
 
+// ── the organiser's answer to a slip, from the DM that asked ───────────────
+
+// Button action, the payment status it acts on, and what it becomes.
+const DECISIONS = {
+	pok: { decision: 'confirm', from: 'pending' },
+	pno: { decision: 'reject', from: 'pending' },
+	pundo: { decision: 'undo', from: 'confirmed' },
+};
+
+/** The bill and the payment, if the person pressing owns the bill. */
+async function decisionTarget(core, interaction, code, paymentId, from) {
+	const t = copyFor(interaction);
+	const activity = await core.activities.getActivityByCode(code);
+	if (!activity) return { error: t.gone };
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	if (!account || account.id !== activity.ownerUserId) return { error: t.notOwner };
+	const payment = activity.payments.find(p => p.id === paymentId);
+	if (!payment) return { error: t.paymentGone };
+	if (payment.status !== from) return { error: t.decided };
+	return { activity, payment, account };
+}
+
+function reasonModal(t, action, code, paymentId) {
+	return new ModalBuilder()
+		.setCustomId(`${PREFIX}:${action}save:${code}:${paymentId}`)
+		.setTitle(action === 'pundo' ? t.undoTitle : t.rejectTitle)
+		.addLabelComponents(new LabelBuilder().setLabel(t.reasonLabel).setTextInputComponent(new TextInputBuilder()
+			.setCustomId('reason').setStyle(TextInputStyle.Paragraph).setMaxLength(300).setRequired(true)));
+}
+
+async function onDecisionButton(interaction, core, action, code, paymentId) {
+	const { decision, from } = DECISIONS[action];
+	// Checked before the modal opens, so a stranger or a second press is told
+	// at once instead of after typing a reason.
+	const target = await decisionTarget(core, interaction, code, paymentId, from);
+	if (target.error) return interaction.reply({ content: target.error, flags: EPHEMERAL });
+	if (decision !== 'confirm') return interaction.showModal(reasonModal(copyFor(interaction), action, code, paymentId));
+	await interaction.deferUpdate();
+	return decide(interaction, core, target, decision, '');
+}
+
+async function onDecisionReason(interaction, core, action, code, paymentId) {
+	const { decision, from } = DECISIONS[action];
+	const reason = interaction.fields.getTextInputValue('reason').trim();
+	// Read again: time passed while the modal was open.
+	const target = await decisionTarget(core, interaction, code, paymentId, from);
+	if (target.error) return interaction.reply({ content: target.error, flags: EPHEMERAL });
+	await interaction.deferUpdate();
+	return decide(interaction, core, target, decision, reason);
+}
+
+async function decide(interaction, core, { activity, payment, account }, decision, reason) {
+	const t = copyFor(interaction);
+	let done;
+	if (decision === 'confirm') {
+		done = await core.activities.confirmPayment(payment.id, account.id, {
+			source: 'owner_review', verificationLevel: 'owner_confirmed', reason: 'owner_checked_transfer',
+		});
+	}
+	else if (decision === 'reject') done = await core.activities.rejectPayment(payment.id, account.id, reason);
+	else done = await core.activities.reversePayment(payment.id, account.id, reason);
+	// Somebody answered on the web between the check and this write.
+	if (!done) return interaction.followUp({ content: t.decided, flags: EPHEMERAL });
+
+	const line = decision === 'confirm' ? t.confirmedLine : decision === 'reject' ? t.rejectedLine(reason) : t.undoneLine(reason);
+	await interaction.editReply({
+		content: `${interaction.message?.content || ''}\n\n${line}`.trim(),
+		// A confirm is one tap next to the reject button, so it keeps a way back:
+		// the same undo an automatic match offers. Reject and undo are final here.
+		components: decision === 'confirm' ? ownerDecisionButtons(activity.code, payment.id, { autoConfirmed: true }) : [],
+		allowedMentions: NO_PINGS,
+	});
+	await tellPayer(core, interaction.client, activity, payment, decision, reason);
+}
+
+/**
+ * The payer hears the answer the way they would from the web: through the
+ * outbox when they have an account, so their channel choice is respected, and
+ * as a DM when they are only a Discord row on the roster.
+ */
+async function tellPayer(core, client, activity, payment, decision, reason) {
+	const payer = activity.participants.find(p => p.id === payment.participantId);
+	if (!payer) return;
+	const amount = money(payment.amountSatang);
+	const bodyTh = decision === 'confirm'
+		? `เจ้าของบิลยืนยันแล้วว่าได้รับเงิน ${amount} ของคุณ`
+		: decision === 'reject'
+			? `เจ้าของบิลยังไม่ได้รับเงิน ${amount} ของคุณ เหตุผล: ${reason}\nแนบสลิปใหม่ได้ที่การ์ดบิล`
+			: `เจ้าของบิลย้อนผลการยืนยันเงิน ${amount} ของคุณ เหตุผล: ${reason}`;
+	const bodyEn = decision === 'confirm'
+		? `The organiser confirmed your ${amount} payment.`
+		: decision === 'reject'
+			? `The organiser has not received your ${amount} payment. Reason: ${reason}\nYou can send a new slip from the bill card.`
+			: `The organiser undid the confirmation of your ${amount} payment. Reason: ${reason}`;
+	try {
+		if (payer.userId) {
+			await core.notifications.enqueue({
+				userId: payer.userId,
+				eventType: `payment_${decision}`,
+				dedupeKey: `payment-decision:${payment.id}:${decision}:discord`,
+				payload: {
+					activityTitle: activity.title,
+					subjectTh: `อัปเดตการจ่ายเงิน ${activity.title}`,
+					subjectEn: `Payment update for ${activity.title}`,
+					bodyTh, bodyEn, ctaUrl: shareUrl(activity.code),
+				},
+			});
+		}
+		else if (payer.discordUid) {
+			const user = await client.users.fetch(payer.discordUid);
+			await user.send({ content: `**${card.inert(activity.title)}**\n${bodyTh}\n${shareUrl(activity.code)}`, allowedMentions: NO_PINGS });
+		}
+	}
+	catch (error) {
+		// The decision is already written. A closed DM is not an incident, and a
+		// Discord refusal has already reached the block guard in the REST client.
+		console.warn(`[Megu] Could not tell the payer of ${activity.code} about the ${decision}: ${error.message}`);
+	}
+}
+
 // ── routing ────────────────────────────────────────────────────────────────
 
 async function handleComponent(interaction, { core = defaultCore } = {}) {
@@ -517,11 +653,14 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 			if (action === 'subcreate') return await onCreate(interaction, core, { monthly: true });
 			if (action === 'slip') return await onSlip(interaction, core, code);
 			if (action === 'ppsave') return await onPromptPaySave(interaction, core);
+			if (action === 'pnosave') return await onDecisionReason(interaction, core, 'pno', code, extra);
+			if (action === 'pundosave') return await onDecisionReason(interaction, core, 'pundo', code, extra);
 		}
 		else if (interaction.isButton()) {
 			if (action === 'join') return await onJoin(interaction, core, code);
 			if (action === 'pay') return await onPay(interaction, core, code);
 			if (action === 'pp') return await onPromptPayButton(interaction);
+			if (DECISIONS[action]) return await onDecisionButton(interaction, core, action, code, extra);
 		}
 		else if (interaction.isStringSelectMenu() && action === 'claim') {
 			return await onClaim(interaction, core, code, extra);
