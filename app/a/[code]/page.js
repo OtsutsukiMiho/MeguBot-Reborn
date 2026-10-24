@@ -174,6 +174,9 @@ export default function ActivitySummary() {
 						{fmt.period(p.key, { short: true })}
 					</button>
 				))}
+				{recurring && canSeeMoney && (
+					<Link className="month-btn" href={`/a/${code}/months`}>{t.months.open}</Link>
+				)}
 			</Rise>
 
 			<Rise className="two-col">

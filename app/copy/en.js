@@ -1435,6 +1435,25 @@ const en = {
 		openManage: 'Organizer tools',
 	},
 
+	// Month by month: every month on one screen, who has paid and who still owes.
+	months: {
+		open: 'Month by month',
+		title: 'Month by month',
+		for: title => `for ${title}`,
+		owedTitle: 'Still owed',
+		owedNone: 'Nobody owes anything. Every month is paid.',
+		owedMonths: (count, checking) => `${count === 1 ? 'owes 1 month' : `owes ${count} months`}${checking ? ` (${checking} with a slip being checked)` : ''}`,
+		monthTotal: (total, count) => `${total} split by ${count}`,
+		paid: 'Paid',
+		checking: 'Slip being checked',
+		owes: 'Still owes',
+		receiver: 'Collecting',
+		toReceive: amount => `${amount} to come`,
+		allIn: 'All in',
+		hidden: 'Amounts are shown to people on the bill. Tap your own name on the overview first.',
+		notMonthly: 'This screen is for monthly bills only.',
+	},
+
 	// The single thing this reader should do next, printed once, at the top.
 	// The old page showed every panel to everybody and let them find it.
 	next: {

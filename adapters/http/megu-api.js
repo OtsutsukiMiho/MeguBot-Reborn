@@ -561,6 +561,34 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
 	return voice.say('activityCreated', { title: activity.title }, seed);
 }
 
+/**
+ * One entry per month, newest first. The receiver is whoever that month's bill
+ * was paid by, not today's payee, so a month from before the payer changed
+ * still says who was paid back then.
+ */
+function monthlyHistory(activity) {
+	return [...activity.periods]
+		.sort((a, b) => b.key.localeCompare(a.key))
+		.map((period) => {
+			const sum = activities.settlement(activity, period.id);
+			const bills = activity.expenses.filter(e => e.periodId === period.id);
+			const receiverId = bills.length === 1 ? bills[0].paidBy : (activity.payee?.participantId || null);
+			const rows = sum.rows
+				.filter(row => row.owes > 0 || row.participantId === receiverId)
+				.map(row => ({
+					participantId: row.participantId,
+					owesSatang: row.owes,
+					settledSatang: row.settled,
+					pendingSatang: row.pending,
+					outstandingSatang: Math.max(0, row.outstanding),
+				}));
+			const toReceive = rows
+				.filter(row => row.participantId !== receiverId)
+				.reduce((total, row) => total + row.outstandingSatang, 0);
+			return { id: period.id, key: period.key, dueAt: period.dueAt, totalSatang: sum.total, receiverId, toReceiveSatang: toReceive, rows };
+		});
+}
+
 function serializeActivity(activity, actor, { periodId, creditorParticipantId = null } = {}) {
 	const lang = core.format.resolveLang(actor?.lang);
 	const role = access.activityRole(actor, activity);
@@ -712,6 +740,10 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				pendingSatang: showAmounts && standing ? standing.pending : null,
 			};
 		}),
+		// Every month of a subscription at once, for the history screen: who
+		// shared it, who has paid, whose slip is being checked, who still owes.
+		// Gated like every other figure, so a forwarded link shows none of it.
+		history: showAmounts && activity.kind === 'recurring' ? monthlyHistory(activity) : null,
 		participants: activity.participants.map(p => publicParticipant(
 			p, me?.id, showAmounts, byParticipant[p.id],
 			role === 'owner' || mine.some(row => row.id === p.id) ? activeDeferral(activity, p.id, scope) : null,

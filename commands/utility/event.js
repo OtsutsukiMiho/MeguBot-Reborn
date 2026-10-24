@@ -85,7 +85,7 @@ const T = {
 		changeNeedsWeb: 'บิลนี้มีหลายรายการต่อเดือน แก้ได้ที่เว็บ',
 		manageTitle: title => `จัดการ **${title}**`,
 		manageNow: (total, count) => `เดือนนี้ ${total} หาร ${count} คน`,
-		priceButton: 'เปลี่ยนราคา', priceTitle: 'ราคาใหม่ต่อเดือน', priceLabel: 'ยอดต่อเดือน (บาท)',
+		monthsLink: 'ย้อนหลังรายเดือน', priceButton: 'เปลี่ยนราคา', priceTitle: 'ราคาใหม่ต่อเดือน', priceLabel: 'ยอดต่อเดือน (บาท)',
 		addPeople: 'เพิ่มคนหารด้วย', removePeople: 'เอาคนออกจากบิล',
 		changedNow: (total, count) => `เปลี่ยนแล้ว เดือนนี้ ${total} หาร ${count} คน`,
 		changedNext: (period, total, count) => `เดือนนี้มีคนโอนเข้ามาแล้ว เลยเริ่มใช้ตั้งแต่${period}: ${total} หาร ${count} คน`,
@@ -158,7 +158,7 @@ const T = {
 		changeNeedsWeb: 'This bill has several costs a month. Change it on the web.',
 		manageTitle: title => `Manage **${title}**`,
 		manageNow: (total, count) => `This month ${total} split by ${count}`,
-		priceButton: 'Change price', priceTitle: 'New monthly price', priceLabel: 'Amount per month (THB)',
+		monthsLink: 'Month by month', priceButton: 'Change price', priceTitle: 'New monthly price', priceLabel: 'Amount per month (THB)',
 		addPeople: 'Add people to share it', removePeople: 'Remove people from the bill',
 		changedNow: (total, count) => `Changed. This month is ${total} split by ${count}.`,
 		changedNext: (period, total, count) => `Someone has already paid this month, so this starts from ${period}: ${total} split by ${count}.`,
@@ -815,6 +815,7 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 	const rows = [
 		new ActionRowBuilder().addComponents(
 			new ButtonBuilder().setCustomId(`${PREFIX}:price:${ids}`).setStyle(ButtonStyle.Secondary).setLabel(t.priceButton),
+			new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(`${shareUrl(activity.code)}/months`).setLabel(t.monthsLink),
 		),
 		new ActionRowBuilder().addComponents(new UserSelectMenuBuilder()
 			.setCustomId(`${PREFIX}:addp:${ids}`).setPlaceholder(t.addPeople).setMinValues(1).setMaxValues(10)),
