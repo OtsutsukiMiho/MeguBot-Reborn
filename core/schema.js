@@ -302,6 +302,11 @@ const STATEMENTS = [
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS plan_state TEXT NOT NULL DEFAULT \'open\';',
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurrence TEXT;',
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS due_day INTEGER;',
+	// A monthly bill that changes once this month's money has started to
+	// arrive: a new price, someone joining or leaving. Held here as
+	// { from, amountSatang, join, leave } and applied when month `from` opens,
+	// so nobody's transfer for this month stops matching what they owed.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurring_change JSONB;',
 	// Portable settlement instructions live on the activity. PromptPay stays a
 	// profile default on `users`; these options cover the rest of the world.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_options JSONB NOT NULL DEFAULT \'[]\'::jsonb;',

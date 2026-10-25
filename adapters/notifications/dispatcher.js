@@ -29,7 +29,7 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 							// Present only on the events that have a second
 							// answer to offer; the bot draws no button without it.
 							defer: content.defer
-								? { ...content.defer, label: content.secondaryLabel }
+								? { ...content.defer, label: content.secondaryLabel, payLabel: content.payLabel }
 								: null,
 							...(workflowDelivery ? { workflowDelivery } : {}),
 						}));

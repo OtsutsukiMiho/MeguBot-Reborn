@@ -7,6 +7,7 @@ const roleMappings = require('../../core/server-role-mappings');
 const automaticRoles = require('../../core/server-role-automatic');
 const roleTeamCreation = require('../../core/server-role-team-creation');
 const roleTitles = require('../../core/server-role-titles');
+const billSummary = require('../../core/bill-summary.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
 
@@ -157,6 +158,57 @@ function requestSplit(split) {
 			Object.entries(split.values).map(([id, value]) => [id, money.toSatang(value)]),
 		),
 	};
+}
+
+function requestError(code, message = code) {
+	const error = new Error(message);
+	error.code = code;
+	return error;
+}
+
+/**
+ * Convert the wizard's position-based expenses into the integer units core
+ * stores. Positions stay positions here; `createActivity` validates them
+ * against the final owner-first roster and maps them to participant ids inside
+ * its transaction.
+ */
+function requestInitialExpenses(value) {
+	if (!Array.isArray(value) || value.length > 50) throw requestError('initial_expenses_invalid');
+	return value.map((expense) => {
+		if (!expense || typeof expense !== 'object' || Array.isArray(expense)) {
+			throw requestError('initial_expenses_invalid');
+		}
+		const label = String(expense.label ?? '').trim();
+		if (!label) throw requestError('initial_expense_label_required');
+		let amountSatang;
+		try { amountSatang = requestAmountMinor(expense); }
+		catch { throw requestError('initial_expense_amount_invalid'); }
+		if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0) {
+			throw requestError('initial_expense_amount_invalid');
+		}
+		if (!Number.isSafeInteger(expense.paidByPosition)) {
+			throw requestError('initial_expense_paid_by_position_invalid');
+		}
+		if (!Array.isArray(expense.sharePositions) || expense.sharePositions.length === 0
+			|| expense.sharePositions.some(position => !Number.isSafeInteger(position))
+			|| new Set(expense.sharePositions).size !== expense.sharePositions.length) {
+			throw requestError('initial_expense_share_positions_invalid');
+		}
+		let split;
+		try {
+			split = requestSplit(expense.split);
+		}
+		catch {
+			throw requestError('initial_expense_split_invalid');
+		}
+		return {
+			label,
+			amountSatang,
+			paidByPosition: expense.paidByPosition,
+			sharePositions: expense.sharePositions,
+			split,
+		};
+	});
 }
 
 const DEVICE_COOKIE = 'megu_pt';
@@ -337,7 +389,7 @@ async function ensureAccount(req) {
 
 	req.session.meguUserId = user.id;
 	req.actor.userId = user.id;
-	await users.claimParticipants(user.id);
+	await users.claimParticipants(user.id, { deviceToken: req.actor?.deviceToken || null });
 	return user;
 }
 
@@ -509,6 +561,34 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
 	return voice.say('activityCreated', { title: activity.title }, seed);
 }
 
+/**
+ * One entry per month, newest first. The receiver is whoever that month's bill
+ * was paid by, not today's payee, so a month from before the payer changed
+ * still says who was paid back then.
+ */
+function monthlyHistory(activity, perMonth) {
+	return [...activity.periods]
+		.sort((a, b) => b.key.localeCompare(a.key))
+		.map((period) => {
+			const sum = perMonth.get(period.id) || activities.settlement(activity, period.id);
+			const bills = activity.expenses.filter(e => e.periodId === period.id);
+			const receiverId = bills.length === 1 ? bills[0].paidBy : (activity.payee?.participantId || null);
+			const rows = sum.rows
+				.filter(row => row.owes > 0 || row.participantId === receiverId)
+				.map(row => ({
+					participantId: row.participantId,
+					owesSatang: row.owes,
+					settledSatang: row.settled,
+					pendingSatang: row.pending,
+					outstandingSatang: Math.max(0, row.outstanding),
+				}));
+			const toReceive = rows
+				.filter(row => row.participantId !== receiverId)
+				.reduce((total, row) => total + row.outstandingSatang, 0);
+			return { id: period.id, key: period.key, dueAt: period.dueAt, totalSatang: sum.total, receiverId, toReceiveSatang: toReceive, rows };
+		});
+}
+
 function serializeActivity(activity, actor, { periodId, creditorParticipantId = null } = {}) {
 	const lang = core.format.resolveLang(actor?.lang);
 	const role = access.activityRole(actor, activity);
@@ -528,6 +608,11 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 
 	const sum = activities.settlement(activity, scope);
 	const byParticipant = Object.fromEntries(sum.rows.map(r => [r.participantId, r]));
+	// One settlement per month, shared by `periods` and `history` below, and
+	// only when someone here may see a figure from it.
+	const perMonth = new Map(activity.kind === 'recurring' && (me || showAmounts)
+		? activity.periods.map(p => [p.id, p.id === scope ? sum : activities.settlement(activity, p.id)])
+		: []);
 	const inScope = row => (scope === null ? true : row.periodId === scope);
 	const paymentInScope = payment => scope === null
 		|| payment.periodId === scope
@@ -599,7 +684,19 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		paymentDueAt: activity.paymentDueAt,
 		createdAt: activity.createdAt,
 		role,
-		me: me ? { id: me.id, displayName: me.displayName, rsvp: me.rsvp } : null,
+		// Whether the organiser can post the summary back to Discord. A yes/no
+		// only: the guild and channel ids are not the page's business.
+		postsToDiscord: role === 'owner' && Boolean(activity.guildId && activity.channelId),
+		me: me ? {
+			id: me.id,
+			displayName: me.displayName,
+			rsvp: me.rsvp,
+			// Whether Megu can DM this person. A name tapped on a shared link is
+			// matched only by the browser cookie, and the page offers — never
+			// forces — a Discord sign-in so the reminder has somewhere to go.
+			remindable: Boolean(me.discordUid || actor?.discordUid),
+		} : null,
+		signedIn: Boolean(actor?.userId),
 		mine: mine.map(p => ({
 			id: p.id,
 			displayName: p.displayName,
@@ -639,7 +736,7 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 			}
 			: null,
 		periods: activity.periods.map((p) => {
-			const standing = me ? activities.settlement(activity, p.id).rows.find(row => row.participantId === me.id) : null;
+			const standing = me ? perMonth.get(p.id)?.rows.find(row => row.participantId === me.id) : null;
 			return {
 				id: p.id,
 				key: p.key,
@@ -648,6 +745,10 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				pendingSatang: showAmounts && standing ? standing.pending : null,
 			};
 		}),
+		// Every month of a subscription at once, for the history screen: who
+		// shared it, who has paid, whose slip is being checked, who still owes.
+		// Gated like every other figure, so a forwarded link shows none of it.
+		history: showAmounts && activity.kind === 'recurring' ? monthlyHistory(activity, perMonth) : null,
 		participants: activity.participants.map(p => publicParticipant(
 			p, me?.id, showAmounts, byParticipant[p.id],
 			role === 'owner' || mine.some(row => row.id === p.id) ? activeDeferral(activity, p.id, scope) : null,
@@ -882,6 +983,8 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
  *        Sends private Discord notices through the separately-running bot.
  * @param {(destination: {guildId: string, channelId: string}) => Promise<object>} [deps.validateProjectChannel]
  *        Rechecks that the bot can view and send to an owner-selected channel.
+ * @param {(notice: {guildId: string, channelId: string, message: string, cta: object}) => Promise<{delivered: boolean}>} [deps.postChannelNotice]
+ *        Posts one message in the activity's Discord channel through the bot.
  */
 function router(deps = {}) {
 	const api = express.Router();
@@ -1701,6 +1804,7 @@ function router(deps = {}) {
 	});
 
 	api.get('/activities', requireAccount, async (req, res) => {
+		await activities.ensureCurrentPeriodsForOwner(req.actor.userId);
 		const list = await activities.listActivitiesForOwner(req.actor.userId, {
 			includeClosed: req.query.includeClosed !== 'false',
 		});
@@ -1709,11 +1813,12 @@ function router(deps = {}) {
 
 	api.post('/activities', requireAccount, async (req, res, next) => {
 		try {
+			const body = req.body || {};
 			const {
 				title, kind = 'event', location, startsAt, paymentDueAt, guildId, channelId, participants,
 				ownerParticipation = true, ownerDisplayName, saveOwnerDisplayName = false,
-				currency = 'THB', initialPayerPosition = 0,
-			} = req.body || {};
+				currency = 'THB', initialPayerPosition = 0, creationMode,
+			} = body;
 			if (!title || !String(title).trim()) {
 				return fail(res, 400, 'title_required');
 			}
@@ -1728,12 +1833,17 @@ function router(deps = {}) {
 			if (joins) {
 				const chosenName = ownerDisplayName || suppliedOwner?.displayName || owner?.displayName;
 				roster.unshift({ displayName: chosenName, userId: req.actor.userId });
-				if (saveOwnerDisplayName) await users.setDisplayName(req.actor.userId, chosenName);
 			}
 			if (roster.length === 0) return fail(res, 400, 'participant_required');
 
 			const recurring = kind === 'recurring';
-			const activity = await activities.createActivity({
+			const hasInitialExpenses = Object.prototype.hasOwnProperty.call(body, 'initialExpenses');
+			const initialExpenses = hasInitialExpenses ? requestInitialExpenses(body.initialExpenses) : null;
+			if (saveOwnerDisplayName && joins) {
+				await users.setDisplayName(req.actor.userId, roster[0].displayName);
+			}
+
+			const activityInput = {
 				ownerUserId: req.actor.userId,
 				title,
 				kind,
@@ -1752,34 +1862,47 @@ function router(deps = {}) {
 				// the same question per month through `dueDay` instead.
 				paymentDueAt: recurring ? null : (paymentDueAt || null),
 				participants: roster,
-			});
+				creationMode: creationMode || null,
+				requestId: body.requestId ?? req.get('Idempotency-Key') ?? null,
+			};
+			if (hasInitialExpenses) activityInput.initialExpenses = initialExpenses;
+
+			const activity = await activities.createActivity(activityInput);
 
 			// A monthly agreement starts billing immediately: open this month and,
 			// when an amount was given, split it straight away.
-			if (recurring) {
-				const { period } = await activities.ensurePeriod(activity.id);
-				const amountMinor = requestAmountMinor(req.body);
+			if (recurring && !hasInitialExpenses) {
+				const amountMinor = requestAmountMinor(body);
 				if (amountMinor > 0) {
 					const full = await activities.getActivity(activity.id);
 					const position = Number(initialPayerPosition);
 					const payer = full.participants[Number.isInteger(position) ? position : 0] || full.participants[0];
-					await activities.addExpense(activity.id, {
+					await activities.ensurePeriod(activity.id, new Date(), { expense: {
 						label: title,
 						amountSatang: amountMinor,
 						paidBy: payer.id,
-						periodId: period.id,
-					});
+					} });
 					await activities.setPayee(activity.id, payer.id);
-				}
+				} else await activities.ensurePeriod(activity.id);
 			}
 
 			const full = await activities.getActivity(activity.id);
-			res.status(201).json({ activity: serializeActivity(full, req.actor) });
+			res.status(activity.idempotent ? 200 : 201).json({
+				activity: serializeActivity(full, req.actor),
+				idempotent: Boolean(activity.idempotent),
+			});
 		}
 		catch (error) {
-			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid', 'starts_at_invalid'].includes(error.code || error.message)) {
-				return fail(res, 400, error.code || error.message);
-			}
+			const code = error.code || error.message;
+			if (code === 'request_id_conflict') return fail(res, 409, code);
+			if (['display_name_required', 'display_name_too_long', 'currency_not_supported', 'payment_due_at_invalid', 'starts_at_invalid',
+				'request_id_invalid', 'creation_mode_invalid', 'plan_state_invalid', 'participant_required', 'participants_too_many',
+				'participant_invalid', 'period_date_invalid', 'period_create_failed', 'initial_expenses_invalid',
+				'initial_expense_label_required', 'initial_expense_amount_invalid', 'initial_expense_paid_by_position_invalid',
+				'initial_expense_share_positions_invalid', 'initial_expense_position_invalid', 'initial_expense_split_invalid',
+				'split_people_required', 'split_person_not_sharing', 'split_person_missing', 'split_amount_invalid',
+				'split_does_not_sum', 'split_percent_invalid', 'split_percent_does_not_total', 'split_weight_invalid',
+			].includes(code)) return fail(res, 400, code);
 			next(error);
 		}
 	});
@@ -1813,8 +1936,12 @@ function router(deps = {}) {
 
 	api.get('/a/:code', async (req, res, next) => {
 		try {
-			const activity = await activities.getActivityByCode(req.params.code);
+			let activity = await activities.getActivityByCode(req.params.code);
 			if (!activity) return fail(res, 404, 'notFound');
+			if (activity.kind === 'recurring' && activity.planState !== 'cancelled' && access.can(access.activityRole(req.actor, activity), 'viewAmounts')) {
+				await activities.ensurePeriod(activity.id, new Date(), { rollover: true });
+				activity = await activities.getActivity(activity.id);
+			}
 			res.json({
 				activity: serializeActivity(activity, req.actor, {
 					periodId: req.query.period,
@@ -2429,6 +2556,49 @@ function router(deps = {}) {
 		}
 	});
 
+	// One summary a minute per bill. A second click is a mistake, and every
+	// post is a Discord request (DISCORD-RATE-LIMITS.md rule 1).
+	const summaryPostedAt = new Map();
+	const SUMMARY_COOLDOWN_MS = 60 * 1000;
+
+	api.post('/a/:code/summary/discord', requireAccount, async (req, res, next) => {
+		try {
+			const activity = await ownerOnly(req, res);
+			if (!activity) return;
+			if (!activity.guildId || !activity.channelId) return fail(res, 409, 'summary_no_channel');
+			if (!deps.postChannelNotice) return fail(res, 503, 'summary_unavailable');
+			const last = summaryPostedAt.get(activity.id) || 0;
+			if (Date.now() - last < SUMMARY_COOLDOWN_MS) return fail(res, 429, 'summary_too_soon');
+
+			const period = activity.kind === 'recurring'
+				? (activity.periods.find(p => p.id === req.body?.periodId) || activities.currentPeriod(activity))
+				: null;
+			const lang = req.body?.lang === 'en' ? 'en' : 'th';
+			const { message, ctaLabel } = billSummary.billSummaryMessage({
+				title: activity.title,
+				settlement: activities.settlement(activity, period ? period.id : null),
+				lang,
+				currency: activity.currency,
+			});
+			const origin = req.actor.shareOrigin || String(process.env.FRONTEND_URL || '').replace(/\/$/, '');
+			summaryPostedAt.set(activity.id, Date.now());
+			const result = await deps.postChannelNotice({
+				guildId: activity.guildId,
+				channelId: activity.channelId,
+				message,
+				cta: origin ? { label: ctaLabel, url: `${origin}/a/${encodeURIComponent(activity.code)}` } : null,
+			});
+			if (!result?.delivered) {
+				summaryPostedAt.delete(activity.id);
+				return fail(res, 502, 'summary_not_delivered');
+			}
+			res.json({ posted: true });
+		}
+		catch (error) {
+			next(error);
+		}
+	});
+
 	async function ownerOnly(req, res, nextFn) {
 		const activity = await activities.getActivityByCode(req.params.code);
 		if (!activity) {
@@ -2679,18 +2849,12 @@ function router(deps = {}) {
 				return fail(res, 400, 'recurring_only');
 			}
 
-			const { period, created } = await activities.ensurePeriod(activity.id, req.body?.date ? new Date(req.body.date) : new Date());
-
 			const amountMinor = requestAmountMinor(req.body);
-			if (created && amountMinor > 0) {
-				const payer = activity.participants.find(p => p.userId === req.actor.userId) || activity.participants[0];
-				await activities.addExpense(activity.id, {
-					label: activity.title,
-					amountSatang: amountMinor,
-					paidBy: payer.id,
-					periodId: period.id,
-				});
-			}
+			const payer = activity.participants.find(p => p.userId === req.actor.userId) || activity.participants[0];
+			const { period } = await activities.ensurePeriod(activity.id, req.body?.date ? new Date(req.body.date) : new Date(), {
+				rollover: !(amountMinor > 0),
+				expense: amountMinor > 0 ? { label: activity.title, amountSatang: amountMinor, paidBy: payer?.id } : null,
+			});
 
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor, { periodId: period.id }) });

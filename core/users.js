@@ -380,20 +380,38 @@ async function setDisplayName(userId, displayName) {
  * participant row the organizer already created for them. This is why the
  * history survives the moment an account appears.
  */
-async function claimParticipants(userId) {
+async function claimParticipants(userId, { deviceToken = null } = {}) {
 	const discord = await query(
 		'SELECT provider_uid FROM identities WHERE user_id = $1 AND provider = $2',
 		[userId, 'discord'],
 	);
-	if (discord.rows.length === 0) return { claimed: 0 };
+	const discordUid = discord.rows[0]?.provider_uid || null;
+	let claimed = 0;
 
-	const res = await query(
-		`UPDATE participants
-		 SET user_id = $1, claimed_at = COALESCE(claimed_at, now())
-		 WHERE discord_uid = $2 AND user_id IS NULL`,
-		[userId, discord.rows[0].provider_uid],
-	);
-	return { claimed: res.rowCount || 0 };
+	if (discordUid) {
+		const res = await query(
+			`UPDATE participants
+			 SET user_id = $1, claimed_at = COALESCE(claimed_at, now())
+			 WHERE discord_uid = $2 AND user_id IS NULL`,
+			[userId, discordUid],
+		);
+		claimed += res.rowCount || 0;
+	}
+
+	// Names this browser tapped before signing in. A guest who picked "Ton" on
+	// a shared link and then pressed "connect Discord" did it to be reminded;
+	// without this the row stayed matched only by the cookie, and the reminder
+	// sweep — which looks for an account or a Discord id — never found them.
+	if (deviceToken) {
+		const res = await query(
+			`UPDATE participants
+			 SET user_id = $1, discord_uid = COALESCE(discord_uid, $3), claimed_at = COALESCE(claimed_at, now())
+			 WHERE device_token = $2 AND user_id IS NULL`,
+			[userId, String(deviceToken), discordUid],
+		);
+		claimed += res.rowCount || 0;
+	}
+	return { claimed };
 }
 
 module.exports = {

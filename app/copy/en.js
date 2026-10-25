@@ -628,6 +628,10 @@ const en = {
 		display_name_too_long: 'Names can be up to 80 characters.',
 		currency_not_supported: 'That currency is not supported yet.',
 		owner_only: 'Only the organizer can change this.',
+		summary_no_channel: 'This activity is not linked to a Discord channel.',
+		summary_unavailable: 'Posting to Discord is unavailable right now.',
+		summary_too_soon: 'A summary was just posted. Wait a minute before posting again.',
+		summary_not_delivered: 'Discord did not accept the message. Check Megu can still post in that channel.',
 		defer_reason_required: 'Add a short reason so the organizer knows.',
 		defer_reason_too_long: 'Reasons can be up to 200 characters.',
 		payment_due_at_invalid: 'That payment deadline is not a valid date.',
@@ -1431,6 +1435,25 @@ const en = {
 		openManage: 'Organizer tools',
 	},
 
+	// Month by month: every month on one screen, who has paid and who still owes.
+	months: {
+		open: 'Month by month',
+		title: 'Month by month',
+		for: title => `for ${title}`,
+		owedTitle: 'Still owed',
+		owedNone: 'Nobody owes anything. Every month is paid.',
+		owedMonths: (count, checking) => `${count === 1 ? 'owes 1 month' : `owes ${count} months`}${checking ? ` (${checking} with a slip being checked)` : ''}`,
+		monthTotal: (total, count) => `${total} split by ${count}`,
+		paid: 'Paid',
+		checking: 'Slip being checked',
+		owes: 'Still owes',
+		receiver: 'Collecting',
+		toReceive: amount => `${amount} to come`,
+		allIn: 'All in',
+		hidden: 'Amounts are shown to people on the bill. Tap your own name on the overview first.',
+		notMonthly: 'This screen is for monthly bills only.',
+	},
+
 	// The single thing this reader should do next, printed once, at the top.
 	// The old page showed every panel to everybody and let them find it.
 	next: {
@@ -1584,6 +1607,9 @@ const en = {
 		payBySave: 'Save deadline',
 		payByClear: 'Clear',
 		addExpense: 'Add a cost',
+		shareSummary: 'Post the bill to Discord',
+		shareSummaryHint: 'Posts the total and who sends how much to whom in this activity’s Discord channel. Nobody is pinged.',
+		summaryPosted: 'Posted to Discord',
 		typeItIn: 'Or type it in',
 		addAndSplit: 'Add it and split it',
 		planTitle: 'Where this activity is up to',
@@ -1665,6 +1691,13 @@ const en = {
 		networkOnly: 'Test mode: this link works for devices on the same Wi-Fi or local network.',
 		deviceOnly: 'This link still works only on this device. Set FRONTEND_URL to an address other people can reach before sharing.',
 		copyFailed: 'Automatic copy was blocked. The link is selected—long-press it or press Ctrl+C to copy.',
+	},
+
+	remind: {
+		title: 'Want Megu to remind you on Discord?',
+		body: 'Connect Discord and Megu will DM you when this is due — and you can send the slip right from the message. Without it, this page works just the same.',
+		cta: 'Connect Discord',
+		dismiss: 'No thanks',
 	},
 
 	// ── paying ──────────────────────────────────────────────────────────────
@@ -1862,6 +1895,11 @@ const en = {
 		failed: 'Could not read that picture',
 		partial: (added, total) => `Added ${added} of ${total} and then stopped — the rest are not in`,
 		unavailable: 'The reader is not installed on this server yet',
+		sharedByEveryone: 'Everyone',
+		byWhatTheyOrdered: 'By what each person ordered',
+		whoShared: label => `Who shared ${label}`,
+		noneMeansEveryone: 'Tick nobody and it is shared by everyone.',
+		eachPays: 'Each person pays',
 	},
 };
 

@@ -421,6 +421,12 @@ app.use('/api/megu', meguApi.router({
 		const response = await sendIpcRequest({ type: 'get_team_role_sync_capabilities' }, 8000);
 		return response?.success ? response.capability : { available: false, reason: 'capability_verification_unavailable' };
 	},
+	// The bot's channel notice already checks the channel, the block guard and
+	// mentions; a bill summary is one more message of the same shape.
+	postChannelNotice: async ({ guildId, channelId, message, cta }) => {
+		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta }, 10_000);
+		return { delivered: response?.delivered === true };
+	},
 }));
 
 const notificationDispatcher = createDispatcher({
@@ -466,6 +472,13 @@ async function sendDiscordNotice({ recipients, message, cta = null, defer = null
 const paymentDueSweep = createPaymentDueSweep({
 	baseUrl: process.env.FRONTEND_URL || '',
 	sendDiscord: sendDiscordNotice,
+	// A monthly bill started with /sub posts its due-day summary back in the
+	// channel it came from, through the same guarded channel notice.
+	postChannel: async ({ guildId, channelId, message, cta, defer }) => {
+		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, defer }, 10_000);
+		if (!response) return { delivered: false, blocked: true, error: 'The bot process did not answer' };
+		return { delivered: Boolean(response.delivered), blocked: /block/i.test(String(response.error || '')), error: response.error || null };
+	},
 	log: message => BotLogs('Megu', message),
 });
 const stopPaymentDueSweep = paymentDueSweep.start({
@@ -934,7 +947,7 @@ async function finishDiscordOAuth(req, res) {
 		}
 		else {
 			account = (await core.users.loginWithIdentity(identityProfile)).user;
-			await core.users.claimParticipants(account.id);
+			await core.users.claimParticipants(account.id, { deviceToken: deviceTokenFrom(req) });
 		}
 
 		if (tokenData.refresh_token) {
@@ -1207,6 +1220,11 @@ function toBooleanSetting(value, defaultValue = true) {
 	if (value === false || value === 'false' || value === 0 || value === '0') return false;
 	if (value === true || value === 'true' || value === 1 || value === '1') return true;
 	return Boolean(value);
+}
+
+/** The guest cookie from /a/<code>, if this browser has one and it is ours. */
+function deviceTokenFrom(req) {
+	return core.tokens.verifyDeviceToken(req.cookies?.[meguApi.DEVICE_COOKIE]);
 }
 
 function safeInternalReturn(value) {

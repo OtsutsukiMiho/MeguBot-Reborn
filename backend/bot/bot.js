@@ -670,6 +670,8 @@ for (const folder of commandFolders) {
 		const command = require(filePath);
 		if ('data' in command && 'execute' in command) {
 			client.commands.set(command.data.name, command);
+			// /event sends DMs from its buttons; they go through the same guard.
+			command.useDiscordCall?.(discordCall);
 		}
 		else {
 			BotLogs('SYSTEM', `${COLOR.yellow}Warning: The command at ${COLOR.white}${filePath}${COLOR.yellow} is missing a required "data" or "execute" property.`);
@@ -698,6 +700,15 @@ function noticeComponents(cta, defer) {
 			.setStyle(ButtonStyle.Link)
 			.setURL(String(cta.url))
 			.setLabel(String(cta.label || 'Pay').slice(0, 80)));
+	}
+	// Paying without leaving the DM: this opens a modal that takes the slip,
+	// handled by /event's component router. First, because it is the answer
+	// the reminder is hoping for.
+	if (defer?.code && /^[A-Za-z0-9_-]{1,40}$/.test(String(defer.code))) {
+		buttons.unshift(new ButtonBuilder()
+			.setStyle(ButtonStyle.Primary)
+			.setCustomId(`evt:pay:${defer.code}`)
+			.setLabel(String(defer.payLabel || 'แนบสลิป').slice(0, 80)));
 	}
 	if (defer?.participantId) {
 		buttons.push(new ButtonBuilder()
@@ -880,6 +891,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 			BotLogs('SYSTEM', `${COLOR.red}Error Occurred: ${COLOR.white}"${error.toString().replace(/^Error: /, '')}" ${COLOR.red}from ${COLOR.white}"${path.basename(__filename)}"`);
 			BotLogs('SYSTEM', `${COLOR.red}---------------------------------------------------------------`);
 		}
+	}
+
+	// /event: the bill card's buttons and modals, and the "send slip" button on
+	// a due-date DM, all carry the `evt:` prefix and belong to the command that
+	// drew them.
+	else if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu() || interaction.isUserSelectMenu())
+		&& interaction.customId.startsWith('evt:')) {
+		const eventCommand = interaction.client.commands.get('event');
+		if (eventCommand?.handleComponent) await eventCommand.handleComponent(interaction);
 	}
 
 	else if (interaction.isButton() && interaction.customId.startsWith(`${DEFER_BUTTON}:`)) {
@@ -2641,7 +2661,7 @@ process.on('message', async (msg) => {
 			let error = null;
 			if (valid && !discordBlock.blocked()) {
 				const content = String(msg.message || '').slice(0, 1900);
-				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, null), allowedMentions: { parse: [] } }).then(() => true), false));
+				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, msg.defer?.code ? { code: msg.defer.code, payLabel: msg.defer.payLabel } : null), allowedMentions: { parse: [] } }).then(() => true), false));
 			}
 			if (!valid) error = 'The configured channel is unavailable or Megu cannot send there';
 			else if (discordBlock.blocked()) error = 'Discord is temporarily blocking this server';

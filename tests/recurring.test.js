@@ -163,6 +163,40 @@ async function main() {
 	assert.ok(third.some(p => p.discordUid === '__rec_nut__'));
 	ok('but she comes back the next day');
 
+	const octoberDate = new Date('2026-09-30T17:00:00Z');
+	const opened = await Promise.all(Array.from({ length: 3 }, () => activities.ensurePeriod(yt.id, octoberDate, { rollover: true })));
+	assert.strictEqual(opened.filter(item => item.created).length, 1);
+	assert.ok(opened.every(item => item.period.id === opened[0].period.id));
+	full = await activities.getActivity(yt.id);
+	const october = opened[0].period;
+	assert.strictEqual(october.key, '2026-10');
+	assert.strictEqual(full.expenses.filter(item => item.periodId === october.id).length, 1);
+	assert.strictEqual(activities.settlement(full, october.id).total, 39900);
+	assert.strictEqual(activities.settlement(full, october.id).rows.find(row => row.participantId === nutAug.participantId).outstanding, 6650);
+	assert.strictEqual(activities.settlement(full, aug.period.id).rows.find(row => row.participantId === nutAug.participantId).outstanding, 0);
+	assert.strictEqual(full.payments.filter(item => item.periodId === october.id).length, 0);
+	ok('concurrent automatic rollover copies one bill and its shares, never historical payments');
+	const sourceExpense = full.expenses.find(item => item.periodId === october.id);
+	await db.query('UPDATE shares SET amount_satang = amount_satang - 1 WHERE expense_id = $1 AND participant_id = $2', [sourceExpense.id, owner.id]);
+	const novemberDate = new Date('2026-10-31T17:00:00Z');
+	await assert.rejects(activities.ensurePeriod(yt.id, novemberDate, { rollover: true }), { code: 'recurring_split_invalid' });
+	full = await activities.getActivity(yt.id);
+	assert.ok(!full.periods.some(item => item.key === '2026-11'), 'failed billing must roll back its new period too');
+	await db.query('UPDATE shares SET amount_satang = amount_satang + 1 WHERE expense_id = $1 AND participant_id = $2', [sourceExpense.id, owner.id]);
+	await activities.ensurePeriod(yt.id, novemberDate, { rollover: true });
+	full = await activities.getActivity(yt.id);
+	assert.strictEqual(full.periods.filter(item => item.key === '2026-11').length, 1);
+	ok('invalid source split rolls back the entire month and can be retried after correction');
+	const decemberDate = new Date('2026-11-30T17:00:00Z');
+	await assert.rejects(activities.ensurePeriod(yt.id, decemberDate, { expense: { label: 'New price', amountSatang: 42000, paidBy: 'missing-payer' } }), { code: 'participant_not_in_activity' });
+	full = await activities.getActivity(yt.id);
+	assert.ok(!full.periods.some(item => item.key === '2026-12'));
+	const explicit = await activities.ensurePeriod(yt.id, decemberDate, { expense: { label: 'New price', amountSatang: 42000, paidBy: owner.id } });
+	await activities.ensurePeriod(yt.id, decemberDate, { expense: { label: 'New price', amountSatang: 42000, paidBy: owner.id } });
+	full = await activities.getActivity(yt.id);
+	assert.strictEqual(activities.settlement(full, explicit.period.id).total, 42000);
+	assert.strictEqual(full.expenses.filter(item => item.periodId === explicit.period.id).length, 1);
+	ok('explicit monthly amount is atomic and retry creates only one expense');
 	console.log(`\n  statement preview:\n${nut.message.split('\n').map(l => `    ${l}`).join('\n')}`);
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import MeguMark from '../../components/MeguMark';
 import CountUp from '../../components/activity/CountUp';
@@ -140,6 +140,10 @@ export default function ActivitySummary() {
 				</div>
 			</Rise>
 
+			{me && !isOwner && !me.remindable && (
+				<RemindOffer code={code} signedIn={activity.signedIn} t={t} />
+			)}
+
 			{problem && <div className="error-note">{problem}</div>}
 			{disputedMine.map(payment => (
 				<div className="error-note" key={payment.id} role="status">
@@ -170,6 +174,9 @@ export default function ActivitySummary() {
 						{fmt.period(p.key, { short: true })}
 					</button>
 				))}
+				{recurring && canSeeMoney && (
+					<Link className="month-btn" href={`/a/${code}/months`}>{t.months.open}</Link>
+				)}
 			</Rise>
 
 			<Rise className="two-col">
@@ -368,6 +375,49 @@ function Statement({ label, satang, currency, line, note, action, quiet }) {
 					<Link className="btn btn-pay btn-lg" href={action.href}>{action.label}</Link>
 				</div>
 			)}
+		</Rise>
+	);
+}
+
+/**
+ * An offer, not a gate.
+ *
+ * Someone who tapped their name on a shared link can pay from this page and
+ * never sign in. What they cannot get without Discord is the reminder — the DM
+ * on the due date with the slip upload inside it. So they are told that once,
+ * in a sentence, with a button they press themselves: sign-in is a click and
+ * never a redirect (DISCORD-RATE-LIMITS.md rule 4). "No thanks" is remembered
+ * on this device per bill, and forgetting it costs nothing but seeing it again.
+ */
+function RemindOffer({ code, signedIn, t }) {
+	const key = `megu:remind-dismissed:${code}`;
+	const [hidden, setHidden] = useState(false);
+	// Read after mount, so the server render and the first client render agree.
+	useEffect(() => {
+		try { if (window.localStorage.getItem(key) === '1') setHidden(true); }
+		catch { /* storage blocked: show the offer */ }
+	}, [key]);
+	if (hidden) return null;
+
+	const returnTo = encodeURIComponent(`/a/${code}`);
+	// Already signed in with Google: add Discord to that account rather than
+	// starting a second one.
+	const href = signedIn ? `/api/auth/discord/link?returnTo=${returnTo}` : `/api/auth/login?returnTo=${returnTo}`;
+
+	function dismiss() {
+		setHidden(true);
+		try { window.localStorage.setItem(key, '1'); }
+		catch { /* private window: it simply comes back next time */ }
+	}
+
+	return (
+		<Rise as="section" className="aside-block remind-offer">
+			<h2>{t.remind.title}</h2>
+			<p className="quiet-note">{t.remind.body}</p>
+			<div className="remind-offer-actions">
+				<a className="btn btn-discord btn-sm" href={href}>{t.remind.cta}</a>
+				<button type="button" className="btn btn-quiet btn-sm" onClick={dismiss}>{t.remind.dismiss}</button>
+			</div>
 		</Rise>
 	);
 }

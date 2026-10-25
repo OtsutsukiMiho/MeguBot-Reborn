@@ -56,8 +56,12 @@ async function outstandingByPerson({ now = new Date() } = {}) {
 	const people = new Map();
 
 	for (const { id } of withMoney.rows) {
-		const activity = await activities.getActivity(id);
+		let activity = await activities.getActivity(id);
 		if (!activity) continue;
+		if (activity.kind === 'recurring') {
+			await activities.ensurePeriod(activity.id, now, { rollover: true });
+			activity = await activities.getActivity(id);
+		}
 
 		for (const scope of scopesOf(activity)) {
 			const sum = activities.settlement(activity, scope.periodId);
@@ -218,16 +222,23 @@ async function paymentDueNow({ now = new Date(), baseUrl = '', windowHours = DUE
 		JOIN expenses e ON e.activity_id = a.id
 		LEFT JOIN periods p ON p.activity_id = a.id
 		WHERE a.plan_state <> 'cancelled'
-		  AND ((a.payment_due_at IS NOT NULL AND a.payment_due_at <= $1 AND a.payment_due_at > $2)
+		  AND (a.kind = 'recurring'
+		    OR ((a.payment_due_at IS NOT NULL AND a.payment_due_at <= $1 AND a.payment_due_at > $2)
 		    OR (p.due_at IS NOT NULL AND p.due_at <= $1 AND p.due_at > $2))
+		  )
 	`, [now, windowStart]);
 
 	const notices = [];
 	const hostDigests = [];
+	const channelNotices = [];
 
 	for (const { id } of candidates.rows) {
-		const activity = await activities.getActivity(id);
+		let activity = await activities.getActivity(id);
 		if (!activity) continue;
+		if (activity.kind === 'recurring') {
+			await activities.ensurePeriod(activity.id, now, { rollover: true });
+			activity = await activities.getActivity(id);
+		}
 
 		for (const scope of scopesOf(activity)) {
 			if (!scope.dueAt) continue;
@@ -305,10 +316,68 @@ async function paymentDueNow({ now = new Date(), baseUrl = '', windowHours = DUE
 					dedupeKey: `payment-due-host:${activity.id}:${scope.periodId || 'event'}:${dueAt.toISOString()}`,
 				});
 			}
+
+			// The group's own channel, for a bill that was started in one. One
+			// post per deadline listing who still owes, so the people Megu
+			// cannot DM — typed names with no Discord — are seen by the group
+			// too. Deferrals are not hidden here: this is the month's state,
+			// not a nudge at one person.
+			if (activity.guildId && activity.channelId && sum.unpaid.length > 0
+				&& !await channelAnnouncedSince(activity.id, scope.periodId, dueAt)) {
+				const anchor = activity.payee?.participantId || activity.participants[0]?.id;
+				if (anchor) {
+					channelNotices.push({
+						activityId: activity.id,
+						code: activity.code,
+						title: activity.title,
+						guildId: activity.guildId,
+						channelId: activity.channelId,
+						periodId: scope.periodId,
+						periodKey: scope.period?.key || null,
+						dueAt: scope.dueAt,
+						currency: activity.currency,
+						lines: sum.unpaid.map(row => {
+							const participant = activity.participants.find(p => p.id === row.participantId);
+							return {
+								displayName: participant?.displayName || row.displayName,
+								discordUid: participant?.discordUid || null,
+								amountSatang: row.outstanding,
+							};
+						}),
+						shareUrl: baseUrl ? `${baseUrl}/a/${activity.code}` : '',
+						// payment_reminders needs a participant; the payee's row
+						// stands in for "the channel was told", under its own
+						// channel name so no per-person cooldown reads it.
+						record: {
+							activityId: activity.id,
+							periodId: scope.periodId,
+							participantId: anchor,
+							amountSatang: sum.unpaid.reduce((total, row) => total + row.outstanding, 0),
+						},
+					});
+				}
+			}
 		}
 	}
 
-	return { notices, hostDigests };
+	return { notices, hostDigests, channelNotices };
+}
+
+const CHANNEL_POST = 'payment-due-channel';
+
+async function channelAnnouncedSince(activityId, periodId, since) {
+	const res = await query(
+		`SELECT 1 FROM payment_reminders
+		 WHERE activity_id = $1 AND channel = $2 AND sent_at >= $3
+		   AND (($4::text IS NULL AND period_id IS NULL) OR period_id = $4)
+		 LIMIT 1`,
+		[activityId, CHANNEL_POST, since, periodId],
+	);
+	return res.rows.length > 0;
+}
+
+function markChannelPosted(notice, { sentAt = new Date() } = {}) {
+	return markSent(notice.record, { channel: CHANNEL_POST, sentAt });
 }
 
 /**
@@ -549,4 +618,5 @@ module.exports = {
 	announceDeferral,
 	daysLate,
 	markSent,
+	markChannelPosted,
 };

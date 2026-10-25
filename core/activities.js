@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const { query, transaction } = require('./db.js');
 const { newId, newActivityCode } = require('./ids.js');
 const { resolveSplit } = require('./split.js');
@@ -32,6 +33,11 @@ const RSVP = ['pending', 'yes', 'no'];
 const SLOT_ANSWERS = ['yes', 'maybe', 'no'];
 const SUPPORTED_CURRENCIES = ['THB', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'CAD'];
 const PAYMENT_OPTION_TYPES = ['bank_transfer', 'payment_link', 'cash', 'custom'];
+const CREATION_MODES = {
+	planning: 'open',
+	scheduled: 'confirmed',
+	settle: 'done',
+};
 
 // A single "no" sinks a slot faster than a "yes" lifts it: the point of the
 // poll is to find a time nobody is blocked on, not the most popular one.
@@ -64,6 +70,7 @@ function rowToActivity(row) {
 		dueDay: row.due_day,
 		paymentDueAt: row.payment_due_at || null,
 		payeeParticipantId: row.payee_participant_id || null,
+		recurringChange: row.recurring_change || null,
 		guildId: row.guild_id,
 		channelId: row.channel_id,
 		createdAt: row.created_at,
@@ -117,8 +124,7 @@ const THAI_MONTHS = [
 ];
 
 function periodKeyFor(date) {
-	const d = new Date(date);
-	return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+	return require('./format.js').periodKeyFor(new Date(date));
 }
 
 function periodLabelFor(key) {
@@ -130,7 +136,194 @@ function periodDueAt(key, dueDay) {
 	const [year, month] = key.split('-').map(Number);
 	const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
 	const day = Math.min(dueDay || 1, lastDay);
-	return new Date(Date.UTC(year, month - 1, day, 17, 0, 0));
+	// The last second of the due day in Bangkok, the same convention as a
+	// one-off bill's paymentDueAt. It used to be 17:00Z — midnight *after* the
+	// due day — so "due on the 5th" was announced and printed as the 6th.
+	return new Date(Date.UTC(year, month - 1, day, 16, 59, 59));
+}
+
+const SPLIT_MODES = new Set(['even', 'exact', 'percent', 'shares']);
+
+function stableValue(value) {
+	if (value === undefined) return null;
+	if (value instanceof Date) return value.toISOString();
+	if (Array.isArray(value)) return value.map(stableValue);
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+	}
+	return value;
+}
+
+function creationFingerprint(input) {
+	const copy = { ...input };
+	delete copy.requestId;
+	delete copy.idempotencyKey;
+	return crypto.createHash('sha256')
+		.update(JSON.stringify(stableValue(copy)))
+		.digest('hex');
+}
+
+function normaliseRequestId(value) {
+	if (value === undefined || value === null || value === '') return null;
+	if (typeof value !== 'string') throw codedError('request_id_invalid');
+	const requestId = value.trim();
+	if (!requestId || requestId.length > 200) throw codedError('request_id_invalid');
+	return requestId;
+}
+
+function markIdempotent(activity, idempotent) {
+	Object.defineProperty(activity, 'idempotent', {
+		value: Boolean(idempotent),
+		enumerable: false,
+		configurable: true,
+	});
+	return activity;
+}
+
+function initialExpenseError(code, message = code) {
+	return codedError(code, message);
+}
+
+function positionValue(value, participantCount, code) {
+	if (!Number.isSafeInteger(value) || value < 0 || value >= participantCount) {
+		throw initialExpenseError(code);
+	}
+	return value;
+}
+
+/**
+ * The creation wizard names people by their roster position because it has no
+ * database ids until the activity is saved. Keep that representation through
+ * validation, then map it to participant ids immediately before addExpense.
+ */
+function normaliseInitialSplit(split, sharePositions, participantCount) {
+	if (split === undefined || split === null) return null;
+	if (!split || typeof split !== 'object' || Array.isArray(split)) {
+		throw initialExpenseError('initial_expense_split_invalid');
+	}
+	const mode = String(split.mode || '');
+	if (!SPLIT_MODES.has(mode)) throw initialExpenseError('initial_expense_split_invalid');
+	if (mode === 'even') return { mode: 'even', values: null };
+
+	const raw = split.values;
+	if (!raw || (typeof raw !== 'object' && !Array.isArray(raw))) {
+		throw initialExpenseError('initial_expense_split_invalid');
+	}
+	const values = {};
+	if (Array.isArray(raw)) {
+		if (raw.length === sharePositions.length) {
+			sharePositions.forEach((position, index) => { values[position] = raw[index]; });
+		}
+		else if (raw.length === participantCount) {
+			sharePositions.forEach(position => { values[position] = raw[position]; });
+		}
+		else throw initialExpenseError('initial_expense_split_invalid');
+	}
+	else {
+		for (const [key, value] of Object.entries(raw)) {
+			if (!/^\d+$/.test(key)) throw initialExpenseError('initial_expense_split_invalid');
+			const position = Number(key);
+			if (!sharePositions.includes(position)) throw initialExpenseError('initial_expense_split_invalid');
+			values[position] = value;
+		}
+	}
+
+	for (const position of sharePositions) {
+		if (!Object.prototype.hasOwnProperty.call(values, position)) {
+			throw initialExpenseError('initial_expense_split_invalid');
+		}
+	}
+	if (mode === 'exact') {
+		for (const value of Object.values(values)) {
+			const amount = Number(value);
+			if (!Number.isSafeInteger(amount) || amount < 0) {
+				throw initialExpenseError('initial_expense_split_invalid');
+			}
+		}
+	}
+	if (mode === 'shares') {
+		for (const value of Object.values(values)) {
+			const weight = Number(value);
+			if (!Number.isSafeInteger(weight) || weight < 0) {
+				throw initialExpenseError('initial_expense_split_invalid');
+			}
+		}
+	}
+	return { mode, values };
+}
+
+function normaliseInitialExpenses(rawExpenses, participants) {
+	if (!Array.isArray(rawExpenses) || rawExpenses.length > 50) {
+		throw initialExpenseError('initial_expenses_invalid');
+	}
+	return rawExpenses.map((expense) => {
+		if (!expense || typeof expense !== 'object' || Array.isArray(expense)) {
+			throw initialExpenseError('initial_expenses_invalid');
+		}
+		const label = String(expense.label ?? '').trim();
+		if (!label) throw initialExpenseError('initial_expense_label_required');
+
+		let amountSatang = expense.amountSatang;
+		if (amountSatang === undefined && expense.amountBaht !== undefined) {
+			const amountBaht = Number(expense.amountBaht);
+			amountSatang = Number.isFinite(amountBaht) ? Math.round(amountBaht * 100) : amountBaht;
+		}
+		if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0) {
+			throw initialExpenseError('initial_expense_amount_invalid');
+		}
+
+		const paidByPosition = positionValue(
+			expense.paidByPosition,
+			participants.length,
+			'initial_expense_paid_by_position_invalid',
+		);
+		if (!Array.isArray(expense.sharePositions) || expense.sharePositions.length === 0) {
+			throw initialExpenseError('initial_expense_share_positions_invalid');
+		}
+		const sharePositions = expense.sharePositions.map(position => positionValue(
+			position,
+			participants.length,
+			'initial_expense_position_invalid',
+		));
+		if (new Set(sharePositions).size !== sharePositions.length) {
+			throw initialExpenseError('initial_expense_share_positions_invalid');
+		}
+
+		const split = normaliseInitialSplit(expense.split, sharePositions, participants.length);
+		// Resolve once against the position names before opening the transaction.
+		// This catches an unbalanced exact/percent/weighted split before the first
+		// activity row is written, while the real write below resolves it again
+		// against the newly-created participant ids.
+		if (split) {
+			resolveSplit(
+				amountSatang,
+				sharePositions.map(String),
+				{
+					mode: split.mode,
+					values: split.values && Object.fromEntries(
+						Object.entries(split.values).map(([position, value]) => [String(position), value]),
+					),
+				},
+			);
+		}
+
+		return {
+			label,
+			amountSatang,
+			paidByPosition,
+			sharePositions,
+			split,
+		};
+	});
+}
+
+function mapInitialSplit(split, sharePositions, participantIds) {
+	if (!split) return null;
+	if (split.mode === 'even') return { mode: 'even' };
+	return {
+		mode: split.mode,
+		values: Object.fromEntries(sharePositions.map(position => [participantIds[position], split.values[position]])),
+	};
 }
 
 // ── create and read ─────────────────────────────────────────────────────────
@@ -150,19 +343,101 @@ async function createActivity(input) {
 		currency = 'THB',
 		paymentOptions = [],
 		participants = [],
+		creationMode = null,
+		planState = null,
+		requestId = null,
+		periodAt = null,
 	} = input;
 
 	if (!ownerUserId) throw new Error('ownerUserId is required');
-	if (!title || !title.trim()) throw new Error('title is required');
+	if (typeof title !== 'string' || !title.trim()) throw new Error('title is required');
 	if (!KINDS.includes(kind)) throw new Error(`unknown activity kind: ${kind}`);
 	if (kind === 'recurring' && recurrence !== 'monthly') {
 		throw new Error('recurring activities currently support monthly only');
 	}
+	if (!Array.isArray(participants) || participants.length === 0) {
+		throw codedError('participant_required');
+	}
+	if (participants.length > 50) throw codedError('participants_too_many');
+	const cleanParticipants = participants.map((participant) => {
+		if (!participant || typeof participant !== 'object' || Array.isArray(participant)) {
+			throw codedError('participant_invalid');
+		}
+		return {
+			displayName: cleanDisplayName(participant.displayName),
+			userId: participant.userId || null,
+			discordUid: participant.discordUid ? String(participant.discordUid) : null,
+		};
+	});
+	if (creationMode !== null && creationMode !== undefined && !Object.prototype.hasOwnProperty.call(CREATION_MODES, creationMode)) {
+		throw codedError('creation_mode_invalid');
+	}
+	if (kind === 'recurring' && creationMode) {
+		throw codedError('creation_mode_invalid');
+	}
+	const storedPlanState = creationMode
+		? CREATION_MODES[creationMode]
+		: (planState || (kind === 'recurring' ? 'confirmed' : 'open'));
+	if (!['open', 'confirmed', 'done'].includes(storedPlanState)) {
+		throw codedError('plan_state_invalid');
+	}
+	const hasInitialExpenses = Object.prototype.hasOwnProperty.call(input, 'initialExpenses');
+	const initialExpenses = hasInitialExpenses
+		? normaliseInitialExpenses(input.initialExpenses, cleanParticipants)
+		: [];
+	const storedRequestId = normaliseRequestId(requestId);
+	const requestHash = storedRequestId
+		? crypto.createHash('sha256').update(`${ownerUserId}\0${storedRequestId}`).digest('hex').slice(0, 40)
+		: null;
+	const bodyHash = storedRequestId ? creationFingerprint({
+		ownerUserId,
+		title: title.trim(),
+		kind,
+		location,
+		startsAt,
+		guildId,
+		channelId,
+		recurrence,
+		dueDay,
+		paymentDueAt,
+		currency,
+		paymentOptions,
+		participants: cleanParticipants,
+		creationMode,
+		planState: storedPlanState,
+		hasInitialExpenses,
+		initialExpenses,
+	}).slice(0, 40) : null;
+	const deterministicActivityId = requestHash && bodyHash
+		? `act_req_${requestHash}_${bodyHash}`
+		: null;
 	const storedCurrency = cleanCurrency(currency);
 	const storedPaymentOptions = normalisePaymentOptions(paymentOptions);
 
 	return transaction(async (client) => {
-		const activityId = newId('act');
+		if (storedRequestId) {
+			// The lock makes two simultaneous first attempts converge before either
+			// one checks the durable activity key. It is database-scoped and lives
+			// only for this transaction; no process-local cache is involved.
+			await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`activity-create:${ownerUserId}:${storedRequestId}`]);
+			const previous = await client.query(
+				`SELECT id, code, owner_user_id, title, kind, plan_state, location,
+				        starts_at, currency, payment_options, recurrence, due_day,
+				        payment_due_at, payee_participant_id, guild_id, channel_id,
+				        created_at, updated_at, closed_at
+				 FROM activities
+				 WHERE owner_user_id = $1 AND id LIKE $2
+				 ORDER BY created_at DESC`,
+				[ownerUserId, `act_req_${requestHash}_%`],
+			);
+			if (previous.rows.length > 0) {
+				const existing = previous.rows.find(row => row.id === deterministicActivityId);
+				if (!existing) throw codedError('request_id_conflict');
+				return markIdempotent(rowToActivity(existing), true);
+			}
+		}
+
+		const activityId = deterministicActivityId || newId('act');
 		const res = await client.query(
 			`INSERT INTO activities
 			   (id, code, owner_user_id, title, kind, location, starts_at, currency, guild_id, channel_id, recurrence, due_day, payment_due_at, plan_state, payment_options)
@@ -174,16 +449,18 @@ async function createActivity(input) {
 				// month through `dueDay` → `periods.due_at`. Giving it a second,
 				// activity-wide deadline would be two answers to one question.
 				kind === 'recurring' ? null : cleanPaymentDueAt(paymentDueAt),
-				// A monthly agreement has nothing to agree on — it just runs.
-				kind === 'recurring' ? 'confirmed' : 'open',
+				// A monthly agreement has nothing to agree on — it just runs unless
+				// a wizard explicitly supplied a plan state for a one-off activity.
+				storedPlanState,
 				JSON.stringify(storedPaymentOptions),
 			],
 		);
 
-		for (const [index, p] of participants.entries()) {
-			await client.query(
+		const participantIds = [];
+		for (const [index, p] of cleanParticipants.entries()) {
+			const participant = await client.query(
 				`INSERT INTO participants (id, activity_id, display_name, user_id, discord_uid, rsvp, position)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 				[
 					newId('par'),
 					activityId,
@@ -194,9 +471,39 @@ async function createActivity(input) {
 					index,
 				],
 			);
+			participantIds.push(participant.rows[0].id);
 		}
 
-		return rowToActivity(res.rows[0]);
+		let periodId = null;
+		// A wizard-created recurring activity owns its first period from the
+		// beginning. Legacy callers without `initialExpenses` keep the previous
+		// deferred ensurePeriod behavior, which is used by the monthly suites.
+		if (kind === 'recurring' && hasInitialExpenses) {
+			const at = periodAt == null ? new Date() : new Date(periodAt);
+			if (Number.isNaN(at.getTime())) throw codedError('period_date_invalid');
+			const key = periodKeyFor(at);
+			const period = await client.query(
+				`INSERT INTO periods (id, activity_id, period_key, label, due_at)
+				 VALUES ($1, $2, $3, $4, $5)
+				 ON CONFLICT (activity_id, period_key) DO NOTHING RETURNING *`,
+				[newId('per'), activityId, key, periodLabelFor(key), periodDueAt(key, dueDay)],
+			);
+			periodId = period.rows[0]?.id || null;
+			if (!periodId) throw codedError('period_create_failed');
+		}
+
+		for (const expense of initialExpenses) {
+			await addExpense(activityId, {
+				label: expense.label,
+				amountSatang: expense.amountSatang,
+				paidBy: participantIds[expense.paidByPosition],
+				shareParticipantIds: expense.sharePositions.map(position => participantIds[position]),
+				periodId,
+				split: mapInitialSplit(expense.split, expense.sharePositions, participantIds),
+			}, client);
+		}
+
+		return markIdempotent(rowToActivity(res.rows[0]), false);
 	});
 }
 
@@ -440,6 +747,57 @@ async function setPayee(activityId, participantId) {
 	return rowToActivity(res.rows[0]);
 }
 
+/**
+ * Whose card the subscription is on. That person fronted the money, so this
+ * month's bill is marked as paid by them and everybody's share goes to their
+ * PromptPay. Later months copy the bill, so they follow without being told.
+ *
+ * Refused once any money has been sent for the month: a slip already checked
+ * against one person's account must not quietly become a debt to another.
+ */
+async function setRecurringPayer(activityId, participantId, { now = new Date() } = {}) {
+	// This month, opened here if the rollover has not run yet. Taking the
+	// period from the caller let a pick on the 1st, before the new month
+	// existed, rewrite last month's bill instead.
+	await ensurePeriod(activityId, now, { rollover: true });
+	return transaction(async (client) => {
+		const locked = await client.query('SELECT kind FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw codedError('activity_not_found');
+		if (locked.rows[0].kind !== 'recurring') throw codedError('not_recurring');
+		const member = await client.query('SELECT id FROM participants WHERE id = $1 AND activity_id = $2', [participantId, activityId]);
+		if (!member.rows.length) throw codedError('participant_not_in_activity');
+		const periodId = await thisMonthPeriodId(client, activityId, now);
+		if (await monthHasMoney(client, activityId, periodId)) throw codedError('payer_locked');
+		await client.query('UPDATE activities SET payee_participant_id = $2, updated_at = now() WHERE id = $1', [activityId, participantId]);
+		await client.query('UPDATE expenses SET paid_by = $3 WHERE activity_id = $1 AND period_id = $2', [activityId, periodId, participantId]);
+		return { participantId, periodId };
+	});
+}
+
+/** The id of the period covering `now`. The caller has already opened it. */
+async function thisMonthPeriodId(client, activityId, now) {
+	const period = await client.query('SELECT id FROM periods WHERE activity_id = $1 AND period_key = $2', [activityId, periodKeyFor(now)]);
+	if (!period.rows.length) throw codedError('period_missing');
+	return period.rows[0].id;
+}
+
+/**
+ * Whether any money has been sent for a month, confirmed or still being
+ * checked. The one rule behind both locks: once it has, neither the payer nor
+ * the split of that month may change under it.
+ */
+async function monthHasMoney(client, activityId, periodId) {
+	const sent = await client.query(
+		`SELECT 1 FROM payments p
+		 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
+		 WHERE p.activity_id = $1 AND p.status IN ('pending', 'confirmed')
+		   AND (p.period_id = $2 OR pa.period_id = $2)
+		 LIMIT 1`,
+		[activityId, periodId],
+	);
+	return sent.rows.length > 0;
+}
+
 function getActivity(id) {
 	return loadActivity('id', id);
 }
@@ -472,6 +830,21 @@ async function listActivitiesForOwner(ownerUserId, { includeClosed = true, at = 
 		...rowToActivity(row),
 		summary: byActivity[row.id],
 	}));
+}
+
+/**
+ * Open the current month for every recurring activity owned by a user.
+ * Creating a period is idempotent, so this is safe to run when a dashboard
+ * or reminder sweep crosses a month boundary.
+ */
+async function ensureCurrentPeriodsForOwner(ownerUserId, at = new Date()) {
+	const rows = await query(
+		`SELECT id FROM activities WHERE owner_user_id = $1 AND kind = 'recurring' AND plan_state <> 'cancelled'`,
+		[ownerUserId],
+	);
+	const results = [];
+	for (const row of rows.rows) results.push(await ensurePeriod(row.id, at, { rollover: true }));
+	return results;
 }
 
 function cleanDisplayName(value) {
@@ -960,7 +1333,7 @@ async function lockBestSlot(activityId) {
  * Make sure the period covering `date` exists, and bill it if it is new.
  * Called when a monthly agreement rolls over.
  */
-async function ensurePeriod(activityId, date = new Date()) {
+async function ensurePeriod(activityId, date = new Date(), { rollover = false, expense = null } = {}) {
 	const activity = await getActivity(activityId);
 	if (!activity) throw new Error('activity not found');
 	if (activity.kind !== 'recurring') throw new Error('only recurring activities have periods');
@@ -970,6 +1343,9 @@ async function ensurePeriod(activityId, date = new Date()) {
 	if (existing) return { period: existing, created: false };
 
 	const period = await transaction(async (client) => {
+		const locked = await client.query('SELECT plan_state FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw new Error('activity not found');
+		if (rollover && locked.rows[0].plan_state === 'cancelled') throw codedError('activity_cancelled');
 		const res = await client.query(
 			`INSERT INTO periods (id, activity_id, period_key, label, due_at)
 			 VALUES ($1, $2, $3, $4, $5)
@@ -978,6 +1354,8 @@ async function ensurePeriod(activityId, date = new Date()) {
 			[newId('per'), activityId, key, periodLabelFor(key), periodDueAt(key, activity.dueDay)],
 		);
 		if (res.rows.length === 0) return null;
+		if (expense) await addExpense(activityId, { ...expense, periodId: res.rows[0].id }, client);
+		else if (rollover) await copyPreviousPeriod(client, activityId, key, res.rows[0].id);
 		return rowToPeriod(res.rows[0]);
 	});
 
@@ -988,16 +1366,180 @@ async function ensurePeriod(activityId, date = new Date()) {
 	return { period, created: true };
 }
 
+// Only a newly inserted period inherits the prior month's ledger. Payments
+// remain attached to their original periods. The caller owns the transaction.
+async function copyPreviousPeriod(client, activityId, key, periodId) {
+	const previous = await client.query(
+		'SELECT id FROM periods WHERE activity_id = $1 AND period_key < $2 ORDER BY period_key DESC LIMIT 1',
+		[activityId, key],
+	);
+	if (!previous.rows.length) return;
+	const expenses = await client.query('SELECT * FROM expenses WHERE activity_id = $1 AND period_id = $2 ORDER BY id FOR SHARE', [activityId, previous.rows[0].id]);
+
+	// A change that was waiting for this month: the new price and people, split
+	// evenly, instead of a copy of last month. Only a single-bill month has an
+	// unambiguous "the price", which is what changeSubscription() allows.
+	const waiting = await client.query('SELECT recurring_change FROM activities WHERE id = $1', [activityId]);
+	const change = waiting.rows[0]?.recurring_change;
+	if (change && key >= change.from && expenses.rows.length === 1) {
+		const [expense] = expenses.rows;
+		const shares = await client.query('SELECT participant_id FROM shares WHERE expense_id = $1 ORDER BY id', [expense.id]);
+		const target = applySubscriptionChange(shares.rows.map(r => r.participant_id), Number(expense.amount_satang), change);
+		await insertEvenExpense(client, { activityId, periodId, label: expense.label, paidBy: expense.paid_by, ...target });
+		await client.query('UPDATE activities SET recurring_change = NULL WHERE id = $1', [activityId]);
+		return;
+	}
+	// Due, but the month has since grown a second cost on the web, so "the
+	// price" no longer means one thing. Dropped rather than left waiting for a
+	// month it can never apply to, announced on the card forever.
+	if (change && key >= change.from) {
+		await client.query('UPDATE activities SET recurring_change = NULL WHERE id = $1', [activityId]);
+	}
+
+	for (const expense of expenses.rows) {
+		const shares = await client.query('SELECT participant_id, amount_satang FROM shares WHERE expense_id = $1', [expense.id]);
+		if (shares.rows.reduce((sum, share) => sum + BigInt(share.amount_satang), 0n) !== BigInt(expense.amount_satang)) {
+			throw codedError('recurring_split_invalid');
+		}
+		const expenseId = newId('exp');
+		await client.query(
+			`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by, split_mode, split_values)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+			[expenseId, activityId, periodId, expense.label, expense.amount_satang, expense.paid_by, expense.split_mode, expense.split_values == null ? null : JSON.stringify(expense.split_values)],
+		);
+		for (const share of shares.rows) {
+			await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expenseId, share.participant_id, share.amount_satang]);
+		}
+	}
+}
+
+// ── a subscription that changes ─────────────────────────────────────────────
+
+function nextPeriodKey(key) {
+	const [year, month] = key.split('-').map(Number);
+	const next = new Date(Date.UTC(year, month, 1));
+	return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Fold a new change into one already waiting. The latest word on a person or the price wins. */
+function mergeSubscriptionChange(previous, change) {
+	const leave = new Set(previous?.leave || []);
+	const join = new Set(previous?.join || []);
+	for (const id of change.leave || []) { leave.add(id); join.delete(id); }
+	for (const id of change.join || []) { join.add(id); leave.delete(id); }
+	return {
+		amountSatang: change.amountSatang ?? previous?.amountSatang ?? null,
+		leave: [...leave],
+		join: [...join],
+	};
+}
+
+/** Who shares the bill and for how much once a change is applied. Order is kept, newcomers last. */
+function applySubscriptionChange(sharerIds, amountSatang, change) {
+	const leave = new Set(change?.leave || []);
+	const ids = sharerIds.filter(id => !leave.has(id));
+	for (const id of change?.join || []) if (!ids.includes(id) && !leave.has(id)) ids.push(id);
+	return { sharerIds: ids, amountSatang: change?.amountSatang ?? amountSatang };
+}
+
+async function insertEvenExpense(client, { activityId, periodId, label, paidBy, sharerIds, amountSatang }) {
+	const resolved = resolveSplit(amountSatang, sharerIds, null);
+	const expenseId = newId('exp');
+	await client.query(
+		`INSERT INTO expenses (id, activity_id, period_id, label, amount_satang, paid_by, split_mode, split_values)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+		[expenseId, activityId, periodId, label, amountSatang, paidBy, resolved.mode, resolved.values ? JSON.stringify(resolved.values) : null],
+	);
+	for (const [participantId, share] of Object.entries(resolved.split)) {
+		await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expenseId, participantId, share]);
+	}
+	return expenseId;
+}
+
+/**
+ * Change a monthly bill: a new price, people joining, people leaving.
+ *
+ * While nobody has sent money for the current month it is simply rewritten.
+ * Once someone has, this month stays as everybody already agreed to and paid
+ * against, and the change waits for next month (`recurring_change`). That is
+ * the rule the user chose; the alternative was refunds and top-ups by hand.
+ *
+ * The person whose card pays cannot leave: they are the one being paid back.
+ * Bills with more than one cost a month are edited on the web instead, since
+ * "the price" would not mean one thing.
+ *
+ * @returns {{ when: 'now'|'next', periodKey: string, sharerIds: string[], amountSatang: number }}
+ */
+async function changeSubscription(activityId, change, { now = new Date() } = {}) {
+	const amountSatang = change.amountSatang == null ? null : Number(change.amountSatang);
+	if (amountSatang != null && (!Number.isSafeInteger(amountSatang) || amountSatang <= 0)) throw codedError('amount_invalid');
+	// The month a change is about has to exist. On the 1st, before the hourly
+	// rollover, it may not yet, and a join or a leave must not fail for that.
+	await ensurePeriod(activityId, now, { rollover: true });
+	return transaction(async (client) => {
+		const locked = await client.query('SELECT kind, payee_participant_id, recurring_change FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw codedError('activity_not_found');
+		if (locked.rows[0].kind !== 'recurring') throw codedError('not_recurring');
+		const roster = new Set((await client.query('SELECT id FROM participants WHERE activity_id = $1', [activityId])).rows.map(r => r.id));
+		for (const id of [...(change.join || []), ...(change.leave || [])]) {
+			if (!roster.has(id)) throw codedError('participant_not_in_activity');
+		}
+
+		const key = periodKeyFor(now);
+		const periodId = await thisMonthPeriodId(client, activityId, now);
+		const expenses = await client.query('SELECT * FROM expenses WHERE period_id = $1 FOR UPDATE', [periodId]);
+		if (expenses.rows.length !== 1) throw codedError('change_needs_web');
+		const [expense] = expenses.rows;
+		const payer = locked.rows[0].payee_participant_id || expense.paid_by;
+		if ((change.leave || []).includes(payer) || (change.leave || []).includes(expense.paid_by)) throw codedError('payer_cannot_leave');
+
+		const shares = await client.query('SELECT participant_id FROM shares WHERE expense_id = $1 ORDER BY id', [expense.id]);
+		const merged = mergeSubscriptionChange(locked.rows[0].recurring_change, { ...change, amountSatang });
+		const target = applySubscriptionChange(shares.rows.map(r => r.participant_id), Number(expense.amount_satang), merged);
+		if (target.sharerIds.length === 0) throw codedError('nobody_left');
+
+		if (!(await monthHasMoney(client, activityId, periodId))) {
+			const resolved = resolveSplit(target.amountSatang, target.sharerIds, null);
+			await client.query(
+				'UPDATE expenses SET amount_satang = $2, split_mode = $3, split_values = $4::jsonb WHERE id = $1',
+				[expense.id, target.amountSatang, resolved.mode, resolved.values ? JSON.stringify(resolved.values) : null],
+			);
+			await client.query('DELETE FROM shares WHERE expense_id = $1', [expense.id]);
+			for (const [participantId, share] of Object.entries(resolved.split)) {
+				await client.query('INSERT INTO shares (id, expense_id, participant_id, amount_satang) VALUES ($1, $2, $3, $4)', [newId('shr'), expense.id, participantId, share]);
+			}
+			// This month already is the new plan, so nothing is left waiting.
+			await client.query('UPDATE activities SET recurring_change = NULL, updated_at = now() WHERE id = $1', [activityId]);
+			return { when: 'now', periodKey: key, ...target };
+		}
+
+		const from = nextPeriodKey(key);
+		await client.query('UPDATE activities SET recurring_change = $2::jsonb, updated_at = now() WHERE id = $1', [activityId, JSON.stringify({ ...merged, from })]);
+		return { when: 'next', periodKey: from, ...target };
+	});
+}
+
+/** What next month will look like, when a change is waiting for it. For the card. */
+function upcomingSubscription(activity, period) {
+	const change = activity.recurringChange;
+	if (!change || !period) return null;
+	const expenses = activity.expenses.filter(e => e.periodId === period.id);
+	if (expenses.length !== 1) return null;
+	const sharers = activity.shares.filter(s => s.expenseId === expenses[0].id).map(s => s.participantId);
+	return { periodKey: change.from, join: change.join || [], leave: change.leave || [], ...applySubscriptionChange(sharers, expenses[0].amountSatang, change) };
+}
+
 // ── money axis ──────────────────────────────────────────────────────────────
 
-async function addExpense(activityId, input) {
+async function addExpense(activityId, input, transactionClient = null) {
 	const { label, amountSatang, paidBy, shareParticipantIds = null, periodId = null, split: splitSpec = null } = input;
 
 	if (!Number.isInteger(amountSatang) || amountSatang <= 0) {
 		throw codedError('amount_invalid');
 	}
 
-	return transaction(async (client) => {
+	const run = transactionClient ? operation => operation(transactionClient) : transaction;
+	return run(async (client) => {
 		const roster = await client.query(
 			`SELECT id, rsvp,
 			        (SELECT kind FROM activities WHERE id = $1) AS activity_kind
@@ -1752,7 +2294,17 @@ async function listPaymentCandidatesForDiscord(discordUid, guildId = null, searc
 
 		const periods = [];
 		if (activity.kind === 'recurring') {
+			// A slip from Discord is checked against today's payee, so it may
+			// only pay months whose bill that person paid. A month from before
+			// the payer changed is owed to someone else, and sweeping it into
+			// this transfer would send that money to the wrong account.
+			const payeeId = activity.payee?.participantId || null;
+			const receiverOf = (period) => {
+				const bills = activity.expenses.filter(e => e.periodId === period.id);
+				return bills.length === 1 ? bills[0].paidBy : payeeId;
+			};
 			for (const period of activity.periods) {
+				if (payeeId && receiverOf(period) !== payeeId) continue;
 				const standing = settlement(activity, period.id).rows.find(item => item.participantId === participant.id);
 				const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
 				if (available > 0) periods.push({ id: period.id, key: period.key, outstandingSatang: available });
@@ -1770,6 +2322,18 @@ async function listPaymentCandidatesForDiscord(discordUid, guildId = null, searc
 			 WHERE user_id = $1 AND provider = 'discord' LIMIT 1`,
 			[activity.ownerUserId],
 		);
+		// The person the money goes to is the one who can tell whether it
+		// arrived. On a subscription that is often not the owner.
+		const payeeRow = activity.payee?.participantId
+			? activity.participants.find(item => item.id === activity.payee.participantId)
+			: null;
+		const payeeIdentity = !payeeRow?.discordUid && activity.payee?.userId
+			? await query(
+				`SELECT provider_uid FROM identities
+				 WHERE user_id = $1 AND provider = 'discord' LIMIT 1`,
+				[activity.payee.userId],
+			)
+			: null;
 		candidates.push({
 			activityId: activity.id,
 			code: activity.code,
@@ -1780,6 +2344,7 @@ async function listPaymentCandidatesForDiscord(discordUid, guildId = null, searc
 			payee: activity.payee,
 			ownerUserId: activity.ownerUserId,
 			ownerDiscordUid: ownerIdentity.rows[0]?.provider_uid || null,
+			payeeDiscordUid: payeeRow?.discordUid || payeeIdentity?.rows[0]?.provider_uid || null,
 			periods,
 			outstandingSatang: periods.reduce((total, period) => total + period.outstandingSatang, 0),
 		});
@@ -1811,6 +2376,7 @@ module.exports = {
 	getActivityByCode,
 	getActivityByParticipant,
 	listActivitiesForOwner,
+	ensureCurrentPeriodsForOwner,
 	addParticipant,
 	claimParticipant,
 	renameParticipant,
@@ -1841,6 +2407,10 @@ module.exports = {
 	settlement,
 	resolvePayee,
 	setPayee,
+	setRecurringPayer,
+	changeSubscription,
+	upcomingSubscription,
+	nextPeriodKey,
 	attachSlip,
 	getSlip,
 	forgetOldSlips,
