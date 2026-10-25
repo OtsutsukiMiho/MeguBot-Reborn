@@ -566,11 +566,11 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
  * was paid by, not today's payee, so a month from before the payer changed
  * still says who was paid back then.
  */
-function monthlyHistory(activity) {
+function monthlyHistory(activity, perMonth) {
 	return [...activity.periods]
 		.sort((a, b) => b.key.localeCompare(a.key))
 		.map((period) => {
-			const sum = activities.settlement(activity, period.id);
+			const sum = perMonth.get(period.id) || activities.settlement(activity, period.id);
 			const bills = activity.expenses.filter(e => e.periodId === period.id);
 			const receiverId = bills.length === 1 ? bills[0].paidBy : (activity.payee?.participantId || null);
 			const rows = sum.rows
@@ -608,6 +608,11 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 
 	const sum = activities.settlement(activity, scope);
 	const byParticipant = Object.fromEntries(sum.rows.map(r => [r.participantId, r]));
+	// One settlement per month, shared by `periods` and `history` below, and
+	// only when someone here may see a figure from it.
+	const perMonth = new Map(activity.kind === 'recurring' && (me || showAmounts)
+		? activity.periods.map(p => [p.id, p.id === scope ? sum : activities.settlement(activity, p.id)])
+		: []);
 	const inScope = row => (scope === null ? true : row.periodId === scope);
 	const paymentInScope = payment => scope === null
 		|| payment.periodId === scope
@@ -731,7 +736,7 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 			}
 			: null,
 		periods: activity.periods.map((p) => {
-			const standing = me ? activities.settlement(activity, p.id).rows.find(row => row.participantId === me.id) : null;
+			const standing = me ? perMonth.get(p.id)?.rows.find(row => row.participantId === me.id) : null;
 			return {
 				id: p.id,
 				key: p.key,
@@ -743,7 +748,7 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		// Every month of a subscription at once, for the history screen: who
 		// shared it, who has paid, whose slip is being checked, who still owes.
 		// Gated like every other figure, so a forwarded link shows none of it.
-		history: showAmounts && activity.kind === 'recurring' ? monthlyHistory(activity) : null,
+		history: showAmounts && activity.kind === 'recurring' ? monthlyHistory(activity, perMonth) : null,
 		participants: activity.participants.map(p => publicParticipant(
 			p, me?.id, showAmounts, byParticipant[p.id],
 			role === 'owner' || mine.some(row => row.id === p.id) ? activeDeferral(activity, p.id, scope) : null,

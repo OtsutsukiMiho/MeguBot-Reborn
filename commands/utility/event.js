@@ -42,7 +42,7 @@ const T = {
 		wrongServer: 'บิลนี้อยู่คนละเซิร์ฟเวอร์',
 		alreadyIn: 'คุณอยู่ในบิลนี้แล้ว',
 		whoAreYou: 'คุณคือใครในรายชื่อนี้? ถ้าไม่มี เลือก "เพิ่มฉันเข้าไป"',
-		addMe: 'ไม่มีชื่อฉัน — เพิ่มฉันเข้าไป',
+		addMe: 'ไม่มีชื่อฉัน เพิ่มฉันเข้าไป',
 		pickName: 'เลือกชื่อของคุณ',
 		joined: 'เพิ่มคุณเข้าบิลแล้ว',
 		claimed: name => `ผูกชื่อ **${name}** กับ Discord ของคุณแล้ว Megu จะทักเตือนให้เมื่อถึงกำหนด`,
@@ -51,7 +51,7 @@ const T = {
 		notInBill: 'คุณยังไม่อยู่ในบิลนี้ กด **ฉันไปด้วย** ก่อนนะ',
 		nothingOwed: 'คุณไม่มียอดค้างในบิลนี้',
 		slipTitle: 'แนบสลิป',
-		slipTo: (name, masked, amount) => `โอน **${amount}** ให้ **${name}**${masked ? ` · พร้อมเพย์ ${masked}` : ''}`,
+		slipTo: (name, masked, amount) => `โอน **${amount}** ให้ **${name}**${masked ? ` (พร้อมเพย์ ${masked})` : ''}`,
 		slipAmount: 'ยอดที่โอน (บาท)', slipFile: 'ภาพสลิป',
 		slipBadAmount: 'ใส่ยอดเป็นตัวเลข เช่น 120',
 		slipMissing: 'ยังไม่ได้แนบภาพสลิป',
@@ -78,6 +78,8 @@ const T = {
 		leave: 'ออกจากบิล', manage: 'จัดการ',
 		leaveConfirm: title => `ออกจาก **${title}** ใช่ไหม ถ้าเดือนนี้มีคนจ่ายแล้ว คุณยังต้องจ่ายส่วนของเดือนนี้ และจะไม่ถูกเรียกเก็บตั้งแต่เดือนหน้า`,
 		leftNow: 'ออกจากบิลแล้ว ส่วนของคุณถูกหารให้คนที่เหลือ',
+		cancelJoinConfirm: (title, period) => `ยกเลิกการเข้าร่วม **${title}** ใช่ไหม ตอนนี้คุณถูกจองให้เริ่มหารตั้งแต่${period}`,
+		joinCancelled: 'ยกเลิกแล้ว คุณจะไม่ถูกเรียกเก็บในบิลนี้',
 		leftNext: period => `ออกจากบิลแล้ว เดือนนี้ยังต้องจ่ายส่วนของคุณ ตั้งแต่${period}จะไม่ถูกเรียกเก็บ`,
 		alreadyLeaving: period => `คุณจะออกจากบิลตั้งแต่${period}อยู่แล้ว ถ้าเปลี่ยนใจ กด **ขอหารด้วย**`,
 		payerCannotLeave: 'คนจ่ายค่าบริการออกจากบิลไม่ได้ ให้เจ้าของบิลเปลี่ยนคนจ่ายก่อน',
@@ -109,13 +111,13 @@ const T = {
 		split: 'How to split', withMe: 'Evenly, including me', withoutMe: 'Evenly, not me (my treat)',
 		badAmount: raw => `Could not read "${raw}" as an amount, so the bill has no amount yet. Add it at the link.`,
 		nobody: 'Nobody else is on this bill. Pick someone or type at least one name.',
-		dropped: count => `Over 25 people — the last ${count} were left out.`,
+		dropped: count => `Over 25 people, so the last ${count} were left out.`,
 		pay: 'Send slip', join: 'I\'m in', open: 'Open bill', setPromptPay: 'Set PromptPay',
 		gone: 'This bill no longer exists.',
 		wrongServer: 'This bill belongs to another server.',
 		alreadyIn: 'You are already on this bill.',
 		whoAreYou: 'Which of these is you? If none, choose "Add me".',
-		addMe: 'Not listed — add me',
+		addMe: 'Not listed, add me',
 		pickName: 'Pick your name',
 		joined: 'You are on the bill.',
 		claimed: name => `**${name}** is now linked to your Discord. Megu will remind you when it is due.`,
@@ -124,7 +126,7 @@ const T = {
 		notInBill: 'You are not on this bill yet. Press **I\'m in** first.',
 		nothingOwed: 'You have nothing outstanding on this bill.',
 		slipTitle: 'Send slip',
-		slipTo: (name, masked, amount) => `Send **${amount}** to **${name}**${masked ? ` · PromptPay ${masked}` : ''}`,
+		slipTo: (name, masked, amount) => `Send **${amount}** to **${name}**${masked ? ` (PromptPay ${masked})` : ''}`,
 		slipAmount: 'Amount sent (THB)', slipFile: 'Slip image',
 		slipBadAmount: 'Enter the amount as a number, e.g. 120',
 		slipMissing: 'No slip image was attached.',
@@ -151,6 +153,8 @@ const T = {
 		leave: 'Leave', manage: 'Manage',
 		leaveConfirm: title => `Leave **${title}**? If anyone has paid this month you still owe this month's share, and you will not be billed from next month.`,
 		leftNow: 'You left the bill. Your share was split among the others.',
+		cancelJoinConfirm: (title, period) => `Take back joining **${title}**? You are booked to start sharing from ${period}.`,
+		joinCancelled: 'Done. You will not be billed on this one.',
 		leftNext: period => `You left the bill. You still owe this month's share; from ${period} you will not be billed.`,
 		alreadyLeaving: period => `You already leave from ${period}. Changed your mind? Press **Count me in**.`,
 		payerCannotLeave: 'The person paying for the service cannot leave. The owner has to change who pays first.',
@@ -492,9 +496,9 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
 	const payer = activity.participants.find(p => p.id === interaction.values[0] && p.discordUid);
 	if (!payer) return interaction.followUp({ content: t.failed, flags: EPHEMERAL });
 
-	const period = core.activities.currentPeriod(activity);
 	try {
-		await core.activities.setRecurringPayer(activity.id, payer.id, { periodId: period?.id || null });
+		// Core opens and picks this month itself; see setRecurringPayer.
+		await core.activities.setRecurringPayer(activity.id, payer.id);
 	}
 	catch (error) {
 		if (error.code === 'payer_locked') return interaction.followUp({ content: t.payerLocked, flags: EPHEMERAL });
@@ -529,7 +533,9 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
  */
 async function askPayerForPromptPay(client, payer, activity) {
 	const t = T.th;
-	try {
+	// A closed DM is the ordinary case and answers false. discordCall() skips
+	// the call while Discord is blocking us and hands the refusal to the guard.
+	return discordCall(`asking the payer of ${activity.code} for PromptPay`, async () => {
 		const user = await client.users.fetch(payer.discordUid);
 		await user.send({
 			content: t.payerDm(card.inert(activity.title)),
@@ -539,13 +545,7 @@ async function askPayerForPromptPay(client, payer, activity) {
 			allowedMentions: NO_PINGS,
 		});
 		return true;
-	}
-	catch (error) {
-		// A closed DM is the ordinary case. A Discord refusal has already been
-		// recorded by the block guard in the REST client.
-		console.warn(`[Megu] Could not ask the payer of ${activity.code} for PromptPay: ${error.message}`);
-		return false;
-	}
+	}, false);
 }
 
 // ── "I'm in" ───────────────────────────────────────────────────────────────
@@ -597,6 +597,10 @@ function sharesThisMonth(core, activity, participantId) {
 
 function leavingSoon(activity, participantId) {
 	return (activity.recurringChange?.leave || []).includes(participantId);
+}
+
+function joiningSoon(activity, participantId) {
+	return (activity.recurringChange?.join || []).includes(participantId);
 }
 
 function joinReply(t, core, activity, outcome) {
@@ -665,7 +669,7 @@ async function onPay(interaction, core, code) {
 	const modal = new ModalBuilder()
 		.setCustomId(`${PREFIX}:slip:${code}`)
 		.setTitle(t.slipTitle)
-		.addTextDisplayComponents(new TextDisplayBuilder().setContent(t.slipTo(card.inert(candidate.payee?.displayName || '—'), masked, amount)))
+		.addTextDisplayComponents(new TextDisplayBuilder().setContent(t.slipTo(card.inert(candidate.payee?.displayName || '?'), masked, amount)))
 		.addLabelComponents(
 			new LabelBuilder().setLabel(t.slipAmount).setTextInputComponent(new TextInputBuilder()
 				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true)
@@ -692,10 +696,10 @@ async function onSlip(interaction, core, code) {
 		attachment,
 		senderDiscordUid: interaction.user.id,
 		core,
-		notifyOwner: async (uid, message) => {
+		notifyOwner: (uid, message) => discordCall(`telling the receiver of ${code} about a slip`, async () => {
 			const owner = await interaction.client.users.fetch(uid);
 			await owner.send({ ...message, allowedMentions: { parse: [] } });
-		},
+		}),
 	});
 	await interaction.editReply(reply);
 	// Pressed on the channel card: show the new status there too. Pressed in a
@@ -761,14 +765,19 @@ async function onLeave(interaction, core, code) {
 	if (!activity) return interaction.reply({ content: t.gone, flags: EPHEMERAL });
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
 	const mine = isMine(activity, interaction.user.id, account?.id);
-	if (!mine || !sharesThisMonth(core, activity, mine.id)) return interaction.reply({ content: t.notInBill, flags: EPHEMERAL });
+	// Someone booked to join next month has no share yet, but leaving is how
+	// they take that back.
+	const joining = Boolean(mine) && joiningSoon(activity, mine.id);
+	if (!mine || (!sharesThisMonth(core, activity, mine.id) && !joining)) return interaction.reply({ content: t.notInBill, flags: EPHEMERAL });
 	if (mine.id === activity.payee?.participantId) return interaction.reply({ content: t.payerCannotLeave, flags: EPHEMERAL });
 	if (leavingSoon(activity, mine.id)) {
 		return interaction.reply({ content: t.alreadyLeaving(formatPeriod(activity.recurringChange.from, t.lang)), flags: EPHEMERAL });
 	}
 	// Asked once more, because it moves money for everybody else.
 	return interaction.reply({
-		content: t.leaveConfirm(card.inert(activity.title)),
+		content: joining
+			? t.cancelJoinConfirm(card.inert(activity.title), formatPeriod(activity.recurringChange.from, t.lang))
+			: t.leaveConfirm(card.inert(activity.title)),
 		components: [new ActionRowBuilder().addComponents(
 			new ButtonBuilder().setCustomId(`${PREFIX}:leaveok:${code}:${interaction.message.id}`).setStyle(ButtonStyle.Danger).setLabel(t.leave),
 		)],
@@ -784,6 +793,7 @@ async function onLeaveConfirm(interaction, core, code, cardMessageId) {
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
 	const mine = isMine(activity, interaction.user.id, account?.id);
 	if (!mine) return interaction.editReply({ content: t.notInBill, components: [] });
+	const wasJoining = joiningSoon(activity, mine.id) && !sharesThisMonth(core, activity, mine.id);
 	let result;
 	try {
 		result = await core.activities.changeSubscription(activity.id, { leave: [mine.id] });
@@ -794,7 +804,9 @@ async function onLeaveConfirm(interaction, core, code, cardMessageId) {
 		return interaction.editReply({ content: refusal, components: [] });
 	}
 	await refreshCard(core, interaction, code, cardMessageId);
-	const content = result.when === 'now' ? t.leftNow : t.leftNext(formatPeriod(result.periodKey, t.lang));
+	const content = wasJoining
+		? t.joinCancelled
+		: result.when === 'now' ? t.leftNow : t.leftNext(formatPeriod(result.periodKey, t.lang));
 	return interaction.editReply({ content, components: [] });
 }
 
@@ -821,8 +833,12 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 			.setCustomId(`${PREFIX}:addp:${ids}`).setPlaceholder(t.addPeople).setMinValues(1).setMaxValues(10)),
 	];
 	const leaving = new Set(upcoming?.leave || []);
+	const joining = new Set(upcoming?.join || []);
+	// Current sharers, and anyone booked to join next month, so the owner can
+	// take a booking back as well as remove someone.
 	const removable = activity.participants
-		.filter(p => sharers.some(row => row.participantId === p.id) && p.id !== activity.payee?.participantId && !leaving.has(p.id))
+		.filter(p => (sharers.some(row => row.participantId === p.id) || joining.has(p.id))
+			&& p.id !== activity.payee?.participantId && !leaving.has(p.id))
 		.slice(0, 25);
 	if (removable.length > 0) {
 		rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
@@ -868,7 +884,7 @@ async function onPriceButton(interaction, core, code, cardMessageId) {
 }
 
 /** Run one change from the panel, redraw the card and the panel, and say what happened. */
-async function applyFromPanel(interaction, core, code, cardMessageId, change) {
+async function applyFromPanel(interaction, core, code, cardMessageId, change, { onRefused = null } = {}) {
 	const t = copyFor(interaction);
 	await interaction.deferUpdate();
 	const view = await ownerView(core, interaction, code);
@@ -880,6 +896,7 @@ async function applyFromPanel(interaction, core, code, cardMessageId, change) {
 	catch (error) {
 		const refusal = changeRefusal(t, error);
 		if (!refusal) throw error;
+		if (onRefused) await onRefused();
 		return interaction.followUp({ content: refusal, flags: EPHEMERAL });
 	}
 	await refreshCard(core, interaction, code, cardMessageId);
@@ -901,6 +918,7 @@ async function onAddPeople(interaction, core, code, cardMessageId) {
 	// A Discord account already on the roster (someone who left, say) comes
 	// back as the same row, so their history stays in one place.
 	const ids = [];
+	const created = [];
 	for (const user of interaction.users.values()) {
 		if (user.bot) continue;
 		const existing = view.activity.participants.find(p => p.discordUid === user.id);
@@ -916,9 +934,17 @@ async function onAddPeople(interaction, core, code, cardMessageId) {
 			rsvp: 'yes',
 		});
 		ids.push(added.id);
+		created.push(added.id);
 	}
 	if (ids.length === 0) return interaction.deferUpdate();
-	return applyFromPanel(interaction, core, code, cardMessageId, { join: ids });
+	// The rows have to exist before the change can name them. If the change is
+	// refused, the rows made for it go again rather than sitting on the roster
+	// with no share and no explanation.
+	return applyFromPanel(interaction, core, code, cardMessageId, { join: ids }, {
+		onRefused: async () => {
+			for (const id of created) await core.activities.removeParticipant(id).catch(() => false);
+		},
+	});
 }
 
 function onRemovePeople(interaction, core, code, cardMessageId) {
@@ -1021,30 +1047,45 @@ async function tellPayer(core, client, activity, payment, decision, reason) {
 		: decision === 'reject'
 			? `The organiser has not received your ${amount} payment. Reason: ${reason}\nYou can send a new slip from the bill card.`
 			: `The organiser undid the confirmation of your ${amount} payment. Reason: ${reason}`;
-	try {
-		if (payer.userId) {
-			await core.notifications.enqueue({
-				userId: payer.userId,
-				eventType: `payment_${decision}`,
-				dedupeKey: `payment-decision:${payment.id}:${decision}:discord`,
-				payload: {
-					activityTitle: activity.title,
-					subjectTh: `อัปเดตการจ่ายเงิน ${activity.title}`,
-					subjectEn: `Payment update for ${activity.title}`,
-					bodyTh, bodyEn, ctaUrl: shareUrl(activity.code),
-				},
-			});
-		}
-		else if (payer.discordUid) {
+	if (payer.userId) {
+		// The decision is already written; a full outbox must not undo that.
+		await core.notifications.enqueue({
+			userId: payer.userId,
+			eventType: `payment_${decision}`,
+			dedupeKey: `payment-decision:${payment.id}:${decision}:discord`,
+			payload: {
+				activityTitle: activity.title,
+				subjectTh: `อัปเดตการจ่ายเงิน ${activity.title}`,
+				subjectEn: `Payment update for ${activity.title}`,
+				bodyTh, bodyEn, ctaUrl: shareUrl(activity.code),
+			},
+		}).catch(error => console.warn(`[Megu] Could not queue the ${decision} notice for ${activity.code}: ${error.message}`));
+	}
+	else if (payer.discordUid) {
+		await discordCall(`telling the payer of ${activity.code} about the ${decision}`, async () => {
 			const user = await client.users.fetch(payer.discordUid);
 			await user.send({ content: `**${card.inert(activity.title)}**\n${bodyTh}\n${shareUrl(activity.code)}`, allowedMentions: NO_PINGS });
-		}
+		});
+	}
+}
+
+/**
+ * bot.js hands over its discordCall(): skip while Discord is blocking us, and
+ * feed every refusal to the guard. This default keeps tests and any other
+ * caller working with the same shape, minus the guard.
+ */
+let discordCall = async (label, run, fallback = undefined) => {
+	try {
+		return await run();
 	}
 	catch (error) {
-		// The decision is already written. A closed DM is not an incident, and a
-		// Discord refusal has already reached the block guard in the REST client.
-		console.warn(`[Megu] Could not tell the payer of ${activity.code} about the ${decision}: ${error.message}`);
+		console.warn(`[Megu] Discord call failed while ${label}: ${error.message}`);
+		return fallback;
 	}
+};
+
+function useDiscordCall(fn) {
+	if (typeof fn === 'function') discordCall = fn;
 }
 
 // ── routing ────────────────────────────────────────────────────────────────
@@ -1104,6 +1145,7 @@ module.exports = {
 	copyFor,
 	subModal,
 	handleComponent,
+	useDiscordCall,
 	resplitForNewcomer,
 
 	async execute(interaction) {

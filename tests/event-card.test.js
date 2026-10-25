@@ -75,9 +75,9 @@ function ok(name) {
 	};
 	const th = card.eventCardMessage({ activity, settlement, payee: { participantId: 'p1' }, locale: 'th' });
 	const lines = th.content.split('\n');
-	assert.equal(lines[0], '🧾 **ตีแบด \\*เสาร์\\*** · ฿600.00 หารเท่า 4 คน');
-	assert.match(lines[1], /^• <@100> ฿150\.00 · รับเงิน$/);
-	assert.match(lines[2], /^• <@200> ฿150\.00 · ✅ จ่ายแล้ว$/);
+	assert.equal(lines[0], '**ตีแบด \\*เสาร์\\*** ฿600.00 หารเท่า 4 คน');
+	assert.match(lines[1], /^• <@100> ฿150\.00 \(รับเงิน\)$/);
+	assert.match(lines[2], /^• <@200> ฿150\.00 \(จ่ายแล้ว\)$/);
 	assert.ok(!th.content.includes('@everyone'), 'a typed name can never ping the server');
 	assert.match(lines[3], /ไม่ได้ใช้ Discord/);
 	assert.match(lines[4], /รอตรวจสลิป/);
@@ -86,7 +86,7 @@ function ok(name) {
 	ok('the card: who owes what, who has paid, whose slip is being checked');
 
 	const noAmount = card.eventCardMessage({ activity, settlement: { total: 0, state: 'none', rows: [] }, locale: 'en-US' });
-	assert.match(noAmount.content, /4 people · no amount yet/);
+	assert.match(noAmount.content, /4 people, no amount yet/);
 	assert.deepEqual(noAmount.mentionUids, [], 'nobody is pinged about a bill with no amount');
 	const settled = card.eventCardMessage({ activity, settlement: { ...settlement, state: 'settled' }, locale: 'th' });
 	assert.match(settled.content, /ทุกคนจ่ายครบแล้ว/);
@@ -125,10 +125,11 @@ function ok(name) {
 		],
 	};
 	const th = card.eventCardMessage({ activity, settlement, payee: { participantId: 'p1' }, period: { key: '2026-10' }, locale: 'th' });
-	assert.equal(th.content.split('\n')[0], '🔁 **Netflix** · ฿420.00/เดือน หารเท่า 3 คน · ตุลาคม 2569 · ทุกวันที่ 5');
+	assert.equal(th.content.split('\n')[0], '**Netflix** ฿420.00/เดือน หารเท่า 3 คน');
+	assert.equal(th.content.split('\n')[1], 'รอบตุลาคม 2569 ครบกำหนดทุกวันที่ 5');
 	assert.match(th.content, /Megu จะเตือนทุกเดือน/);
 	const en = card.eventCardMessage({ activity, settlement, payee: { participantId: 'p1' }, period: { key: '2026-10' }, locale: 'en' });
-	assert.match(en.content, /฿420\.00\/month split evenly by 3 · October 2026 · the 5th of every month/);
+	assert.match(en.content, /฿420\.00\/month split evenly by 3\nOctober 2026, due the 5th of every month/);
 	ok('a monthly card names the month, the amount per month and the due day');
 
 	const note = card.organizerNote({ activity, payeeHasPromptPay: true, shareUrl: 'u', period: { key: '2026-10' }, locale: 'th' });
@@ -138,7 +139,7 @@ function ok(name) {
 		title: 'Netflix', periodKey: '2026-10', locale: 'th',
 		lines: [{ displayName: 'โอม', discordUid: '200', amountSatang: 14000 }, { displayName: '@here แม่', discordUid: null, amountSatang: 14000 }],
 	});
-	assert.equal(due.split('\n')[0], '⏰ **Netflix** · ตุลาคม 2569 ครบกำหนดวันนี้');
+	assert.equal(due.split('\n')[0], '**Netflix** รอบตุลาคม 2569 ครบกำหนดวันนี้');
 	assert.equal(due.split('\n')[1], '• <@200> ยังค้าง ฿140.00');
 	assert.ok(!due.includes('@here'), 'a typed name cannot ping the channel');
 	assert.match(due, /กด \*\*แนบสลิป\*\*/);

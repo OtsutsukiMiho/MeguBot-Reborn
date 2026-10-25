@@ -670,6 +670,8 @@ for (const folder of commandFolders) {
 		const command = require(filePath);
 		if ('data' in command && 'execute' in command) {
 			client.commands.set(command.data.name, command);
+			// /event sends DMs from its buttons; they go through the same guard.
+			command.useDiscordCall?.(discordCall);
 		}
 		else {
 			BotLogs('SYSTEM', `${COLOR.yellow}Warning: The command at ${COLOR.white}${filePath}${COLOR.yellow} is missing a required "data" or "execute" property.`);

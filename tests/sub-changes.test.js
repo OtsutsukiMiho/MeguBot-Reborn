@@ -188,7 +188,7 @@ async function main() {
 
 		for (const text of [lastText(call), cardText]) {
 			for (const line of text.split('\n').filter(l => /เดือนสุดท้าย|เริ่ม|ตั้งแต่/.test(l))) {
-				assert.doesNotMatch(line.replace(/ · /g, ''), /[→←—]/);
+				assert.doesNotMatch(line, /[·→←—]/);
 			}
 		}
 		ok('the new lines use no arrow or em dash');

@@ -19,20 +19,20 @@ const SPLIT_MODES = ['with_me', 'without_me'];
 const COPY = {
 	th: {
 		heading: (title, total, count) => (total
-			? `🧾 **${title}** · ${total} หารเท่า ${count} คน`
-			: `🧾 **${title}** · ${count} คน · ยังไม่ใส่ยอด`),
-		payee: name => `💰 โอนให้ ${name}`,
+			? `**${title}** ${total} หารเท่า ${count} คน`
+			: `**${title}** ${count} คน ยังไม่ใส่ยอด`),
+		payee: name => `โอนให้ ${name}`,
 		receives: 'รับเงิน',
 		paid: 'จ่ายแล้ว',
 		checking: 'รอตรวจสลิป',
 		notLinked: 'ไม่ได้ใช้ Discord',
-		howTo: 'โอนแล้วกด **แนบสลิป** ได้เลย · ไม่อยู่ในรายชื่อแต่ไปด้วย กด **ฉันไปด้วย**',
+		howTo: 'โอนแล้วกด **แนบสลิป** ได้เลย ถ้าไปด้วยแต่ไม่มีชื่อ กด **ฉันไปด้วย**',
 		noAmount: 'คนจัดใส่ยอดได้ที่ลิงก์ เมื่อรู้ยอดแล้ว',
-		settled: '✅ ทุกคนจ่ายครบแล้ว',
+		settled: 'ทุกคนจ่ายครบแล้ว',
 		more: count => `…และอีก ${count} คน`,
-		monthly: (title, total, count, period, due) => `🔁 **${title}** · ${total}/เดือน หารเท่า ${count} คน · ${period} · ${due}`,
-		monthlyHowTo: 'โอนแล้วกด **แนบสลิป** ได้เลย · Megu จะเตือนทุกเดือนเมื่อถึงกำหนด',
-		dueHeading: (title, period) => `⏰ **${title}** · ${period} ครบกำหนดวันนี้`,
+		monthly: (title, total, count, period, due) => `**${title}** ${total}/เดือน หารเท่า ${count} คน\nรอบ${period} ครบกำหนด${due}`,
+		monthlyHowTo: 'โอนแล้วกด **แนบสลิป** ได้เลย แล้ว Megu จะเตือนทุกเดือนเมื่อถึงกำหนด',
+		dueHeading: (title, period) => `**${title}** รอบ${period} ครบกำหนดวันนี้`,
 		dueLine: (name, amount) => `• ${name} ยังค้าง ${amount}`,
 		dueHowTo: 'โอนแล้วกด **แนบสลิป** ด้านล่าง',
 		monthlyNote: (due, period) => `Megu จะเปิดรอบใหม่ให้ทุกเดือน และเตือนคนที่ยังไม่จ่าย ${due} (รอบแรก: ${period})`,
@@ -42,20 +42,20 @@ const COPY = {
 	},
 	en: {
 		heading: (title, total, count) => (total
-			? `🧾 **${title}** · ${total} split evenly by ${count}`
-			: `🧾 **${title}** · ${count} people · no amount yet`),
-		payee: name => `💰 Pay ${name}`,
+			? `**${title}** ${total} split evenly by ${count}`
+			: `**${title}** ${count} people, no amount yet`),
+		payee: name => `Pay ${name}`,
 		receives: 'collecting',
 		paid: 'paid',
 		checking: 'slip being checked',
 		notLinked: 'not on Discord',
 		howTo: 'Paid? Press **Send slip**. Coming but not listed? Press **I\'m in**',
 		noAmount: 'The organiser can add the amount at the link once it is known',
-		settled: '✅ Everyone has paid',
+		settled: 'Everyone has paid',
 		more: count => `…and ${count} more`,
-		monthly: (title, total, count, period, due) => `🔁 **${title}** · ${total}/month split evenly by ${count} · ${period} · ${due}`,
+		monthly: (title, total, count, period, due) => `**${title}** ${total}/month split evenly by ${count}\n${period}, due ${due}`,
 		monthlyHowTo: 'Paid? Press **Send slip**. Megu reminds everyone each month when it is due',
-		dueHeading: (title, period) => `⏰ **${title}** · ${period} is due today`,
+		dueHeading: (title, period) => `**${title}** for ${period} is due today`,
 		dueLine: (name, amount) => `• ${name} still owes ${amount}`,
 		dueHowTo: 'Paid? Press **Send slip** below',
 		monthlyNote: (due, period) => `Megu opens a new month automatically and reminds whoever has not paid on ${due} (first month: ${period})`,
@@ -187,13 +187,13 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, u
 		const parts = [`• ${label(p)}`];
 		if (row.owes > 0) parts.push(money(row.owes));
 		if (p.id === payeeId) {
-			parts.push(`· ${copy.receives}`);
+			parts.push(`(${copy.receives})`);
 		}
 		else if (total > 0 && row.owes > 0) {
-			if (row.outstanding <= 0) parts.push(`· ✅ ${copy.paid}`);
-			else if (row.pending > 0) parts.push(`· 🧾 ${copy.checking}`);
+			if (row.outstanding <= 0) parts.push(`(${copy.paid})`);
+			else if (row.pending > 0) parts.push(`(${copy.checking})`);
 		}
-		if (!p.discordUid && !p.userId) parts.push(`· _${copy.notLinked}_`);
+		if (!p.discordUid && !p.userId) parts.push(`_(${copy.notLinked})_`);
 		if (joining.has(p.id) && !(row.owes > 0)) parts.push(copy.startsFrom(formatPeriod(upcoming.periodKey, lang)));
 		else if (leaving.has(p.id)) parts.push(copy.lastMonth);
 		lines.push(parts.join(' '));

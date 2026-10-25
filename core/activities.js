@@ -755,26 +755,47 @@ async function setPayee(activityId, participantId) {
  * Refused once any money has been sent for the month: a slip already checked
  * against one person's account must not quietly become a debt to another.
  */
-async function setRecurringPayer(activityId, participantId, { periodId }) {
+async function setRecurringPayer(activityId, participantId, { now = new Date() } = {}) {
+	// This month, opened here if the rollover has not run yet. Taking the
+	// period from the caller let a pick on the 1st, before the new month
+	// existed, rewrite last month's bill instead.
+	await ensurePeriod(activityId, now, { rollover: true });
 	return transaction(async (client) => {
 		const locked = await client.query('SELECT kind FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
 		if (!locked.rows.length) throw codedError('activity_not_found');
 		if (locked.rows[0].kind !== 'recurring') throw codedError('not_recurring');
 		const member = await client.query('SELECT id FROM participants WHERE id = $1 AND activity_id = $2', [participantId, activityId]);
 		if (!member.rows.length) throw codedError('participant_not_in_activity');
-		const sent = await client.query(
-			`SELECT 1 FROM payments p
-			 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
-			 WHERE p.activity_id = $1 AND p.status IN ('pending', 'confirmed')
-			   AND (p.period_id = $2 OR pa.period_id = $2)
-			 LIMIT 1`,
-			[activityId, periodId],
-		);
-		if (sent.rows.length) throw codedError('payer_locked');
+		const periodId = await thisMonthPeriodId(client, activityId, now);
+		if (await monthHasMoney(client, activityId, periodId)) throw codedError('payer_locked');
 		await client.query('UPDATE activities SET payee_participant_id = $2, updated_at = now() WHERE id = $1', [activityId, participantId]);
 		await client.query('UPDATE expenses SET paid_by = $3 WHERE activity_id = $1 AND period_id = $2', [activityId, periodId, participantId]);
-		return { participantId };
+		return { participantId, periodId };
 	});
+}
+
+/** The id of the period covering `now`. The caller has already opened it. */
+async function thisMonthPeriodId(client, activityId, now) {
+	const period = await client.query('SELECT id FROM periods WHERE activity_id = $1 AND period_key = $2', [activityId, periodKeyFor(now)]);
+	if (!period.rows.length) throw codedError('period_missing');
+	return period.rows[0].id;
+}
+
+/**
+ * Whether any money has been sent for a month, confirmed or still being
+ * checked. The one rule behind both locks: once it has, neither the payer nor
+ * the split of that month may change under it.
+ */
+async function monthHasMoney(client, activityId, periodId) {
+	const sent = await client.query(
+		`SELECT 1 FROM payments p
+		 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
+		 WHERE p.activity_id = $1 AND p.status IN ('pending', 'confirmed')
+		   AND (p.period_id = $2 OR pa.period_id = $2)
+		 LIMIT 1`,
+		[activityId, periodId],
+	);
+	return sent.rows.length > 0;
 }
 
 function getActivity(id) {
@@ -1368,6 +1389,12 @@ async function copyPreviousPeriod(client, activityId, key, periodId) {
 		await client.query('UPDATE activities SET recurring_change = NULL WHERE id = $1', [activityId]);
 		return;
 	}
+	// Due, but the month has since grown a second cost on the web, so "the
+	// price" no longer means one thing. Dropped rather than left waiting for a
+	// month it can never apply to, announced on the card forever.
+	if (change && key >= change.from) {
+		await client.query('UPDATE activities SET recurring_change = NULL WHERE id = $1', [activityId]);
+	}
 
 	for (const expense of expenses.rows) {
 		const shares = await client.query('SELECT participant_id, amount_satang FROM shares WHERE expense_id = $1', [expense.id]);
@@ -1446,6 +1473,9 @@ async function insertEvenExpense(client, { activityId, periodId, label, paidBy, 
 async function changeSubscription(activityId, change, { now = new Date() } = {}) {
 	const amountSatang = change.amountSatang == null ? null : Number(change.amountSatang);
 	if (amountSatang != null && (!Number.isSafeInteger(amountSatang) || amountSatang <= 0)) throw codedError('amount_invalid');
+	// The month a change is about has to exist. On the 1st, before the hourly
+	// rollover, it may not yet, and a join or a leave must not fail for that.
+	await ensurePeriod(activityId, now, { rollover: true });
 	return transaction(async (client) => {
 		const locked = await client.query('SELECT kind, payee_participant_id, recurring_change FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
 		if (!locked.rows.length) throw codedError('activity_not_found');
@@ -1456,9 +1486,7 @@ async function changeSubscription(activityId, change, { now = new Date() } = {})
 		}
 
 		const key = periodKeyFor(now);
-		const period = await client.query('SELECT id FROM periods WHERE activity_id = $1 AND period_key = $2', [activityId, key]);
-		if (!period.rows.length) throw codedError('period_missing');
-		const periodId = period.rows[0].id;
+		const periodId = await thisMonthPeriodId(client, activityId, now);
 		const expenses = await client.query('SELECT * FROM expenses WHERE period_id = $1 FOR UPDATE', [periodId]);
 		if (expenses.rows.length !== 1) throw codedError('change_needs_web');
 		const [expense] = expenses.rows;
@@ -1470,15 +1498,7 @@ async function changeSubscription(activityId, change, { now = new Date() } = {})
 		const target = applySubscriptionChange(shares.rows.map(r => r.participant_id), Number(expense.amount_satang), merged);
 		if (target.sharerIds.length === 0) throw codedError('nobody_left');
 
-		const sent = await client.query(
-			`SELECT 1 FROM payments p
-			 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
-			 WHERE p.activity_id = $1 AND p.status IN ('pending', 'confirmed')
-			   AND (p.period_id = $2 OR pa.period_id = $2)
-			 LIMIT 1`,
-			[activityId, periodId],
-		);
-		if (!sent.rows.length) {
+		if (!(await monthHasMoney(client, activityId, periodId))) {
 			const resolved = resolveSplit(target.amountSatang, target.sharerIds, null);
 			await client.query(
 				'UPDATE expenses SET amount_satang = $2, split_mode = $3, split_values = $4::jsonb WHERE id = $1',
@@ -2274,7 +2294,17 @@ async function listPaymentCandidatesForDiscord(discordUid, guildId = null, searc
 
 		const periods = [];
 		if (activity.kind === 'recurring') {
+			// A slip from Discord is checked against today's payee, so it may
+			// only pay months whose bill that person paid. A month from before
+			// the payer changed is owed to someone else, and sweeping it into
+			// this transfer would send that money to the wrong account.
+			const payeeId = activity.payee?.participantId || null;
+			const receiverOf = (period) => {
+				const bills = activity.expenses.filter(e => e.periodId === period.id);
+				return bills.length === 1 ? bills[0].paidBy : payeeId;
+			};
 			for (const period of activity.periods) {
+				if (payeeId && receiverOf(period) !== payeeId) continue;
 				const standing = settlement(activity, period.id).rows.find(item => item.participantId === participant.id);
 				const available = Math.max(0, (standing?.outstanding || 0) - (standing?.pending || 0));
 				if (available > 0) periods.push({ id: period.id, key: period.key, outstandingSatang: available });

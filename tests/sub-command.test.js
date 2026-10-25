@@ -94,7 +94,7 @@ async function main() {
 		assert.equal(activity.periods.length, 1, 'this month is open');
 		const thisMonth = activity.periods[0];
 		assert.deepEqual(activity.shares.filter(s => s.periodId === thisMonth.id).map(s => s.amountSatang), [14000, 14000, 14000]);
-		assert.match(card.content, /^🔁 \*\*Netflix\*\* · ฿420\.00\/เดือน หารเท่า 3 คน · .+ · ทุกวันที่ 5/);
+		assert.match(card.content, /^\*\*Netflix\*\* ฿420\.00\/เดือน หารเท่า 3 คน\nรอบ.+ ครบกำหนดทุกวันที่ 5/);
 		assert.equal(card.components[0].components[1].data.label, 'ขอหารด้วย');
 		assert.match(call.log.followUps[0].content, /เปิดรอบใหม่ให้ทุกเดือน/);
 		ok('one modal: a monthly bill, this month opened and split three ways, one card');
@@ -123,7 +123,7 @@ async function main() {
 		const mine = posts.filter(p => p.defer?.code === code);
 		assert.equal(mine.length, 1);
 		assert.equal(mine[0].channelId, '223456789012345678');
-		assert.match(mine[0].message, /^⏰ \*\*Netflix\*\* · .+ ครบกำหนดวันนี้/);
+		assert.match(mine[0].message, /^\*\*Netflix\*\* รอบ.+ ครบกำหนดวันนี้/);
 		assert.match(mine[0].message, new RegExp(`<@${om.id}> ยังค้าง ฿140\\.00`));
 		assert.match(mine[0].message, /แม่ ยังค้าง ฿140\.00/, 'the person Megu cannot DM is listed for the group');
 		assert.ok(!mine[0].message.includes(`<@${fig.id}>`), 'the organiser is collecting, not owing');

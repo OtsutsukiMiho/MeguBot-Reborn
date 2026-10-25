@@ -169,8 +169,8 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	}
 
 	const status = result.autoConfirmed
-		? `✅ บันทึกว่า **ชำระแล้ว ${money(amountSatang)}** ให้ **${candidate.title}**`
-		: `🧾 รับสลิป **${money(amountSatang)}** ของ **${candidate.title}** แล้ว แต่ข้อมูลยังไม่ครบ จึงรอเจ้าของตรวจ`;
+		? `บันทึกว่า **ชำระแล้ว ${money(amountSatang)}** ให้ **${candidate.title}**`
+		: `รับสลิป **${money(amountSatang)}** ของ **${candidate.title}** แล้ว แต่ข้อมูลยังไม่ครบ จึงรอเจ้าของตรวจ`;
 	return `${status}\n${link}`;
 }
 

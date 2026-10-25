@@ -13,16 +13,16 @@ const { formatMoney } = require('./format.js');
 
 const COPY = {
 	th: {
-		heading: (title, total) => `💸 **${title}** · สรุปบิล ${total}`,
+		heading: (title, total) => `**${title}** สรุปบิล ${total}`,
 		owes: (name, amount, to) => `• ${name} โอน ${amount} ให้ ${to}`,
-		settled: '✅ ทุกคนเคลียร์กันครบแล้ว',
+		settled: 'ทุกคนเคลียร์กันครบแล้ว',
 		more: count => `…และอีก ${count} รายการ ดูทั้งหมดในลิงก์`,
 		cta: 'ดูบิล / จ่ายเงิน',
 	},
 	en: {
-		heading: (title, total) => `💸 **${title}** · bill summary ${total}`,
+		heading: (title, total) => `**${title}** bill summary ${total}`,
 		owes: (name, amount, to) => `• ${name} sends ${amount} to ${to}`,
-		settled: '✅ Everyone is settled up',
+		settled: 'Everyone is settled up',
 		more: count => `…and ${count} more, all in the link`,
 		cta: 'View bill / pay',
 	},

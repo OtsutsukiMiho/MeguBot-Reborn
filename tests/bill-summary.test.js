@@ -25,7 +25,7 @@ function ok(name) {
 		],
 	};
 	const th = billSummaryMessage({ title: 'ตีแบด', settlement, lang: 'th' });
-	assert.equal(th.message.split('\n')[0], '💸 **ตีแบด** · สรุปบิล ฿693.00');
+	assert.equal(th.message.split('\n')[0], '**ตีแบด** สรุปบิล ฿693.00');
 	assert.equal(th.message.split('\n')[1], '• โอม โอน ฿107.25 ให้ ฟิก', 'largest transfer first');
 	assert.ok(!th.message.includes('@everyone'), 'a name can never become a mention');
 	assert.ok(th.message.includes('\\*A\\*'), 'a name can never become formatting');
