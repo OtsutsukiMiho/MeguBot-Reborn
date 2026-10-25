@@ -222,11 +222,18 @@ async function paymentDueNow({ now = new Date(), baseUrl = '', windowHours = DUE
 		JOIN expenses e ON e.activity_id = a.id
 		LEFT JOIN periods p ON p.activity_id = a.id
 		WHERE a.plan_state <> 'cancelled'
-		  AND (a.kind = 'recurring'
-		    OR ((a.payment_due_at IS NOT NULL AND a.payment_due_at <= $1 AND a.payment_due_at > $2)
-		    OR (p.due_at IS NOT NULL AND p.due_at <= $1 AND p.due_at > $2))
+		  AND (
+		    -- A monthly bill still in use (a month from last month or later),
+		    -- which may need this month opened before its deadline is known.
+		    -- Bills nobody has used since are left alone: rollover would not
+		    -- open them, and loading every one every five minutes was the cost.
+		    (a.kind = 'recurring' AND EXISTS (
+		      SELECT 1 FROM periods recent
+		      WHERE recent.activity_id = a.id AND recent.period_key >= $3))
+		    OR (a.payment_due_at IS NOT NULL AND a.payment_due_at <= $1 AND a.payment_due_at > $2)
+		    OR (p.due_at IS NOT NULL AND p.due_at <= $1 AND p.due_at > $2)
 		  )
-	`, [now, windowStart]);
+	`, [now, windowStart, activities.previousPeriodKey(activities.periodKeyFor(now))]);
 
 	const notices = [];
 	const hostDigests = [];
