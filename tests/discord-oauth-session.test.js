@@ -7,6 +7,7 @@ const source = fs.readFileSync(require.resolve('../backend/web/web.js'), 'utf8')
 
 function fixture(intent = 'login') {
 	let exchanges = 0, regenerations = 0, links = 0, accounts = 0;
+	const claims = [];
 	let stored, consumed = false;
 	const registrations = [];
 	const account = { id: 'megu-user', displayName: 'Person' };
@@ -14,6 +15,8 @@ function fixture(intent = 'login') {
 		crypto, Date, process: { env: {} }, BotLogs: () => {}, recordDiscordBlock: () => false,
 		discordBlock: { blocked: () => false }, sendBlockedPage: () => { throw new Error('Unexpected block'); },
 		safeInternalReturn: value => value || '/',
+		// The guest cookie a browser picked up on /a/<code> before signing in.
+		deviceTokenFrom: () => 'device-from-cookie',
 		discordOAuth: {
 			authorizeUrl: ({ state }) => `https://discord.test/?state=${state}`,
 			exchangeCode: async () => { exchanges++; return { access_token: 'token', refresh_token: 'refresh', expires_in: 100 }; },
@@ -21,7 +24,8 @@ function fixture(intent = 'login') {
 			toIdentityProfile: user => ({ provider: 'discord', providerUid: user.id }),
 		},
 		core: { users: {
-			loginWithIdentity: async () => { accounts++; return { user: account }; }, claimParticipants: async () => {},
+			loginWithIdentity: async () => { accounts++; return { user: account }; },
+			claimParticipants: async (userId, options) => { claims.push({ userId, ...options }); },
 			linkIdentity: async () => { links++; return { linked: true }; }, getUser: async () => account,
 		}, oauthCredentials: { save: async () => ({ stored: true }) } },
 		setDiscordSession: (session, user, guilds) => { session.user = user; session.allGuilds = guilds; },
@@ -48,7 +52,7 @@ function fixture(intent = 'login') {
 	handlers.begin(intent)(req, res);
 	const issued = req.session.oauth2Request;
 	req.query = { code: 'code', state: issued.state };
-	return { req, res, issued, handlers, registrations, counts: () => ({ exchanges, regenerations, links }), accounts: () => accounts,
+	return { req, res, issued, handlers, registrations, counts: () => ({ exchanges, regenerations, links }), accounts: () => accounts, claims: () => claims,
 		snapshot: () => attach({ sessionID: req.sessionID, query: { ...req.query }, headers: {}, session: JSON.parse(JSON.stringify(stored)) }) };
 }
 
@@ -72,6 +76,9 @@ async function main() {
 		const f = fixture(intent);
 		await f.handlers.finish(f.req, f.res);
 		assert.deepEqual(f.counts(), { exchanges: 1, regenerations: intent === 'login' ? 1 : 0, links: intent === 'link' ? 1 : 0 });
+		// A guest who tapped a name on a shared link and then signed in with
+		// Discord takes that row with them, found by this browser's cookie.
+		if (intent === 'login') assert.deepEqual(f.claims(), [{ userId: 'megu-user', deviceToken: 'device-from-cookie' }]);
 		assert.equal(f.req.session.meguUserId, 'megu-user'); assert.equal(f.req.session.user.id, '123456789012345678');
 		assert.equal(f.req.session.oauth2Request, undefined);
 		assert.equal(f.req.session.staleAuthority, intent === 'login' ? undefined : true, 'Login regenerates; linking retains existing session');
