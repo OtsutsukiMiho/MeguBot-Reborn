@@ -4,7 +4,7 @@
 // Most of these were already in the pages and are kept word for word — they
 // were written in Megu's register, and a translation round-trip through
 // English would have flattened them into something politer and colder than
-// she is.
+// Megu is.
 
 const th = {
 	code: 'th',
@@ -1196,7 +1196,7 @@ const th = {
 			event: 'ครั้งเดียวจบ',
 			eventHint: 'กินข้าว ไปเที่ยว ซื้อของ ตีแบด — นัดกันครั้งเดียว หารกันแล้วจบ',
 			recurring: 'เก็บทุกเดือน',
-			recurringHint: 'ค่าเน็ต Netflix ค่าห้อง — ยอดเดิมทุกเดือน Megu เปิดรอบให้เอง',
+			recurringHint: 'ค่าเน็ต Netflix ค่าห้อง ยอดเดิมทุกเดือน Megu เปิดรอบให้เอง',
 		},
 
 		saysEvent: 'จะทำอะไร กับใครบ้าง เดี๋ยวเราไปถามให้เอง',

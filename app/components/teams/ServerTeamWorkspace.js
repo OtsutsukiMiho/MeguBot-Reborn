@@ -21,7 +21,7 @@ export default function ServerTeamWorkspace({ guildId, section = 'teams', offset
 	const resource = useWorkspaceResource(`/api/megu/teams/discord-guilds/${encodeURIComponent(guildId)}/workspace/${section}?limit=30&offset=${offset}`);
 	const discovery = useWorkspaceResource('/api/megu/teams/workspace-guilds');
 	useEffect(() => {
-		if (resource.data?.guild.name) document.title = `${resource.data.guild.name} · ${c.title} · Megu`;
+		if (resource.data?.guild.name) document.title = `${resource.data.guild.name} | ${c.title} | Megu`;
 	}, [resource.data, c.title]);
 	const select = value => router.push(`${root}/${value}`);
 	if (resource.error?.status === 401) return <AuthGate title={t.teams.signedOutTitle} lede={t.teams.signedOutLede} />;

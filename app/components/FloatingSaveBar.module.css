@@ -29,8 +29,8 @@
 	width: .65rem;
 	height: .65rem;
 	border-radius: 50%;
-	background: var(--gold);
-	box-shadow: 0 0 0 .3rem color-mix(in srgb, var(--gold) 14%, transparent);
+	background: var(--pending);
+	box-shadow: 0 0 0 .3rem color-mix(in srgb, var(--pending) 14%, transparent);
 }
 
 .message {

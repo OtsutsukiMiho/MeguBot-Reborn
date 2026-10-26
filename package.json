@@ -1,9 +1,9 @@
 {
   "name": "megu",
   "version": "1.0.0",
-  "description": "Megu — Discord bot and group activity manager, by Megux Corp",
+  "description": "Megu, a Discord bot and group activity manager by Megu Team",
   "license": "ISC",
-  "author": "Megux Corp",
+  "author": "Megu Team",
   "contributors": [
     "NozomiSanZ"
   ],

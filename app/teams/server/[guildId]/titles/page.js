@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import ServerTitleSettings from '../../../../components/teams/ServerTitleSettings';
 
-export const metadata = { title: 'Discord titles · Megu' };
+export const metadata = { title: 'Discord titles' };
 
 export default async function ServerTitleSettingsPage({ params }) {
 	const { guildId } = await params;
