@@ -271,6 +271,9 @@ async function paymentDueNow({ now = new Date(), baseUrl = '', windowHours = DUE
 					code: activity.code,
 					title: activity.title,
 					kind: activity.kind,
+					// The server whose language a reader with no choice of
+					// their own is told in.
+					guildId: activity.guildId || null,
 					periodId: scope.periodId,
 					periodLabel: scope.period?.label || null,
 					periodKey: scope.period?.key || null,

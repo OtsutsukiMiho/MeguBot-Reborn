@@ -23,7 +23,9 @@ export async function generateMetadata({ params }) {
 	catch {
 		activity = null;
 	}
-	const { title, description } = billPreview(activity, 'th');
+	// The bill's server decides, so the preview and the card in that server
+	// speak the same language. A bill made on the web has none and stays Thai.
+	const { title, description } = billPreview(activity, activity?.serverLang || 'th');
 	return {
 		title,
 		description,

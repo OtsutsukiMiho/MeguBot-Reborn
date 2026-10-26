@@ -145,6 +145,7 @@ client.customReadyTimestamp = customReadyTimestamp;
 
 const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_functions.js');
 const database = require('../database/database.js');
+const { SERVER_LANG_KEY } = require('../../core/server-lang.js');
 const healthLog = require('../../adapters/health/health-log.js');
 
 // The web process has had this guard since the outage. The bot never did, and
@@ -672,6 +673,8 @@ for (const folder of commandFolders) {
 			client.commands.set(command.data.name, command);
 			// /event sends DMs from its buttons; they go through the same guard.
 			command.useDiscordCall?.(discordCall);
+			// And reads the language a server chose for its bill cards.
+			command.useServerLangReader?.(guildId => database.getGuildVar(guildId, SERVER_LANG_KEY));
 		}
 		else {
 			BotLogs('SYSTEM', `${COLOR.yellow}Warning: The command at ${COLOR.white}${filePath}${COLOR.yellow} is missing a required "data" or "execute" property.`);
@@ -2743,8 +2746,15 @@ process.on('message', async (msg) => {
 				roles,
 				members,
 				icon: guild.iconURL(),
+				preferredLocale: guild.preferredLocale || null,
 			});
 		}
+	}
+	else if (msg.type === 'get_guild_locale') {
+		// From the gateway cache only. The web process asks this for a link
+		// preview, and a preview must never cost a Discord request.
+		const guild = client.guilds.cache.get(String(msg.guildId || ''));
+		if (process.send) process.send({ target: 'web', type: 'guild_locale_response', reqId: msg.reqId, preferredLocale: guild?.preferredLocale || null });
 	}
 	else if (msg.type === 'create_guild_role') {
 		try {
