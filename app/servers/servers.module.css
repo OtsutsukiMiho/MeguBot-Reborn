@@ -622,7 +622,7 @@
 .navGroup button.activeTool { border-color: color-mix(in srgb, var(--accent) 24%, var(--line)); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .navGroup button svg { flex: none; }
 .navLabel { min-width: 0; flex: 1; }
-.navPending { width: .5rem; height: .5rem; flex: none; border-radius: 50%; background: var(--gold); }
+.navPending { width: .5rem; height: .5rem; flex: none; border-radius: 50%; background: var(--pending); }
 .noTools { margin: .8rem; font-size: .75rem; line-height: 1.5; color: var(--faint); }
 
 .toolPanel,
@@ -683,7 +683,7 @@
 .memberIntro h2 { margin: 0; font-family: var(--font-display); font-size: 1.25rem; letter-spacing: -.025em; }
 .toolPanelHeader p:not(.sectionKicker),
 .memberIntro p:not(.sectionKicker) { max-width: 68ch; margin: .2rem 0 0; font-size: .78rem; line-height: 1.5; color: var(--muted); }
-.unsavedBadge { align-self: center; background: color-mix(in srgb, var(--gold) 14%, var(--surface)); color: var(--gold); }
+.unsavedBadge { align-self: center; background: color-mix(in srgb, var(--pending) 14%, var(--surface)); color: var(--pending); }
 
 .tabContent {
 	min-width: 0;

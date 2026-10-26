@@ -1084,7 +1084,7 @@ const DEFAULT_TTS_VOLUME = 0.5;
 
 /**
  * Loudness for one clip, as a fraction. A server sets this because Megu talking
- * over a match is the complaint that gets her muted, and the queue's own default
+ * over a match is the complaint that gets the bot muted, and the queue's own default
  * is a guess that suits nobody in particular.
  *
  * Clamped rather than trusted: `setVolume` above 1 clips the audio and a

@@ -10,9 +10,9 @@ export const metadata = {
 	},
 	description: 'Megu อยู่ใน Discord ของกลุ่มคุณ ช่วยหารค่าใช้จ่ายกับเพื่อน และช่วยองค์กรจัดการงาน ทีม และเซิร์ฟเวอร์',
 	applicationName: 'Megu',
-	authors: [{ name: 'Megux Corp' }],
-	creator: 'Megux Corp',
-	publisher: 'Megux Corp',
+	authors: [{ name: 'Megu Team' }],
+	creator: 'Megu Team',
+	publisher: 'Megu Team',
 	// SVG first: it is 700 bytes against icon.png's 1.4 MB and stays crisp at
 	// every size. The png is kept only for the platforms that still refuse SVG
 	// favicons, and is still the old artwork until someone exports a new one.

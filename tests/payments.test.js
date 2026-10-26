@@ -468,7 +468,7 @@ async function main() {
 	assert.strictEqual(rolled.expenses.filter(item => item.periodId === rolledPeriod.id).length, 1);
 	pass('authorized page opens this month with its bill once; anonymous previews do not mutate it');
 
-	// ── Megu answers in the language she was asked in ──────────────────────
+	// ── Megu answers in the language of the question ──────────────────────
 
 	r = await owner('GET', `/api/megu/a/${code}?lang=en`);
 	const english = r.body.activity.megu;
@@ -477,7 +477,7 @@ async function main() {
 
 	assert.notStrictEqual(english, thai);
 
-	// Her sentence is checked with the names taken out. People are called what
+	// Megu's sentence is checked with the names taken out. People are called what
 	// they are called: "โอม is ฿130.00 short" is correct English about someone
 	// named โอม, and a plain Thai-character test would read it as a translation
 	// that leaked.

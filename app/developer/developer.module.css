@@ -269,7 +269,7 @@
 	white-space: nowrap;
 }
 
-.warningText { color: var(--gold); }
+.warningText { color: var(--pending); }
 .errorText { color: var(--due); }
 
 .logTools,
