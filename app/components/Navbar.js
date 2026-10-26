@@ -9,6 +9,7 @@ import ThemeToggle from './ThemeToggle';
 import { useLang, LANGS } from './LangProvider';
 import { useCopy } from '../copy';
 import { WorkspaceDraftNavigation } from './useDraftGuard';
+import { spaceFor, ownsSpace, readRemembered, remember } from './navSpaces';
 
 const PROJECTS_ENABLED = process.env.NEXT_PUBLIC_MEGU_PROJECTS_ENABLED !== '0';
 const TEAMS_ENABLED = PROJECTS_ENABLED && process.env.NEXT_PUBLIC_MEGU_PROJECT_TEAMS_ENABLED !== '0';
@@ -17,11 +18,19 @@ export default function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDev, setIsDev] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
+	// The side the reader last chose, for pages both sides share. Read after
+	// mount, since storage does not exist on the server.
+	const [remembered, setRemembered] = useState(null);
 	const menuButton = useRef(null);
 	const pathname = usePathname();
 	const { lang, setLang } = useLang();
 	const { t } = useCopy();
 	useEffect(() => { setMenuOpen(false); }, [pathname]);
+	useEffect(() => { setRemembered(readRemembered()); }, []);
+	const space = spaceFor(pathname, remembered);
+	useEffect(() => {
+		if (space && ownsSpace(pathname)) { remember(space); setRemembered(space); }
+	}, [space, pathname]);
 	useEffect(() => {
 		if (!menuOpen) return;
 		const close = event => {
@@ -145,24 +154,41 @@ export default function Navbar() {
 				</Link>
 
 				<div id="main-navigation" className={`nav-menu${menuOpen ? ' is-open' : ''}`} aria-label={t.nav.mainNavigation} onClick={event => { if (event.target.closest('a')) setMenuOpen(false); }}>
-					<Link href="/" className={`tab-btn ${pathname === '/' ? 'active' : ''}`}>
-						{t.nav.home}
-					</Link>
-					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
-						{t.nav.servers}
-					</Link>
-					<Link href="/activities" className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
-						{t.nav.activities}
-					</Link>
-					{PROJECTS_ENABLED && <Link href="/projects" className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
-						{t.nav.projects}
-					</Link>}
-					{TEAMS_ENABLED && <Link href="/teams" aria-current={pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'page' : undefined} className={`tab-btn ${pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'active' : ''}`}>
-						{t.nav.teams}
-					</Link>}
-					<Link href="/bills" className={`tab-btn ${pathname.startsWith('/bills') ? 'active' : ''}`}>
-						{t.nav.bills}
-					</Link>
+					{/* Which side of Megu this is, and the way to the other one. */}
+					<div className="nav-spaces" role="group" aria-label={t.nav.spaces}>
+						<Link href="/bills" aria-current={space === 'bills' ? 'true' : undefined} onClick={() => remember('bills')}>
+							{t.nav.spaceBills}
+						</Link>
+						<Link href={user ? (PROJECTS_ENABLED ? '/projects' : '/servers') : '/org'} aria-current={space === 'org' ? 'true' : undefined} onClick={() => remember('org')}>
+							{t.nav.spaceOrg}
+						</Link>
+					</div>
+
+					{space === 'bills' && (
+						<>
+							<Link href="/bills" aria-current={pathname === '/bills' || pathname.startsWith('/a/') ? 'page' : undefined} className={`tab-btn ${pathname === '/bills' || pathname.startsWith('/a/') ? 'active' : ''}`}>
+								{t.nav.myBills}
+							</Link>
+							<Link href="/activities" aria-current={pathname.startsWith('/activities') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
+								{t.nav.newBill}
+							</Link>
+						</>
+					)}
+					{space === 'org' && (
+						<>
+							{PROJECTS_ENABLED && <Link href="/projects" aria-current={pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
+								{t.nav.projects}
+							</Link>}
+							{TEAMS_ENABLED && <Link href="/teams" aria-current={pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'page' : undefined} className={`tab-btn ${pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'active' : ''}`}>
+								{t.nav.teams}
+							</Link>}
+						</>
+					)}
+					{space && (
+						<Link href="/servers" aria-current={pathname.startsWith('/servers') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
+							{t.nav.servers}
+						</Link>
+					)}
 					{isDev && (
 						<Link href="/developer" className={`tab-btn ${pathname.startsWith('/developer') ? 'active' : ''}`}>
 							Developer

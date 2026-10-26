@@ -525,6 +525,53 @@ input, textarea, select, button {
 
 .navbar .nav-menu-toggle, .navbar .nav-mobile-signout { display: none; }
 
+/* The bills/organisation switcher. Megu is two products for two audiences,
+   and the menu beside it lists only the side the reader is in. */
+.nav-spaces {
+	display: inline-flex;
+	gap: 2px;
+	padding: 3px;
+	margin-right: .55rem;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	background: var(--surface-2);
+}
+
+.nav-spaces a {
+	padding: .32rem .8rem;
+	border-radius: 999px;
+	font-size: .88rem;
+	font-weight: var(--w-medium);
+	color: var(--muted);
+	text-decoration: none;
+	white-space: nowrap;
+	transition: background .15s var(--ease), color .15s var(--ease);
+}
+
+.nav-spaces a:hover { color: var(--ink); }
+
+.nav-spaces a[aria-current] {
+	background: var(--brand);
+	color: var(--on-brand);
+}
+
+.nav-spaces a[aria-current]:hover { color: var(--on-brand); }
+
+.navbar.is-over-band .nav-spaces {
+	background: color-mix(in srgb, var(--band-ink) 8%, transparent);
+	border-color: color-mix(in srgb, var(--band-ink) 18%, transparent);
+}
+
+.navbar.is-over-band .nav-spaces a { color: var(--band-dim); }
+.navbar.is-over-band .nav-spaces a:hover { color: var(--band-ink); }
+.navbar.is-over-band .nav-spaces a[aria-current] { background: #fff; color: var(--band-plate); }
+
+@media (max-width: 1100px) {
+	.nav-menu.is-open .nav-spaces { align-self: flex-start; margin: 0 0 .6rem; }
+	.nav-menu.is-open .nav-spaces a { min-height: 40px; color: var(--muted); }
+	.nav-menu.is-open .nav-spaces a[aria-current] { color: var(--on-brand); }
+}
+
 @media (max-width: 1100px) {
 	.nav-menu { display: none; }
 	.nav-menu.is-open {

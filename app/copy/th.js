@@ -20,6 +20,11 @@ const th = {
 		account: 'บัญชี',
 		signOut: 'ออก',
 		signIn: 'เข้าสู่ระบบ',
+		spaces: 'ส่วนของ Megu',
+		spaceBills: 'บิล',
+		spaceOrg: 'องค์กร',
+		myBills: 'บิลของฉัน',
+		newBill: 'สร้างบิล',
 	},
 
 	serverWorkspaces: {

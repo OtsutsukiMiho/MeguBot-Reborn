@@ -19,6 +19,11 @@ const en = {
 		account: 'Account',
 		signOut: 'Sign out',
 		signIn: 'Sign in',
+		spaces: 'Parts of Megu',
+		spaceBills: 'Bills',
+		spaceOrg: 'Organisation',
+		myBills: 'My bills',
+		newBill: 'New bill',
 	},
 
 	serverWorkspaces: {
