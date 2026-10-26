@@ -35,6 +35,16 @@ export default function Navbar() {
 	// true on `/` so the first paint is already transparent — the bar being
 	// solid for a frame over a dark hero is the exact flash this removes.
 	const [overBand, setOverBand] = useState(pathname === '/');
+	// `/` swaps its landing for the signed-in greeting once the session is
+	// known, so the hero can appear and disappear without a route change. The
+	// hero announces both (useLandingHero), and each announcement re-runs the
+	// check below.
+	const [heroTick, setHeroTick] = useState(0);
+	useEffect(() => {
+		const changed = () => setHeroTick(n => n + 1);
+		window.addEventListener('megu:landing-hero', changed);
+		return () => window.removeEventListener('megu:landing-hero', changed);
+	}, []);
 
 	useEffect(() => {
 		fetch('/api/auth/me')
@@ -81,7 +91,9 @@ export default function Navbar() {
 			const hero = document.querySelector('[data-landing-hero]');
 
 			if (!hero) {
-				if (tries++ < 60) frame = requestAnimationFrame(attach);
+				// After an announcement the answer is already final: the hero
+				// just left. Only the first look on arrival waits for it.
+				if (heroTick === 0 && tries++ < 60) frame = requestAnimationFrame(attach);
 				else setOverBand(false);
 				return;
 			}
@@ -112,7 +124,7 @@ export default function Navbar() {
 			if (observer) observer.disconnect();
 			if (frame) cancelAnimationFrame(frame);
 		};
-	}, [pathname]);
+	}, [pathname, heroTick]);
 
 	const handleLogout = async () => {
 		await fetch('/api/auth/logout', { method: 'POST' });

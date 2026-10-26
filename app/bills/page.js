@@ -10,7 +10,7 @@ import {
 	Repeat2,
 	Users,
 } from 'lucide-react';
-import AuthGate from '../components/AuthGate';
+import BillsLanding from '../components/landing/BillsLanding';
 import { useCopy } from '../copy';
 import styles from './bills.module.css';
 
@@ -51,9 +51,9 @@ export default function BillsPage() {
 
 	if (loading) return <BillsSkeleton title={t.bills.title} />;
 
-	if (!me?.loggedIn) {
-		return <AuthGate title={t.bills.signedOutTitle} lede={t.bills.signedOutLede} />;
-	}
+	// Signed out, this is the page that explains bills to someone deciding
+	// whether to add Megu, not a sign-in box.
+	if (!me?.loggedIn) return <BillsLanding />;
 
 	if (failed) {
 		return (
