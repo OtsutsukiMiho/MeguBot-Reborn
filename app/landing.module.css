@@ -222,7 +222,7 @@
 .messageMeta { display: flex; min-height: 1.3rem; align-items: center; gap: .45rem; }
 .messageMeta strong { color: var(--demo-name); font-size: .9rem; }
 .messageMeta time { color: var(--demo-faint); font-size: .68rem; }
-.messageMeta b { padding: .05rem .3rem; border-radius: 3px; background: #4f66df; color: #fff; font-size: .58rem; line-height: 1.4; }
+.messageMeta b { padding: .05rem .3rem; border-radius: 3px; background: var(--brand); color: var(--on-brand); font-size: .58rem; line-height: 1.4; }
 .message p { margin: .12rem 0 0; color: var(--demo-copy); font-size: .9rem; line-height: 1.55; }
 .message mark { padding: .05rem .18rem; border-radius: 3px; background: var(--demo-mention); color: var(--demo-mention-ink); }
 

@@ -36,7 +36,7 @@ export default function ServerTitleSettings({ guildId }) {
 		if (!draft && resource.data) setDraft({ revision: resource.data.revision, roleIds: resource.data.roles.map(role => role.id) });
 	}, [draft, resource.data]);
 	useEffect(() => {
-		document.title = `${resource.data?.guild?.name ? `${resource.data.guild.name} · ` : ''}${c.title} · Megu`;
+		document.title = `${resource.data?.guild?.name ? `${resource.data.guild.name} | ` : ''}${c.title} | Megu`;
 	}, [c.title, resource.data?.guild?.name]);
 	useDraftGuard(dirty, busy);
 	useEffect(() => { if (pendingDiscard) keepEditing.current?.focus(); else discardTrigger.current?.focus(); }, [pendingDiscard]);

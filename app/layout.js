@@ -5,14 +5,14 @@ import { LangProvider } from './components/LangProvider';
 
 export const metadata = {
 	title: {
-		default: 'Megu — ผู้ช่วยจัดการ Discord server',
-		template: '%s · Megu',
+		default: 'Megu | ผู้ช่วยจัดการ Discord server',
+		template: '%s | Megu',
 	},
 	description: 'ให้ Megu เปลี่ยนบทสนทนาใน Discord เป็นอีเวนต์ งานเตือน และสิ่งที่ต้องตาม พร้อมช่วยดูแลสมาชิก ห้องเสียง และค่าใช้จ่ายของกลุ่ม',
 	applicationName: 'Megu',
-	authors: [{ name: 'Megux Corp' }],
-	creator: 'Megux Corp',
-	publisher: 'Megux Corp',
+	authors: [{ name: 'Megu Team' }],
+	creator: 'Megu Team',
+	publisher: 'Megu Team',
 	// SVG first: it is 700 bytes against icon.png's 1.4 MB and stays crisp at
 	// every size. The png is kept only for the platforms that still refuse SVG
 	// favicons, and is still the old artwork until someone exports a new one.

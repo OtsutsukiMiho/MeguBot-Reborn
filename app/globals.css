@@ -7,39 +7,39 @@
 
    So the page is neutrals almost everywhere. Colour appears only where it
    carries meaning: what you owe, what is settled, what still needs an answer.
-   One accent per theme. Gold survives as one small mark beside Megu's name,
-   because it is Megu's own, and nowhere else.
 
-   The two themes are two materials rather than one palette inverted.
+   One brand colour in both themes: the indigo of the Megu mark
+   (public/megu-mark.svg, #3D4795 into #212862). Every accent, badge, button
+   and decorative mark is a shade of it, so switching theme changes the
+   lighting and never the brand. The only other hues are signals: red for
+   what is owed, green for what is settled, amber for what is pending or
+   unsaved.
 
-   LIGHT is paper, honey and earth: a warm cream ground instead of a white
-   one, ink that is brown rather than black, and a forest green where the
-   accent goes. Nothing on this side is neutral-cold — a pure white surface
-   next to these warms reads as a hole punched in the page.
+   LIGHT is a cool off-white ground with white panels and near-black ink that
+   leans slightly toward the indigo.
 
-   DARK is ink and sapphire: an almost-black ground with a blue undertone,
-   surfaces that rise out of it in small steps, and one luminous blue doing
-   the accent's work. Black is what makes blue look expensive; a mid navy
-   ground would flatten it back into a screenshot of itself.
+   DARK is an almost-black ground with an indigo undertone, surfaces that rise
+   out of it in small steps, and a lighter periwinkle doing the accent's work
+   where full-strength indigo would sink into the ground.
 
    Thai leads the typography. A display face without Thai coverage is
    disqualified here no matter how it looks in Latin.
    ========================================================================== */
 
 :root {
-	--paper: #F5F0E4;
-	--surface: #FDFAF3;
-	--surface-2: #F8F3E7;
-	--sunk: #EDE5D4;
+	--paper: #F7F7FA;
+	--surface: #FFFFFF;
+	--surface-2: #FBFBFD;
+	--sunk: #EEEFF5;
 
-	/* Neutrals are browns, not greys. Warmth in the ink is what keeps a cream
-	   page from looking like a white page with a filter over it. */
-	--ink: #241E15;
-	--ink-2: #46392A;
-	--muted: #6A5A44;
-	--faint: #7E6E56;
+	/* Neutrals carry a trace of the indigo, so grey text sits with the brand
+	   instead of beside it. */
+	--ink: #15172B;
+	--ink-2: #33364D;
+	--muted: #5B5E75;
+	--faint: #6E7189;
 
-	--line: #E4DAC6;
+	--line: #E3E4EE;
 
 	/* Two line weights with two different jobs. --line-2 draws boundaries a
 	   person operates — the edge of a field, a button, a floating panel — so it
@@ -48,57 +48,64 @@
 	   hairline joining them, a bullet. Holding those to 3:1 would make the
 	   quietest marks on the page shout, so they are named separately and left
 	   out of the audit on purpose rather than by omission. */
-	--line-2: #947C50;
-	--ornament: #BCA986;
+	--line-2: #7E83A0;
+	--ornament: #C3C6D8;
 
 	/* Megu's own colours: whatever is filled with these carries white text on
-	   top, so each theme picks the version of them that can hold it. */
-	--brand: #2F5340;
-	--brand-hover: #3B6650;
-	--brand-gold: #C8A24C;
+	   top, so each theme picks the version of them that can hold it.
+	   --brand-gold keeps its name for the hairlines and toplines that use it,
+	   but it is a light indigo now: the brand has one hue. */
+	--brand: #3D4795;
+	--brand-hover: #4852A8;
+	--brand-gold: #8A93E6;
 	--on-brand: #FFFFFF;
 
-	/* One accent and three signals, deliberately desaturated. These are read,
-	   not admired. Green for the accent, terracotta for what is owed, olive for
-	   what is settled — the same earth the page is printed on. */
-	--accent: #235C48;
-	--accent-soft: #E6EEE6;
-	--gold: #8A6212;
+	/* One accent and three signals. The accent is the brand itself. --gold is
+	   the decorative mark (eyebrows, kickers, Megu's name) and follows the
+	   accent too. --pending is the one warm colour left, kept for what is
+	   unsaved or waiting, so it still stands out against everything else. */
+	--accent: #3D4795;
+	--accent-soft: #E8EAFA;
+	--gold: #3D4795;
+	--pending: #8A5300;
 
-	--due: #9B3521;
-	--due-soft: #F7EAE3;
-	--settled: #4E6B1B;
-	--settled-soft: #EEF1E1;
+	--due: #B42318;
+	--due-soft: #FBE9E7;
+	--settled: #1E7A4C;
+	--settled-soft: #E3F3EA;
 
 	/* The full-bleed bands on the landing page, and the depth model that goes
-	   with them. Both themes get a dark band — light's is forest and honey,
-	   dark's is near-black and blue — so the landing page keeps its rhythm
-	   without either theme borrowing the other's colours. */
-	--band: #1E2A21;
-	--band-2: #18231C;
-	--band-light: #EDE5D4;
-	--band-plate: #6B3F14;
-	--band-ink: #F6F1E4;
-	--band-dim: #C6C6AE;
-	--band-accent: #E8B75C;
-	--band-glow-1: rgba(122, 160, 106, .34);
-	--band-glow-2: rgba(232, 183, 92, .24);
+	   with them. Both themes get a deep indigo band, the colour of the mark's
+	   darker end, so the landing page keeps its rhythm in either theme. */
+	--band: #1A1F4D;
+	--band-2: #151941;
+	--band-light: #EEEFF5;
+	--band-plate: #3D4795;
+	--band-ink: #EDEEF5;
+	--band-dim: #C3C7E6;
+	--band-accent: #B3BBFF;
+	--band-glow-1: rgba(90, 102, 216, .40);
+	--band-glow-2: rgba(154, 163, 255, .18);
 
 	/* The filled button, one step brighter, for use on the band. --brand is
 	   picked to hold white text on the page's own ground; against the band it
-	   is another dark green and the call to action disappears into it. */
-	--band-cta: #458268;
-	--band-cta-hover: #4E9174;
+	   is another dark indigo and the call to action disappears into it. */
+	--band-cta: #5A66D8;
+	--band-cta-hover: #6672E0;
 
 	/* Depth. A shadow the colour of the page's own dark rather than generic
 	   black, and a one-pixel sheen along the top of raised surfaces — the
 	   cheapest thing there is that makes a panel read as an object. */
-	--shadow: #3B2C18;
-	--sheen: rgba(255, 255, 255, .6);
+	--shadow: #1A1F4D;
+	--sheen: rgba(255, 255, 255, .7);
 
 	/* The faintest possible light over the whole page, so the ground is lit
 	   rather than flat. Fixed to the viewport, so it never scrolls. */
-	--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(200, 162, 76, .18), transparent 72%);
+	--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(61, 71, 149, .10), transparent 72%);
+
+	/* The indigo mark sinks into a dark ground, so the dark themes set a light
+	   disc behind it in the nav. Light needs none. */
+	--mark-plate: transparent;
 
 	/* The audit log labels twenty-odd event types that have to be told apart at
 	   a glance, which the neutral ramp cannot do. It is the one place hue is
@@ -140,48 +147,50 @@
    reads the [data-theme='dark'] copy, which is the one to change first. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme='light']) {
-		--paper: #07090F;
-		--surface: #0E121C;
-		--surface-2: #141926;
-		--sunk: #0A0D15;
+		--paper: #0E0F1A;
+		--surface: #161827;
+		--surface-2: #1D2033;
+		--sunk: #0B0C15;
 
-		--ink: #E9EDF7;
-		--ink-2: #BFC7DA;
-		--muted: #8D97AE;
-		--faint: #7C879F;
+		--ink: #EDEEF5;
+		--ink-2: #C5C8DA;
+		--muted: #9A9DB5;
+		--faint: #8285A0;
 
-		--line: #1B2130;
-		--line-2: #5C6680;
-		--ornament: #374257;
+		--line: #262940;
+		--line-2: #6A6F92;
+		--ornament: #3A3E5A;
 
-		--brand: #2B57E0;
-		--brand-hover: #3D68F0;
-		--brand-gold: #E3BE72;
+		--brand: #5A66D8;
+		--brand-hover: #6672E0;
+		--brand-gold: #8A93E6;
 
-		--accent: #8FAEFF;
-		--accent-soft: #131A2C;
-		--gold: #DFBE7C;
+		--accent: #9AA3FF;
+		--accent-soft: #1D2140;
+		--gold: #9AA3FF;
+		--pending: #E8B45A;
 
-		--due: #F2899C;
-		--due-soft: #2A161C;
-		--settled: #63CFA4;
-		--settled-soft: #0F231C;
+		--due: #FF8A80;
+		--due-soft: #33191C;
+		--settled: #5FD49A;
+		--settled-soft: #112A1E;
 
-		--band: #0B1128;
-		--band-2: #090E20;
-		--band-light: #0E121C;
-		--band-plate: #16307A;
-		--band-ink: #F2F5FF;
-		--band-dim: #A9B4D6;
-		--band-accent: #F3CE85;
-		--band-glow-1: rgba(86, 118, 255, .42);
-		--band-glow-2: rgba(240, 200, 120, .2);
-		--band-cta: #3D68F0;
-		--band-cta-hover: #5077F5;
+		--band: #151A3F;
+		--band-2: #10143A;
+		--band-light: #161827;
+		--band-plate: #3D4795;
+		--band-ink: #EDEEF5;
+		--band-dim: #C3C7E6;
+		--band-accent: #B9C0FF;
+		--band-glow-1: rgba(90, 102, 216, .42);
+		--band-glow-2: rgba(154, 163, 255, .18);
+		--band-cta: #5A66D8;
+		--band-cta-hover: #6672E0;
 
 		--shadow: #000000;
 		--sheen: rgba(255, 255, 255, .045);
-		--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(60, 96, 220, .2), transparent 72%);
+		--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(90, 102, 216, .18), transparent 72%);
+		--mark-plate: #EDEEF5;
 
 		--cat-pink: #F0A0C8;
 		--cat-purple: #C9A6F2;
@@ -200,48 +209,50 @@
 }
 
 :root[data-theme='dark'] {
-	--paper: #07090F;
-	--surface: #0E121C;
-	--surface-2: #141926;
-	--sunk: #0A0D15;
+	--paper: #0E0F1A;
+	--surface: #161827;
+	--surface-2: #1D2033;
+	--sunk: #0B0C15;
 
-	--ink: #E9EDF7;
-	--ink-2: #BFC7DA;
-	--muted: #8D97AE;
-	--faint: #7C879F;
+	--ink: #EDEEF5;
+	--ink-2: #C5C8DA;
+	--muted: #9A9DB5;
+	--faint: #8285A0;
 
-	--line: #1B2130;
-	--line-2: #5C6680;
-	--ornament: #374257;
+	--line: #262940;
+	--line-2: #6A6F92;
+	--ornament: #3A3E5A;
 
-	--brand: #2B57E0;
-	--brand-hover: #3D68F0;
-	--brand-gold: #E3BE72;
+	--brand: #5A66D8;
+	--brand-hover: #6672E0;
+	--brand-gold: #8A93E6;
 
-	--accent: #8FAEFF;
-	--accent-soft: #131A2C;
-	--gold: #DFBE7C;
+	--accent: #9AA3FF;
+	--accent-soft: #1D2140;
+	--gold: #9AA3FF;
+	--pending: #E8B45A;
 
-	--due: #F2899C;
-	--due-soft: #2A161C;
-	--settled: #63CFA4;
-	--settled-soft: #0F231C;
+	--due: #FF8A80;
+	--due-soft: #33191C;
+	--settled: #5FD49A;
+	--settled-soft: #112A1E;
 
-	--band: #0B1128;
-	--band-2: #090E20;
-	--band-light: #0E121C;
-	--band-plate: #16307A;
-	--band-ink: #F2F5FF;
-	--band-dim: #A9B4D6;
-	--band-accent: #F3CE85;
-	--band-glow-1: rgba(86, 118, 255, .42);
-	--band-glow-2: rgba(240, 200, 120, .2);
-	--band-cta: #3D68F0;
-	--band-cta-hover: #5077F5;
+	--band: #151A3F;
+	--band-2: #10143A;
+	--band-light: #161827;
+	--band-plate: #3D4795;
+	--band-ink: #EDEEF5;
+	--band-dim: #C3C7E6;
+	--band-accent: #B9C0FF;
+	--band-glow-1: rgba(90, 102, 216, .42);
+	--band-glow-2: rgba(154, 163, 255, .18);
+	--band-cta: #5A66D8;
+	--band-cta-hover: #6672E0;
 
 	--shadow: #000000;
 	--sheen: rgba(255, 255, 255, .045);
-	--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(60, 96, 220, .2), transparent 72%);
+	--wash: radial-gradient(115rem 44rem at 50% -18rem, rgba(90, 102, 216, .18), transparent 72%);
+	--mark-plate: #EDEEF5;
 
 	--cat-pink: #F0A0C8;
 	--cat-purple: #C9A6F2;
@@ -486,6 +497,11 @@ input, textarea, select, button {
 	font-weight: var(--w-strong);
 	color: var(--ink);
 	letter-spacing: -.01em;
+}
+
+.nav-brand svg {
+	border-radius: 50%;
+	background: var(--mark-plate);
 }
 
 .nav-actions {
@@ -1107,7 +1123,7 @@ textarea.form-control {
 	color: var(--gold);
 }
 
-/* Her signature, and the only gold on the page. */
+/* Megu's signature mark beside the name. */
 .megu-says .who::before {
 	content: '';
 	width: 12px;
@@ -1924,7 +1940,7 @@ textarea.form-control {
 
    Quiet everywhere is not restraint, it is absence — the page needs somewhere
    for the eye to land. Each surface spends its boldness once and stays calm
-   around it: the home page on Megu herself, the activity page on the number
+   around it: the home page on the Megu mark, the activity page on the number
    the reader came for.
    ========================================================================== */
 
@@ -1964,8 +1980,8 @@ textarea.form-control {
 	color: var(--accent);
 }
 
-/* Megu is the loud moment on this page, so she has to be whole. She used to
-   bleed off the right edge, which the hero's overflow then cut her whiskers
+/* Megu is the loud moment on this page, so the mark has to be whole. It used
+   to bleed off the right edge, which the hero's overflow then cut the whiskers
    off with — the crop read as a broken image, not as a deliberate bleed. */
 .hero-portrait {
 	justify-self: end;
@@ -4703,7 +4719,7 @@ textarea.form-control {
 
 /* -------------------------------------------------------- Megu speaking */
 
-/* Not a panel. Megu is a voice commenting on the state, and giving her the
+/* Not a panel. Megu is a voice commenting on the state, and giving that voice the
    same cream rectangle as the roster is what made the top of this page read as
    one undifferentiated block of text. */
 .megu-aside {
