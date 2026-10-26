@@ -176,6 +176,54 @@ async function main() {
 		assert.equal(adopted.userId, nun.id);
 		assert.equal(adopted.discordUid, nunDiscord, 'now reachable by DM');
 		ok('signing in after tapping a name on the web makes that row remindable');
+
+		// Language. The bug this answers: in a Thai server, an organiser with an
+		// English Discord client got an English card, while the link preview of
+		// the same bill was Thai. The card follows the server; the private note
+		// follows the person.
+		const eng = { id: snowflake(), name: 'Alex' };
+		const pim = { id: snowflake(), name: 'พิม' };
+		call = createSubmit({ user: eng, title: 'ข้าวเย็น', people: [pim], amount: '400' });
+		call.locale = 'en-US';
+		await event.handleComponent(call, { core });
+		const langCode = call.log.edits[0].components[0].components[0].data.custom_id.split(':')[2];
+		codes.push(langCode);
+		assert.match(call.log.edits[0].content, /หารเท่า 2 คน/, 'a Thai server gets a Thai card whoever made it');
+		assert.equal(call.log.edits[0].components[0].components[0].data.label, 'แนบสลิป');
+		assert.match(call.log.followUps[0].content, /^Created \*\*ข้าวเย็น\*\*/, 'the note only the organiser sees is in their language');
+		ok('a Thai server gets a Thai card even when an English client created it');
+
+		// Pim's Discord is Thai, but she chose English on her account page.
+		const pimAccount = (await core.users.loginWithIdentity({ provider: 'discord', providerUid: pim.id, username: 'pim', displayName: 'พิม' })).user;
+		const untouched = await core.users.getLanguagePreference(pimAccount.id);
+		assert.equal(untouched.localeSet, false, 'signing in is not choosing a language');
+		await core.users.setNotificationPreferences(pimAccount.id, { mode: 'discord', locale: 'en', localeChosen: true });
+		assert.equal((await core.users.getLanguagePreference(pimAccount.id)).localeSet, true);
+		call = base({ customId: `evt:join:${langCode}`, user: pim, kind: 'button' });
+		await event.handleComponent(call, { core });
+		assert.equal(call.log.replies[0].content, 'You are already on this bill.', 'her own choice beats her Thai client');
+		ok('a person who chose English gets English private replies from a Thai client');
+
+		// Changing only the delivery channel does not make the default a choice.
+		const quiet = (await core.users.loginWithIdentity({ provider: 'discord', providerUid: snowflake(), username: 'q', displayName: 'q' })).user;
+		await core.users.setNotificationPreferences(quiet.id, { mode: 'off', locale: 'en' });
+		assert.equal((await core.users.getLanguagePreference(quiet.id)).localeSet, false);
+		ok('saving a delivery channel alone leaves the language unchosen');
+
+		// The server chose English: every redraw is English, even from a Thai press.
+		event.useServerLangReader(async guildId => (guildId === GUILD ? 'en' : null));
+		try {
+			const tor = { id: snowflake(), name: 'ต่อ' };
+			call = base({ customId: `evt:join:${langCode}`, user: tor, kind: 'button' });
+			await event.handleComponent(call, { core });
+			assert.equal(call.log.edits[0], 'เพิ่มคุณเข้าบิลแล้ว', 'the reply to a Thai client stays Thai');
+			assert.match(call.log.cardEdits[0].content, /split evenly by 3/, 'the redrawn card follows the server');
+			assert.equal(call.log.cardEdits[0].components[0].components[0].data.label, 'Send slip');
+		}
+		finally {
+			event.useServerLangReader(async () => null);
+		}
+		ok('a server that chose English gets English cards from any client');
 	}
 	finally {
 		for (const code of codes) {

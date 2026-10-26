@@ -257,13 +257,33 @@ async function getNotificationPreferences(userId) {
 		`INSERT INTO notification_preferences (user_id, mode)
 		 VALUES ($1, $2)
 		 ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
-		 RETURNING mode, locale, updated_at`,
+		 RETURNING mode, locale, locale_set, updated_at`,
 		[userId, fallbackMode],
 	);
-	return { mode: res.rows[0].mode, locale: res.rows[0].locale, updatedAt: res.rows[0].updated_at };
+	return preferenceFromRow(res.rows[0]);
 }
 
-async function setNotificationPreferences(userId, { mode, locale }) {
+function preferenceFromRow(row) {
+	return { mode: row.mode, locale: row.locale, localeSet: Boolean(row.locale_set), updatedAt: row.updated_at };
+}
+
+/**
+ * The account's language for a private reply, or null when it has no row.
+ * Read only, unlike getNotificationPreferences: pressing a button in Discord
+ * must not write a preferences row for someone who never opened settings.
+ */
+async function getLanguagePreference(userId) {
+	const res = await query('SELECT locale, locale_set FROM notification_preferences WHERE user_id = $1', [userId]);
+	if (!res.rowCount) return null;
+	return { locale: res.rows[0].locale, localeSet: Boolean(res.rows[0].locale_set) };
+}
+
+/**
+ * `localeChosen` says the person picked the language themselves. Changing only
+ * the delivery channel, or tidying up after an unlink, passes the stored
+ * locale back and must not turn the sign-in default into a choice.
+ */
+async function setNotificationPreferences(userId, { mode, locale, localeChosen = false }) {
 	const allowedModes = new Set(['discord', 'email', 'both', 'off']);
 	if (!allowedModes.has(mode)) throw new Error('notification_mode_invalid');
 	// Asked of the registry, so a language added there is accepted here without
@@ -275,13 +295,14 @@ async function setNotificationPreferences(userId, { mode, locale }) {
 	if (['discord', 'both'].includes(mode) && !hasDiscord) throw new Error('notification_discord_unavailable');
 	if (['email', 'both'].includes(mode) && !hasEmail) throw new Error('notification_email_unavailable');
 	const res = await query(
-		`INSERT INTO notification_preferences (user_id, mode, locale)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, locale = EXCLUDED.locale, updated_at = now()
-		 RETURNING mode, locale, updated_at`,
-		[userId, mode, locale],
+		`INSERT INTO notification_preferences (user_id, mode, locale, locale_set)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, locale = EXCLUDED.locale,
+			locale_set = notification_preferences.locale_set OR EXCLUDED.locale_set, updated_at = now()
+		 RETURNING mode, locale, locale_set, updated_at`,
+		[userId, mode, locale, Boolean(localeChosen)],
 	);
-	return { mode: res.rows[0].mode, locale: res.rows[0].locale, updatedAt: res.rows[0].updated_at };
+	return preferenceFromRow(res.rows[0]);
 }
 
 async function unlinkIdentity(userId, provider) {
@@ -416,6 +437,7 @@ async function claimParticipants(userId, { deviceToken = null } = {}) {
 
 module.exports = {
 	getUser,
+	getLanguagePreference,
 	getIdentities,
 	getUserWithIdentities,
 	findByIdentity,
