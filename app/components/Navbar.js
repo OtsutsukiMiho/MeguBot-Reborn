@@ -164,7 +164,12 @@ export default function Navbar() {
 						</Link>
 					</div>
 
-					{space === 'bills' && (
+					{/* Every item below needs an account: the bill list, creating a
+					    bill, projects, teams and the server console. Someone signed
+					    out gets the switcher, which leads to the landing pages, and
+					    the sign-in button, rather than links to screens that can only
+					    ask them to sign in or fail to load. */}
+					{user && space === 'bills' && (
 						<>
 							<Link href="/bills" aria-current={pathname === '/bills' || pathname.startsWith('/a/') ? 'page' : undefined} className={`tab-btn ${pathname === '/bills' || pathname.startsWith('/a/') ? 'active' : ''}`}>
 								{t.nav.myBills}
@@ -174,7 +179,7 @@ export default function Navbar() {
 							</Link>
 						</>
 					)}
-					{space === 'org' && (
+					{user && space === 'org' && (
 						<>
 							{PROJECTS_ENABLED && <Link href="/projects" aria-current={pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
 								{t.nav.projects}
@@ -184,7 +189,7 @@ export default function Navbar() {
 							</Link>}
 						</>
 					)}
-					{space && (
+					{user && space && (
 						<Link href="/servers" aria-current={pathname.startsWith('/servers') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
 							{t.nav.servers}
 						</Link>
