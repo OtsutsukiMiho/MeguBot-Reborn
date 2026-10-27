@@ -89,7 +89,7 @@ export default function ManageScreen() {
 	const pending = payments.filter(p => p.status === 'pending');
 	const confirmed = payments.filter(p => p.status === 'confirmed');
 	const corrected = payments.filter(p => ['rejected', 'reversed'].includes(p.status));
-	const nameOf = id => participants.find(p => p.id === id)?.displayName || '—';
+	const nameOf = id => participants.find(p => p.id === id)?.displayName || '-';
 
 	// What still has to move, taken from the obligation graph rather than from
 	// a sum of balances. They differ: a balance nets what somebody owes against

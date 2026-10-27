@@ -41,7 +41,7 @@ export default function ActivitySummary() {
 	const recurring = kind === 'recurring';
 	const going = participants.filter(p => p.rsvp === 'yes').length;
 	const totalOutstanding = participants.reduce((sum, p) => sum + Math.max(0, p.outstanding || 0), 0);
-	const nameOf = id => participants.find(p => p.id === id)?.displayName || '—';
+	const nameOf = id => participants.find(p => p.id === id)?.displayName || '-';
 	const roster = rosterOrder(participants, { payeeParticipantId: payTo?.participantId, totalOutstanding });
 	const disputedMine = me
 		? payments.filter(p => p.participantId === me.id && ['rejected', 'reversed'].includes(p.status))
@@ -107,7 +107,7 @@ export default function ActivitySummary() {
 				<h1>{activity.title}</h1>
 				<div className="page-meta">
 					{recurring
-						? <span>{period ? fmt.period(period.key) : t.activity.noPeriodYet}{activity.dueDay ? ` · ${t.activity.dueOn(activity.dueDay)}` : ''}</span>
+						? <span>{period ? fmt.period(period.key) : t.activity.noPeriodYet}{activity.dueDay ? `, ${t.activity.dueOn(activity.dueDay)}` : ''}</span>
 						: <>
 							{/* A bill made with /event has no time to be missing. */}
 							{!activity.billOnly && <span>{fmt.when(activity.startsAt, { long: true }) || t.activity.notScheduled}</span>}
@@ -149,8 +149,8 @@ export default function ActivitySummary() {
 			{disputedMine.map(payment => (
 				<div className="error-note" key={payment.id} role="status">
 					{payment.status === 'rejected'
-						? t.pending.rejectedNotice(payment.reversalReason || '—')
-						: t.pending.reversedNotice(payment.reversalReason || '—')}
+						? t.pending.rejectedNotice(payment.reversalReason || '-')
+						: t.pending.reversedNotice(payment.reversalReason || '-')}
 				</div>
 			))}
 

@@ -690,3 +690,11 @@
 	.stageMegu, .say, .bubbleSwap { animation: none; }
 	.btn, .poster, .go i, .state, .flow li, .bar i, .day { transition: none; }
 }
+
+/* Phrases stay whole on a wide screen. On a phone any of them may wrap
+   inside rather than push its section past the edge of the screen, which
+   is what the headings and the closing line did in English. */
+@media (max-width: 620px) {
+	.nb { white-space: normal; }
+	.closeInner > div { min-width: 0; }
+}

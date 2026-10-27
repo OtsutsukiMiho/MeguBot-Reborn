@@ -281,7 +281,7 @@ export default function PayPanel({ code, payTo, creditorParticipantId = null, am
 				{selectedMethod?.type === 'promptpay' ? (
 					<>
 						<figure className="pay-qr">
-							<img src={qrUrl} alt={`${t.pay.scanHint} — ${fmt.money(payAmount)}`} width={640} height={640} />
+							<img src={qrUrl} alt={`${t.pay.scanHint}, ${fmt.money(payAmount)}`} width={640} height={640} />
 						</figure>
 						<p className="pay-hint">{t.pay.sameDeviceHint}</p>
 						<button type="button" className="btn btn-primary btn-block" disabled={saving} onClick={saveQr}>
