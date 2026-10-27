@@ -19,6 +19,11 @@ const en = {
 		account: 'Account',
 		signOut: 'Sign out',
 		signIn: 'Sign in',
+		spaces: 'Parts of Megu',
+		spaceBills: 'Bills',
+		spaceOrg: 'Organisation',
+		myBills: 'My bills',
+		newBill: 'New bill',
 	},
 
 	serverWorkspaces: {
@@ -392,6 +397,7 @@ const en = {
 			audioqueue: 'Audio queue',
 			audit: 'Activity history',
 			embeds: 'Message builder',
+			language: 'Bill language',
 		},
 		tabDescriptions: {
 			personal: 'Choose how Megu speaks your name and sends your reminders in this server.',
@@ -408,6 +414,7 @@ const en = {
 			audioqueue: 'Monitor, test, and manage the server’s current audio queue.',
 			audit: 'Review recent moderation, configuration, and member events.',
 			embeds: 'Compose and send a structured message to a server channel.',
+			language: 'Choose the language Megu posts bills, summaries and link previews in.',
 		},
 		tabSearchAliases: {
 			personal: ['preferences', 'reminders', 'nickname'],
@@ -543,6 +550,18 @@ const en = {
 			blockList: 'Words or phrases', blockListHelp: 'Separate entries with commas. Matching follows the existing moderation rules.', blockListPlaceholder: 'blocked phrase, another phrase',
 			responseTitle: 'Response to violations', responseDescription: 'This response applies to every enabled detection rule.', responseLabel: 'Action after a violation', deleteMessage: 'Delete message', warnMember: 'Warn member', timeoutMember: 'Timeout member', kickMember: 'Kick member', banMember: 'Ban member', consequence: 'Kick and ban remove a member from the server immediately when the configured rule is enforced.',
 		},
+		language: {
+			scope: 'Saved with server settings',
+			title: 'Language of bill posts',
+			description: 'Bill cards, the due-day summary, the summary posted from the web and the preview of a pasted bill link all use this language, whoever pressed the button.',
+			label: 'Language',
+			labelHelp: 'Server members can also change this with /megu-language.',
+			auto: name => `Follow the Discord server language (now ${name})`,
+			names: { th: 'Thai', en: 'English' },
+			status: name => `Posting in ${name}`,
+			personalTitle: 'Private replies',
+			personal: 'Replies only one person sees, and their DMs and emails, use the language that person chose on their account page.',
+		},
 		honeypot: {
 			scope: 'Saved with server settings', title: 'Decoy channel', description: 'Choose one channel that legitimate members should never use.', label: 'Honeypot channel', placeholder: 'Choose a decoy channel', disabled: 'Disabled', active: name => `Draft destination: #${name}`, inactive: 'Draft is disabled', warningTitle: 'High-impact automation', warning: 'Posting in this channel triggers the existing honeypot enforcement. Confirm the channel and bot permissions before saving.',
 		},
@@ -592,7 +611,7 @@ const en = {
 		},
 		audit: {
 			count: count => `${count} events loaded`, description: 'Search applies to the 150 most recently loaded events.', search: 'Search activity', searchPlaceholder: 'Actor, action, target, or details', type: 'Event type', all: 'All events', time: 'Time', actor: 'Actor', action: 'Action', details: 'Target and details', system: 'System', emptyTitle: 'No matching events', emptyDescription: 'Change the search or event filter.', loadError: 'Could not load recent activity.',
-			eventTypes: { MESSAGE_DELETE: 'Deleted messages', MEMBER_BAN: 'Bans and unbans', MEMBER_KICK: 'Member kicks', MEMBER_TIMEOUT: 'Member timeouts', MEMBER_UPDATE: 'Member changes', ROLE_ASSIGN: 'Role assignments', ROLE_UPDATE: 'Role changes', CHANNEL_UPDATE: 'Channel changes', INVITE_CREATE: 'Invite changes', AUTOMOD: 'Auto moderation', WELCOME_LEAVE: 'Welcome and goodbye', VOICE_TTS: 'Voice TTS', HONEYPOT: 'Honeypot', REACTION_ROLE: 'Reaction roles', NICKNAME: 'Spoken names' },
+			eventTypes: { MESSAGE_DELETE: 'Deleted messages', MEMBER_BAN: 'Bans and unbans', MEMBER_KICK: 'Member kicks', MEMBER_TIMEOUT: 'Member timeouts', MEMBER_UPDATE: 'Member changes', ROLE_ASSIGN: 'Role assignments', ROLE_UPDATE: 'Role changes', CHANNEL_UPDATE: 'Channel changes', INVITE_CREATE: 'Invite changes', AUTOMOD: 'Auto moderation', WELCOME_LEAVE: 'Welcome and goodbye', VOICE_TTS: 'Voice TTS', HONEYPOT: 'Honeypot', MEGU_LANGUAGE: 'Bill language', REACTION_ROLE: 'Reaction roles', NICKNAME: 'Spoken names' },
 		},
 	},
 

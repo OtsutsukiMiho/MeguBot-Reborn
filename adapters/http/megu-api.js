@@ -988,6 +988,8 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
  *        Rechecks that the bot can view and send to an owner-selected channel.
  * @param {(notice: {guildId: string, channelId: string, message: string, cta: object}) => Promise<{delivered: boolean}>} [deps.postChannelNotice]
  *        Posts one message in the activity's Discord channel through the bot.
+ * @param {(guildId: string) => Promise<string>} [deps.serverLang]
+ *        The language Megu posts in for that server (core/server-lang.js).
  */
 function router(deps = {}) {
 	const api = express.Router();
@@ -1108,6 +1110,7 @@ function router(deps = {}) {
 				notificationPreferences = await users.setNotificationPreferences(req.actor.userId, {
 					mode: body.notificationMode || current.mode,
 					locale: body.notificationLocale || current.locale,
+					localeChosen: Boolean(body.notificationLocale),
 				});
 			}
 			if (!user) user = await users.getUser(req.actor.userId);
@@ -1947,13 +1950,18 @@ function router(deps = {}) {
 				activity = await activities.getActivity(activity.id);
 			}
 			res.json({
-				activity: serializeActivity(activity, req.actor, {
-					periodId: req.query.period,
-					// The pay screen asks for one creditor at a time. Without it
-					// the page answers for whoever the reader owes, and says it
-					// cannot choose when that is more than one person.
-					creditorParticipantId: req.query.creditorParticipantId || null,
-				}),
+				activity: {
+					...serializeActivity(activity, req.actor, {
+						periodId: req.query.period,
+						// The pay screen asks for one creditor at a time. Without it
+						// the page answers for whoever the reader owes, and says it
+						// cannot choose when that is more than one person.
+						creditorParticipantId: req.query.creditorParticipantId || null,
+					}),
+					// The language of the server the bill lives in, for the link
+					// preview. A language code is all it says about the server.
+					serverLang: await billServerLang(activity),
+				},
 			});
 		}
 		catch (error) {
@@ -2590,7 +2598,9 @@ function router(deps = {}) {
 			const period = activity.kind === 'recurring'
 				? (activity.periods.find(p => p.id === req.body?.periodId) || activities.currentPeriod(activity))
 				: null;
-			const lang = req.body?.lang === 'en' ? 'en' : 'th';
+			// The channel reads it, so the server's language wins over the
+			// organiser's own screen.
+			const lang = await billServerLang(activity) || (req.body?.lang === 'en' ? 'en' : 'th');
 			const { message, ctaLabel } = billSummary.billSummaryMessage({
 				title: activity.title,
 				settlement: activities.settlement(activity, period ? period.id : null),
@@ -2621,6 +2631,17 @@ function router(deps = {}) {
 			next(error);
 		}
 	});
+
+	/** The bill's server language, or null for a bill with no server. Never throws. */
+	async function billServerLang(activity) {
+		if (!activity?.guildId || !deps.serverLang) return null;
+		try {
+			return await deps.serverLang(activity.guildId);
+		}
+		catch {
+			return null;
+		}
+	}
 
 	async function ownerOnly(req, res, nextFn) {
 		const activity = await activities.getActivityByCode(req.params.code);

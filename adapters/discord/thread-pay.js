@@ -125,6 +125,7 @@ const T = {
 		notOnBill: name => `**${name}** ไม่มียอดค้างในบิลนี้ เลยไม่ได้บันทึกสลิป ถ้าคิดว่าผิด ลองใช้ /pay`,
 		noMonth: (name, month) => `**${name}** ไม่มียอดค้างของ${month} เลยไม่ได้บันทึกสลิป ลองระบุเดือนอื่น หรือใช้ /pay`,
 		failed: name => `อ่านสลิปของ **${name}** ไม่สำเร็จ ลองส่งใหม่อีกครั้ง หรือใช้ /pay`,
+		busy: name => `Megu ยังอ่านสลิปก่อนหน้าของ **${name}** อยู่ เลยยังไม่ได้บันทึกใบนี้ รอคำตอบของใบแรกแล้วค่อยส่งใหม่นะ`,
 		removed: 'ลบข้อความที่มีสลิปออกแล้ว Megu เก็บไว้แค่หลักฐานการโอน',
 		forMonth: month => ` ของ${month}`,
 	},
@@ -132,6 +133,7 @@ const T = {
 		notOnBill: name => `**${name}** owes nothing on this bill, so the slip was not recorded. If that is wrong, try /pay.`,
 		noMonth: (name, month) => `**${name}** owes nothing for ${month}, so the slip was not recorded. Name another month or use /pay.`,
 		failed: name => `Could not read **${name}**'s slip. Send it again, or use /pay.`,
+		busy: name => `Megu is still reading **${name}**'s previous slip, so this one was not recorded. Wait for the first answer, then send it again.`,
 		removed: 'The message with the slip was removed. Megu keeps only its own record of the transfer.',
 		forMonth: month => ` for ${month}`,
 	},
@@ -153,22 +155,27 @@ async function handleThreadPayment(message, { core = loadCore(), discordCall, no
 	if (!asked) return false;
 	const code = await core.activities.getActivityCodeByChannel(message.channelId);
 	if (!code) return false;
-	if (reading.has(message.author.id)) return true;
-	reading.add(message.author.id);
-
 	const lang = asked.lang;
 	const t = T[lang];
 	const name = message.member?.displayName || message.author.globalName || message.author.username;
 	let reply;
-	try {
-		reply = await answer(message, { core, code, asked, image, t, lang, name, submit });
+	if (reading.has(message.author.id)) {
+		// One slip per person at a time. The second is not read, but it still
+		// leaves the thread, and its sender is told to send it again.
+		reply = t.busy(name);
 	}
-	catch (error) {
-		console.warn(`[Megu] Could not read a slip in the thread of ${code}: ${error.message}`);
-		reply = t.failed(name);
-	}
-	finally {
-		reading.delete(message.author.id);
+	else {
+		reading.add(message.author.id);
+		try {
+			reply = await answer(message, { core, code, asked, image, t, lang, name, submit });
+		}
+		catch (error) {
+			console.warn(`[Megu] Could not read a slip in the thread of ${code}: ${error.message}`);
+			reply = t.failed(name);
+		}
+		finally {
+			reading.delete(message.author.id);
+		}
 	}
 
 	// The slip goes either way: recorded or not, it showed bank details to
@@ -206,6 +213,7 @@ async function answer(message, { core, code, asked, image, t, lang, name, submit
 		amountSatang: asked.amountSatang || target.outstandingSatang,
 		attachment: { url: image.url, contentType: image.contentType, size: image.size },
 		senderDiscordUid: message.author.id,
+		lang,
 		core,
 		notifyOwner: async (uid, note) => {
 			const owner = await message.client.users.fetch(uid);

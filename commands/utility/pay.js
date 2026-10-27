@@ -87,6 +87,7 @@ module.exports = {
 			amountSatang: Math.round(interaction.options.getNumber('amount', true) * 100),
 			attachment: interaction.options.getAttachment('slip', true),
 			senderDiscordUid: interaction.user.id,
+			lang: t === T.th ? 'th' : 'en',
 			notifyOwner: async (uid, message) => {
 				const owner = await interaction.client.users.fetch(uid);
 				await owner.send({ ...message, allowedMentions: { parse: [] } });

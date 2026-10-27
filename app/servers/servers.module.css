@@ -102,6 +102,9 @@
 	font-weight: var(--w-heavy);
 	letter-spacing: -.055em;
 	line-height: .98;
+	/* The global h1 colour is --ink, which turns dark navy in the light theme
+	   and disappears into the band. The band sets its own ink. */
+	color: var(--band-ink);
 }
 
 .headerLede {

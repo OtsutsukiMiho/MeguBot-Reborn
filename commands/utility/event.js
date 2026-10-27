@@ -6,6 +6,7 @@ const {
 const defaultCore = require('../../core/index.js');
 const card = require('../../core/event-card.js');
 const { formatPeriod } = require('../../core/format.js');
+const { serverLang, personalLang } = require('../../core/server-lang.js');
 const { submitDiscordSlip, ownerDecisionButtons, parseBaht, money, siteUrl } = require('../../adapters/discord/slip-submit.js');
 
 // `/event ตีแบด` — start a shared bill without leaving the chat.
@@ -198,8 +199,112 @@ const T = {
 	},
 };
 
+// ── which language ─────────────────────────────────────────────────────────
+//
+// Two readers, two rules (core/server-lang.js). The card, and anything else
+// posted where the group reads it, follows the server. A private reply follows
+// the person who pressed: their account's choice when they made one, their
+// Discord client otherwise. Before this, the client locale decided both, so a
+// Thai server's card turned English whenever someone with an English client
+// pressed a button on it.
+
+// How long a person's choice is trusted before it is read again. A change on
+// the account page shows within this, and a burst of presses on one card asks
+// the database once.
+const PERSONAL_LANG_TTL_MS = 2 * 60 * 1000;
+const personalPreferences = new Map();
+const resolvedLangs = new WeakMap();
+
+function cachedPreference(discordUid) {
+	const hit = discordUid ? personalPreferences.get(discordUid) : null;
+	return hit && Date.now() - hit.at < PERSONAL_LANG_TTL_MS ? hit.preference : null;
+}
+
+/**
+ * The words for a private reply to whoever pressed. Synchronous on purpose:
+ * a slash command must show its modal before anything is looked up, so there
+ * it uses what was learned on an earlier press, and the client locale before
+ * that. Everything routed through handleComponent has been looked up first.
+ */
 function copyFor(interaction) {
-	return T[card.langOf(interaction.locale)];
+	const lang = resolvedLangs.get(interaction)
+		|| personalLang({ preference: cachedPreference(interaction.user?.id), clientLocale: interaction.locale });
+	return T[lang] || T.en;
+}
+
+async function preferenceFor(core, discordUid) {
+	if (!discordUid) return null;
+	const hit = personalPreferences.get(discordUid);
+	if (hit && Date.now() - hit.at < PERSONAL_LANG_TTL_MS) return hit.preference;
+	let preference;
+	try {
+		const account = await core.users.findByIdentity('discord', discordUid);
+		preference = account ? await core.users.getLanguagePreference(account.id) : null;
+	}
+	catch (error) {
+		// The reply still goes out, in the client's language.
+		console.warn(`[Megu] Could not read the language of ${discordUid}: ${error.message}`);
+		return null;
+	}
+	if (personalPreferences.size > 5000) {
+		for (const [uid, entry] of personalPreferences) {
+			if (Date.now() - entry.at >= PERSONAL_LANG_TTL_MS) personalPreferences.delete(uid);
+		}
+	}
+	personalPreferences.set(discordUid, { preference, at: Date.now() });
+	return preference;
+}
+
+async function learnLanguage(interaction, core) {
+	const preference = await preferenceFor(core, interaction.user?.id);
+	resolvedLangs.set(interaction, personalLang({ preference, clientLocale: interaction.locale }));
+}
+
+/**
+ * Reads guild_variables.megu_lang. bot.js hands over the real reader; until
+ * then there is no stored choice, which keeps tests and scripts away from the
+ * settings database.
+ */
+let readServerLang = async () => null;
+
+function useServerLangReader(fn) {
+	if (typeof fn === 'function') readServerLang = fn;
+}
+
+/** The language the group reads in, for a card or a post in that server. */
+async function cardLang(interaction, guildId = null) {
+	const id = guildId || interaction.guildId || null;
+	let stored = null;
+	if (id) {
+		try {
+			stored = await readServerLang(id);
+		}
+		catch (error) {
+			console.warn(`[Megu] Could not read the language of server ${id}: ${error.message}`);
+		}
+	}
+	// The bot's own cache first: a press in a DM carries no guildLocale.
+	const guild = id ? interaction.client?.guilds?.cache?.get(id) : null;
+	const preferredLocale = guild?.preferredLocale || (id && id === interaction.guildId ? interaction.guildLocale : null);
+	return serverLang({ stored, preferredLocale });
+}
+
+/** A Discord user who is not the presser: their own choice, or the server's language. */
+async function langForDiscordUser(core, discordUid, guildLang) {
+	const preference = await preferenceFor(core, discordUid);
+	return preference?.localeSet && T[preference.locale] ? preference.locale : guildLang;
+}
+
+/** For someone other than the presser: their own choice, or the server's language. */
+async function langForParticipant(core, participant, guildLang) {
+	if (!participant?.userId) return guildLang;
+	try {
+		const preference = await core.users.getLanguagePreference(participant.userId);
+		return preference?.localeSet && T[preference.locale] ? preference.locale : guildLang;
+	}
+	catch {
+		return guildLang;
+	}
 }
 
 function shareUrl(code) {
@@ -319,13 +424,21 @@ async function redrawBillCard(client, core, code) {
 	let channel = client.channels.cache.get(bill.channelId) || null;
 	if (!channel) channel = await discordCall(`finding the thread of ${code}`, () => client.channels.fetch(bill.channelId), null);
 	if (!channel?.messages) return false;
-	const locale = client.guilds?.cache?.get(bill.guildId)?.preferredLocale || 'th';
-	const rendered = await renderCard(core, code, locale, { audience: audienceOf(channel) });
+	// The server's language, as for every card (cardLang), without an interaction.
+	let stored = null;
+	try {
+		stored = bill.guildId ? await readServerLang(bill.guildId) : null;
+	}
+	catch (error) {
+		console.warn(`[Megu] Could not read the language of server ${bill.guildId}: ${error.message}`);
+	}
+	const lang = serverLang({ stored, preferredLocale: client.guilds?.cache?.get(bill.guildId)?.preferredLocale || null });
+	const rendered = await renderCard(core, code, lang, { audience: audienceOf(channel) });
 	if (!rendered) return false;
 	return discordCall(`redrawing the card of ${code}`, async () => {
 		await channel.messages.edit(bill.cardMessageId, {
 			content: rendered.content,
-			components: cardButtons(code, T[card.langOf(locale)], rendered.monthly),
+			components: cardButtons(code, T[lang] || T.en, rendered.monthly),
 			allowedMentions: NO_PINGS,
 		});
 		return true;
@@ -338,8 +451,7 @@ async function refreshCard(core, interaction, code, messageId = null) {
 	// where the card lives: editing there answers Unknown Message.
 	const bill = await core.activities.getActivityByCode(code);
 	if (!bill) return;
-	const guild = bill.guildId ? interaction.client?.guilds?.cache?.get(bill.guildId) : null;
-	const locale = interaction.guildLocale || guild?.preferredLocale || interaction.locale;
+	const lang = await cardLang(interaction, bill.guildId);
 	// A bill's private thread falls out of the cache when the bot restarts.
 	// Looking it up again is one request, made only because somebody pressed
 	// something on this bill.
@@ -348,9 +460,9 @@ async function refreshCard(core, interaction, code, messageId = null) {
 		home = await discordCall(`finding the thread of ${code}`, () => interaction.client.channels.fetch(bill.channelId), null);
 	}
 	const channel = home || interaction.channel;
-	const rendered = await renderCard(core, code, locale, { audience: audienceOf(messageId ? channel : interaction.channel) });
+	const rendered = await renderCard(core, code, lang, { audience: audienceOf(messageId ? channel : interaction.channel) });
 	if (!rendered) return;
-	const payload = { content: rendered.content, components: cardButtons(code, T[card.langOf(locale)], rendered.monthly), allowedMentions: NO_PINGS };
+	const payload = { content: rendered.content, components: cardButtons(code, T[lang] || T.en, rendered.monthly), allowedMentions: NO_PINGS };
 	try {
 		if (messageId && channel) await channel.messages.edit(messageId, payload);
 		else if (interaction.message?.editable) await interaction.message.edit(payload);
@@ -495,10 +607,12 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 		});
 	}
 
-	const locale = interaction.guildLocale || interaction.locale;
-	const rendered = await renderCard(core, activity.code, locale);
+	// The card follows the server's language; the note below follows the
+	// person who made it (t).
+	const lang = await cardLang(interaction);
+	const rendered = await renderCard(core, activity.code, lang);
 	activity = rendered.activity;
-	const buttons = cardButtons(activity.code, T[card.langOf(locale)], monthly);
+	const buttons = cardButtons(activity.code, T[lang] || T.en, monthly);
 	let posted = null;
 	const where = [];
 
@@ -516,7 +630,7 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 		// money, and each person sees their own share when they press pay.
 		// Sent to the channel rather than as a follow-up: the first follow-up
 		// to an ephemeral defer can come out ephemeral too.
-		const open = await renderCard(core, activity.code, locale, { audience: 'public' });
+		const open = await renderCard(core, activity.code, lang, { audience: 'public' });
 		posted = await discordCall(`posting the card of ${activity.code} in its channel`, () => interaction.channel.send({
 			content: open.content, components: buttons, allowedMentions: NO_PINGS,
 		}), null);
@@ -537,13 +651,13 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 			});
 			return true;
 		}, false);
-		const text = card.shareText({ activity, settlement: rendered.settlement, shareUrl: shareUrl(activity.code), locale: interaction.locale }).replace(/`/g, '\'');
+		const text = card.shareText({ activity, settlement: rendered.settlement, shareUrl: shareUrl(activity.code), locale: t.lang }).replace(/`/g, '\'');
 		where.push(`${t.shareHeading}\n\`\`\`\n${text}\n\`\`\``, dmed ? t.dmSent : t.dmFailed);
 	}
 
 	await interaction.editReply({
 		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly }),
-		content: [organizerNoteFor(activity, rendered.period, interaction.locale), ...notes, ...where].join('\n').slice(0, 2000),
+		content: [organizerNoteFor(activity, rendered.period, t.lang), ...notes, ...where].join('\n').slice(0, 2000),
 		allowedMentions: NO_PINGS,
 	});
 }
@@ -698,15 +812,18 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
 		throw error;
 	}
 
-	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
+	// Only the month is read from this render; the card itself is redrawn by
+	// refreshCard in the server's language.
+	const rendered = await renderCard(core, code, t.lang);
 	activity = rendered.activity;
 	await refreshCard(core, interaction, code, cardMessageId);
 
-	const lines = [organizerNoteFor(activity, rendered.period, interaction.locale)];
+	const lines = [organizerNoteFor(activity, rendered.period, t.lang)];
 	const isMe = payer.discordUid === interaction.user.id;
 	let asked = null;
 	if (!isMe && !activity.payee?.promptpayId) {
-		asked = await askPayerForPromptPay(interaction.client, payer, activity)
+		const payerLang = await langForParticipant(core, payer, await cardLang(interaction, activity.guildId));
+		asked = await askPayerForPromptPay(interaction.client, payer, activity, payerLang)
 			? t.payerAsked(card.inert(payer.displayName))
 			: t.payerUnreachable(card.inert(payer.displayName));
 		lines.push(asked);
@@ -724,8 +841,8 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
  * slip until they have a PromptPay number. It is sent once, on the pick, in
  * answer to the organiser pressing something (DISCORD-RATE-LIMITS.md rule 1).
  */
-async function askPayerForPromptPay(client, payer, activity) {
-	const t = T.th;
+async function askPayerForPromptPay(client, payer, activity, lang = 'th') {
+	const t = T[lang] || T.th;
 	// A closed DM is the ordinary case and answers false. discordCall() skips
 	// the call while Discord is blocking us and hands the refusal to the guard.
 	return discordCall(`asking the payer of ${activity.code} for PromptPay`, async () => {
@@ -889,6 +1006,8 @@ async function onSlip(interaction, core, code) {
 		attachment,
 		senderDiscordUid: interaction.user.id,
 		core,
+		lang: t.lang,
+		langFor: async uid => langForDiscordUser(core, uid, await cardLang(interaction, candidate.guildId || null)),
 		notifyOwner: (uid, message) => discordCall(`telling the receiver of ${code} about a slip`, async () => {
 			const owner = await interaction.client.users.fetch(uid);
 			await owner.send({ ...message, allowedMentions: { parse: [] } });
@@ -1047,7 +1166,7 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 /** The bill, its current month, and whether the person pressing owns it. */
 async function ownerView(core, interaction, code) {
 	const t = copyFor(interaction);
-	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
+	const rendered = await renderCard(core, code, t.lang);
 	if (!rendered) return { error: t.gone };
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
 	if (!account || account.id !== rendered.activity.ownerUserId) return { error: t.ownerOnly };
@@ -1223,10 +1342,10 @@ async function decide(interaction, core, { activity, payment, account }, decisio
 		content: `${interaction.message?.content || ''}\n\n${line}`.trim(),
 		// A confirm is one tap next to the reject button, so it keeps a way back:
 		// the same undo an automatic match offers. Reject and undo are final here.
-		components: decision === 'confirm' ? ownerDecisionButtons(activity.code, payment.id, { autoConfirmed: true }) : [],
+		components: decision === 'confirm' ? ownerDecisionButtons(activity.code, payment.id, { autoConfirmed: true, lang: t.lang }) : [],
 		allowedMentions: NO_PINGS,
 	});
-	await tellPayer(core, interaction.client, activity, payment, decision, reason);
+	await tellPayer(core, interaction.client, activity, payment, decision, reason, await cardLang(interaction, activity.guildId));
 }
 
 /**
@@ -1234,7 +1353,7 @@ async function decide(interaction, core, { activity, payment, account }, decisio
  * outbox when they have an account, so their channel choice is respected, and
  * as a DM when they are only a Discord row on the roster.
  */
-async function tellPayer(core, client, activity, payment, decision, reason) {
+async function tellPayer(core, client, activity, payment, decision, reason, guildLang = 'th') {
 	const payer = activity.participants.find(p => p.id === payment.participantId);
 	if (!payer) return;
 	const amount = money(payment.amountSatang);
@@ -1259,13 +1378,16 @@ async function tellPayer(core, client, activity, payment, decision, reason) {
 				subjectTh: `อัปเดตการจ่ายเงิน ${activity.title}`,
 				subjectEn: `Payment update for ${activity.title}`,
 				bodyTh, bodyEn, ctaUrl: shareUrl(activity.code),
+				// For a payer who never chose a language: the bill's server.
+				contextLocale: guildLang,
 			},
 		}).catch(error => console.warn(`[Megu] Could not queue the ${decision} notice for ${activity.code}: ${error.message}`));
 	}
 	else if (payer.discordUid) {
 		await discordCall(`telling the payer of ${activity.code} about the ${decision}`, async () => {
 			const user = await client.users.fetch(payer.discordUid);
-			await user.send({ content: `**${card.inert(activity.title)}**\n${bodyTh}\n${shareUrl(activity.code)}`, allowedMentions: NO_PINGS });
+			const body = guildLang === 'th' ? bodyTh : bodyEn;
+			await user.send({ content: `**${card.inert(activity.title)}**\n${body}\n${shareUrl(activity.code)}`, allowedMentions: NO_PINGS });
 		});
 	}
 }
@@ -1294,6 +1416,10 @@ function useDiscordCall(fn) {
 async function handleComponent(interaction, { core = defaultCore } = {}) {
 	const [, action, code, extra] = interaction.customId.split(':');
 	try {
+		// Before any reply, so every private answer below is in the presser's
+		// language. The pay and PromptPay buttons open a modal under the same
+		// three seconds as a slash command; this is one cached read.
+		await learnLanguage(interaction, core);
 		if (interaction.isModalSubmit()) {
 			if (action === 'create') return await onCreate(interaction, core);
 			if (action === 'subcreate') return await onCreate(interaction, core, { monthly: true });
@@ -1338,6 +1464,9 @@ module.exports = {
 		.setDescriptionLocalizations({ th: 'เปิดบิลกิจกรรม: ใครไปบ้าง ค่าใช้จ่ายเท่าไหร่ หารยังไง' }),
 	PREFIX,
 	copyFor,
+	cardLang,
+	learnLanguage,
+	useServerLangReader,
 	subModal,
 	handleComponent,
 	useDiscordCall,

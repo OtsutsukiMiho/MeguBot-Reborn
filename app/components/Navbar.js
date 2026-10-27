@@ -9,6 +9,7 @@ import ThemeToggle from './ThemeToggle';
 import { useLang, LANGS } from './LangProvider';
 import { useCopy } from '../copy';
 import { WorkspaceDraftNavigation } from './useDraftGuard';
+import { spaceFor, ownsSpace, readRemembered, remember } from './navSpaces';
 
 const PROJECTS_ENABLED = process.env.NEXT_PUBLIC_MEGU_PROJECTS_ENABLED !== '0';
 const TEAMS_ENABLED = PROJECTS_ENABLED && process.env.NEXT_PUBLIC_MEGU_PROJECT_TEAMS_ENABLED !== '0';
@@ -17,11 +18,19 @@ export default function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDev, setIsDev] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
+	// The side the reader last chose, for pages both sides share. Read after
+	// mount, since storage does not exist on the server.
+	const [remembered, setRemembered] = useState(null);
 	const menuButton = useRef(null);
 	const pathname = usePathname();
 	const { lang, setLang } = useLang();
 	const { t } = useCopy();
 	useEffect(() => { setMenuOpen(false); }, [pathname]);
+	useEffect(() => { setRemembered(readRemembered()); }, []);
+	const space = spaceFor(pathname, remembered);
+	useEffect(() => {
+		if (space && ownsSpace(pathname)) { remember(space); setRemembered(space); }
+	}, [space, pathname]);
 	useEffect(() => {
 		if (!menuOpen) return;
 		const close = event => {
@@ -35,6 +44,16 @@ export default function Navbar() {
 	// true on `/` so the first paint is already transparent — the bar being
 	// solid for a frame over a dark hero is the exact flash this removes.
 	const [overBand, setOverBand] = useState(pathname === '/');
+	// `/` swaps its landing for the signed-in greeting once the session is
+	// known, so the hero can appear and disappear without a route change. The
+	// hero announces both (useLandingHero), and each announcement re-runs the
+	// check below.
+	const [heroTick, setHeroTick] = useState(0);
+	useEffect(() => {
+		const changed = () => setHeroTick(n => n + 1);
+		window.addEventListener('megu:landing-hero', changed);
+		return () => window.removeEventListener('megu:landing-hero', changed);
+	}, []);
 
 	useEffect(() => {
 		fetch('/api/auth/me')
@@ -81,7 +100,9 @@ export default function Navbar() {
 			const hero = document.querySelector('[data-landing-hero]');
 
 			if (!hero) {
-				if (tries++ < 60) frame = requestAnimationFrame(attach);
+				// After an announcement the answer is already final: the hero
+				// just left. Only the first look on arrival waits for it.
+				if (heroTick === 0 && tries++ < 60) frame = requestAnimationFrame(attach);
 				else setOverBand(false);
 				return;
 			}
@@ -112,7 +133,7 @@ export default function Navbar() {
 			if (observer) observer.disconnect();
 			if (frame) cancelAnimationFrame(frame);
 		};
-	}, [pathname]);
+	}, [pathname, heroTick]);
 
 	const handleLogout = async () => {
 		await fetch('/api/auth/logout', { method: 'POST' });
@@ -133,24 +154,46 @@ export default function Navbar() {
 				</Link>
 
 				<div id="main-navigation" className={`nav-menu${menuOpen ? ' is-open' : ''}`} aria-label={t.nav.mainNavigation} onClick={event => { if (event.target.closest('a')) setMenuOpen(false); }}>
-					<Link href="/" className={`tab-btn ${pathname === '/' ? 'active' : ''}`}>
-						{t.nav.home}
-					</Link>
-					<Link href="/servers" className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
-						{t.nav.servers}
-					</Link>
-					<Link href="/activities" className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
-						{t.nav.activities}
-					</Link>
-					{PROJECTS_ENABLED && <Link href="/projects" className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
-						{t.nav.projects}
-					</Link>}
-					{TEAMS_ENABLED && <Link href="/teams" aria-current={pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'page' : undefined} className={`tab-btn ${pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'active' : ''}`}>
-						{t.nav.teams}
-					</Link>}
-					<Link href="/bills" className={`tab-btn ${pathname.startsWith('/bills') ? 'active' : ''}`}>
-						{t.nav.bills}
-					</Link>
+					{/* Which side of Megu this is, and the way to the other one. */}
+					<div className="nav-spaces" role="group" aria-label={t.nav.spaces}>
+						<Link href="/bills" aria-current={space === 'bills' ? 'true' : undefined} onClick={() => remember('bills')}>
+							{t.nav.spaceBills}
+						</Link>
+						<Link href={user ? (PROJECTS_ENABLED ? '/projects' : '/servers') : '/org'} aria-current={space === 'org' ? 'true' : undefined} onClick={() => remember('org')}>
+							{t.nav.spaceOrg}
+						</Link>
+					</div>
+
+					{/* Every item below needs an account: the bill list, creating a
+					    bill, projects, teams and the server console. Someone signed
+					    out gets the switcher, which leads to the landing pages, and
+					    the sign-in button, rather than links to screens that can only
+					    ask them to sign in or fail to load. */}
+					{user && space === 'bills' && (
+						<>
+							<Link href="/bills" aria-current={pathname === '/bills' || pathname.startsWith('/a/') ? 'page' : undefined} className={`tab-btn ${pathname === '/bills' || pathname.startsWith('/a/') ? 'active' : ''}`}>
+								{t.nav.myBills}
+							</Link>
+							<Link href="/activities" aria-current={pathname.startsWith('/activities') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
+								{t.nav.newBill}
+							</Link>
+						</>
+					)}
+					{user && space === 'org' && (
+						<>
+							{PROJECTS_ENABLED && <Link href="/projects" aria-current={pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/projects') || pathname.startsWith('/p/') ? 'active' : ''}`}>
+								{t.nav.projects}
+							</Link>}
+							{TEAMS_ENABLED && <Link href="/teams" aria-current={pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'page' : undefined} className={`tab-btn ${pathname === '/teams' || pathname.startsWith('/teams/') || pathname.startsWith('/companies/') ? 'active' : ''}`}>
+								{t.nav.teams}
+							</Link>}
+						</>
+					)}
+					{user && space && (
+						<Link href="/servers" aria-current={pathname.startsWith('/servers') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/servers') ? 'active' : ''}`}>
+							{t.nav.servers}
+						</Link>
+					)}
 					{isDev && (
 						<Link href="/developer" className={`tab-btn ${pathname.startsWith('/developer') ? 'active' : ''}`}>
 							Developer

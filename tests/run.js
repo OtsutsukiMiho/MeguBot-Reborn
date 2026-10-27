@@ -130,6 +130,7 @@ const SUITES = [
 	['pay-routing.test.js', 'where the money is sent — two creditors, one roster, and whose QR is printed'],
 	['receipt-access.test.js', 'one payment in detail — the payer, the creditor and the organizer, and nobody else'],
 	['bill-preview.test.js', 'bill link previews: kind, people and due day, never names or amounts'],
+	['bill-language.test.js', 'bill language: the server decides what the group reads, the person what only they read'],
 	['bill-summary.test.js', 'the bill posted back to Discord — organiser only, once a minute, nobody pinged'],
 	['event-command.test.js', '/event — a bill from one modal, claimed and joined from Discord, paid from a button'],
 	['payment-decision-buttons.test.js', 'slip decisions: confirm, reject and undo from the organiser DM, owner only, payer told'],

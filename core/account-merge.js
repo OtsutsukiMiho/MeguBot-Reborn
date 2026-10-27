@@ -530,19 +530,22 @@ async function mergeAccounts({ userIdA, userIdB, proof = {}, profileSource = nul
 
 		// Preferences first, while both rows still exist to be read.
 		const preferences = await client.query(
-			'SELECT user_id, mode, locale FROM notification_preferences WHERE user_id IN ($1, $2)',
+			'SELECT user_id, mode, locale, locale_set FROM notification_preferences WHERE user_id IN ($1, $2)',
 			[survivorId, mergedId],
 		);
 		const survivorPreference = preferences.rows.find(row => row.user_id === survivorId);
 		const mergedPreference = preferences.rows.find(row => row.user_id === mergedId);
 		const mode = unionMode(survivorPreference?.mode || 'off', mergedPreference?.mode || 'off');
-		const locale = survivorPreference?.locale || mergedPreference?.locale || 'en';
+		// A language somebody chose beats the sign-in default on the other row.
+		const chosen = [survivorPreference, mergedPreference].find(row => row?.locale_set) || null;
+		const locale = chosen?.locale || survivorPreference?.locale || mergedPreference?.locale || 'en';
 
 		await client.query(
-			`INSERT INTO notification_preferences (user_id, mode, locale)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, locale = EXCLUDED.locale, updated_at = now()`,
-			[survivorId, mode, locale],
+			`INSERT INTO notification_preferences (user_id, mode, locale, locale_set)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, locale = EXCLUDED.locale,
+				locale_set = EXCLUDED.locale_set, updated_at = now()`,
+			[survivorId, mode, locale, Boolean(chosen)],
 		);
 		await client.query('DELETE FROM notification_preferences WHERE user_id = $1', [mergedId]);
 

@@ -233,6 +233,20 @@ const STATEMENTS = [
 		END IF;
 	END $$;`,
 
+	// The row above is written at sign-in with locale 'en', so 'en' alone cannot
+	// tell "chose English" from "never opened the settings". A private reply in
+	// Discord follows the person's choice when there is one and their Discord
+	// client otherwise, which needs the difference. A row that already says
+	// something other than the default was plainly chosen, so it starts true.
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'notification_preferences' AND column_name = 'locale_set'
+			AND table_schema = current_schema()) THEN
+			ALTER TABLE notification_preferences ADD COLUMN locale_set BOOLEAN NOT NULL DEFAULT false;
+			UPDATE notification_preferences SET locale_set = true WHERE locale <> 'en';
+		END IF;
+	END $$;`,
+
 	// Discord refresh credentials are needed when somebody signs in through a
 	// linked Google identity and then opens the server dashboard. Tokens are
 	// sealed before they reach this table; plaintext OAuth credentials never do.

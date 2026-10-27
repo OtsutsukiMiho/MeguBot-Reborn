@@ -16,6 +16,7 @@ const meguApi = require('../../adapters/http/megu-api.js');
 const discordOAuth = require('../../adapters/discord/oauth.js');
 const { createBotInviteUrl } = require('./bot-invite.js');
 const { validBatchWindow, resolveBatchWindow, validVoiceTemplate } = require('../../core/voice-qol-settings');
+const { SERVER_LANG_KEY, serverLang, storedServerLang, normalizeServerLang } = require('../../core/server-lang.js');
 const { createDispatcher } = require('../../adapters/notifications/dispatcher.js');
 const { createPaymentDueSweep } = require('../../adapters/notifications/payment-due.js');
 const { createProjectDeadlineSweep } = require('../../adapters/notifications/project-deadlines.js');
@@ -377,7 +378,33 @@ async function listManagedDiscordGuildsForTeams(session, { managedOnly = true } 
 	};
 }
 
+// The language Megu posts in for one server: the choice stored from the
+// dashboard or /megu-language, and otherwise the server's own Discord locale.
+// That locale lives only in the bot's guild cache, so it is asked over IPC and
+// remembered here for a while; a link preview fetched by every crawler that
+// sees a pasted bill must not turn into a stream of IPC round trips.
+const GUILD_LOCALE_TTL_MS = 10 * 60 * 1000;
+const guildLocaleCache = new Map();
+
+async function guildPreferredLocale(guildId) {
+	const hit = guildLocaleCache.get(guildId);
+	if (hit && Date.now() - hit.at < GUILD_LOCALE_TTL_MS) return hit.locale;
+	const response = await sendIpcRequest({ type: 'get_guild_locale', guildId }, 2000);
+	const locale = response?.preferredLocale || null;
+	// A bot that did not answer is not cached, so the next read asks again.
+	if (response) guildLocaleCache.set(guildId, { locale, at: Date.now() });
+	return locale;
+}
+
+async function serverLangFor(guildId) {
+	if (!/^\d{17,20}$/.test(String(guildId || ''))) return serverLang();
+	const stored = await database.getGuildVar(String(guildId), SERVER_LANG_KEY);
+	if (storedServerLang(stored)) return serverLang({ stored });
+	return serverLang({ preferredLocale: await guildPreferredLocale(String(guildId)) });
+}
+
 app.use('/api/megu', meguApi.router({
+	serverLang: serverLangFor,
 	botPresence: async (guildIds) => {
 		const ipcRes = await sendIpcRequest({ type: 'check_guilds_presence', guildIds });
 		const presence = (ipcRes && ipcRes.presence) ? ipcRes.presence : {};
@@ -477,6 +504,7 @@ async function sendDiscordNotice({ recipients, message, cta = null, defer = null
 const paymentDueSweep = createPaymentDueSweep({
 	baseUrl: process.env.FRONTEND_URL || '',
 	sendDiscord: sendDiscordNotice,
+	serverLang: serverLangFor,
 	// A monthly bill started with /sub posts its due-day summary back in the
 	// private thread it lives in, through the same guarded channel notice. The
 	// summary lists who owes what, so an ordinary channel is refused; an older
@@ -1318,6 +1346,10 @@ app.get('/api/guilds/:guildId', requireGuildAccess, async (req, res) => {
 			tts_vc_leave_enabled: vars.tts_vc_leave_enabled !== false,
 			tts_vc_leave_template: vars.tts_vc_leave_template !== undefined ? vars.tts_vc_leave_template : '{username} ออกจากดิสแล้ว',
 			honeypot_channel_id: vars.honeypot_channel_id || null,
+			// Empty means "follow the server's Discord language", which is
+			// megu_lang_auto below, so the dashboard can say what that is.
+			megu_lang: storedServerLang(vars.megu_lang) || '',
+			megu_lang_auto: serverLang({ preferredLocale: botDetails?.preferredLocale || null }),
 			reaction_roles: parseReactionRolesMap(vars.reaction_roles),
 			automod: parseAutomodConfig(vars.automod),
 		},
@@ -1595,6 +1627,16 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 
 	try {
 		const oldVars = await database.getAllGuildVars(guildId);
+		// Undefined from an older client leaves the language alone.
+		let meguLang;
+		if ((req.body || {}).megu_lang !== undefined) {
+			try {
+				meguLang = normalizeServerLang(req.body.megu_lang);
+			}
+			catch {
+				return res.status(400).json({ error: 'Choose a language Megu speaks.', code: 'megu_lang_invalid' });
+			}
+		}
 		const templates = {};
 		for (const [key, kind] of [['tts_waiting_room_template', 'waiting'], ['tts_channel_template', 'text']]) {
 			const value = (req.body || {})[key];
@@ -1677,6 +1719,8 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		await database.setGuildVar(guildId, 'tts_vc_leave_enabled', tts_vc_leave_enabled !== false);
 		await database.setGuildVar(guildId, 'tts_vc_leave_template', tts_vc_leave_template !== undefined ? tts_vc_leave_template : '{username} ออกจากดิสแล้ว');
 		await database.setGuildVar(guildId, 'honeypot_channel_id', honeypot_channel_id || null);
+		if (meguLang) await database.setGuildVar(guildId, SERVER_LANG_KEY, meguLang);
+		else if (meguLang === null) await database.deleteGuildVar(guildId, SERVER_LANG_KEY);
 
 		const savedVars = await database.getAllGuildVars(guildId);
 		const greetingWasStored = Object.prototype.hasOwnProperty.call(savedVars, 'tts_join_greeting_enabled')
@@ -1743,6 +1787,10 @@ app.post('/api/guilds/:guildId/config', requireAdminGuild, async (req, res) => {
 		if ((honeypot_channel_id || null) !== (oldVars.honeypot_channel_id || null)) {
 			const hpDetails = `Trap Channel: ${honeypot_channel_id ? `<#${honeypot_channel_id}>` : 'Disabled'}`;
 			await database.logAuditEvent(guildId, 'HONEYPOT', uId, uName, hpDetails, gName);
+		}
+
+		if (meguLang !== undefined && (meguLang || null) !== storedServerLang(oldVars.megu_lang)) {
+			await database.logAuditEvent(guildId, 'MEGU_LANGUAGE', uId, uName, `Bill language: ${meguLang || 'follow Discord'}`, gName);
 		}
 
 		res.json({
