@@ -12,7 +12,6 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const core = require('../core/index.js');
 const meguApi = require('../adapters/http/megu-api.js');
-const { renderEvidenceCard } = require('../adapters/payment-evidence-card.js');
 
 const created = { users: [], activities: [] };
 let ok = 0;
@@ -114,7 +113,6 @@ async function readTestPaymentSlip(image) {
 		qrPayload,
 		slip,
 		read,
-		evidenceImage: slip ? await renderEvidenceCard(slip, read) : null,
 	};
 }
 

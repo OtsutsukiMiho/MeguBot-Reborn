@@ -450,6 +450,11 @@ app.use('/api/megu', meguApi.router({
 	},
 	// The bot's channel notice already checks the channel, the block guard and
 	// mentions; a bill summary is one more message of the same shape.
+	// A change made here that the bill's Discord card shows (the payee).
+	refreshBillCard: async (code) => {
+		const response = await sendIpcRequest({ type: 'bill_card_refresh', code }, 10_000);
+		return response?.refreshed === true;
+	},
 	postChannelNotice: async ({ guildId, channelId, message, cta, privateOnly = false }) => {
 		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, privateOnly }, 10_000);
 		return { delivered: response?.delivered === true, notPrivate: response?.notPrivate === true };

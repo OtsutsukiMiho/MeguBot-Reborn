@@ -57,8 +57,9 @@ async function ocrSlip(image) {
 	}
 }
 
-/** Read in memory and return only structured fields plus a newly-rendered
- * evidence card. The OCR transcript is deliberately dropped here. */
+/** Read in memory and return only structured fields. The OCR transcript is
+ * deliberately dropped here. No evidence card is drawn: that happens only
+ * for a confirmed payment, from the stored fields (core getSlip). */
 async function readPaymentSlip(image, { recognizeText = ocrSlip } = {}) {
 	const normalizedImage = await normalizeSlipImage(image);
 	const [qrPayload, text] = await Promise.all([
@@ -72,8 +73,7 @@ async function readPaymentSlip(image, { recognizeText = ocrSlip } = {}) {
 		when: parsed.when || null,
 		parties: parsed.parties || null,
 	};
-	const evidenceImage = slip ? await renderEvidenceCard(slip, read) : null;
-	return { qrPayload, slip, read, evidenceImage, normalizedImage, normalizedMime: 'image/jpeg' };
+	return { qrPayload, slip, read, normalizedImage, normalizedMime: 'image/jpeg' };
 }
 
 // Kept as an alias for the command adapter; web and Discord must pass through

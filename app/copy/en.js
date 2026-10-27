@@ -1864,6 +1864,7 @@ const en = {
 			receiver_mismatch: 'The name on the slip is not the account you set up.',
 			time_unreadable: 'Could not read a date and time.',
 			time_in_future: 'The slip is dated in the future.',
+			transferred_before_bill: 'The slip is dated before this bill was made, so it may be for something else.',
 		},
 		flags: {
 			uploaded_late: 'Sent more than a month after the transfer is dated.',

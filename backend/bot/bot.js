@@ -147,6 +147,7 @@ const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_function
 const database = require('../database/database.js');
 const { SERVER_LANG_KEY } = require('../../core/server-lang.js');
 const healthLog = require('../../adapters/health/health-log.js');
+const { handleThreadPayment } = require('../../adapters/discord/thread-pay.js');
 
 // The web process has had this guard since the outage. The bot never did, and
 // the bot is the process that talks to Discord constantly — so while the site
@@ -528,7 +529,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 			const core = require('../../core/index.js');
 			core.setLogger((scope, message) => BotLogs(scope, message));
 			await core.initCoreSchema();
-			BotLogs('Megu', `${COLOR.yellow}Discord test mode: only /จ่าย in ${DISCORD_TEST_GUILD_ID}/${DISCORD_TEST_CHANNEL_ID}`);
+			BotLogs('Megu', `${COLOR.yellow}Discord test mode: only /pay in ${DISCORD_TEST_GUILD_ID}/${DISCORD_TEST_CHANNEL_ID}`);
 		}
 		catch (error) {
 			BotLogs('Megu', `${COLOR.red}Test-mode core init failed: ${error.message}`);
@@ -841,7 +842,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 	if (DISCORD_TEST_MODE) {
 		if (String(interaction.guildId || '') !== DISCORD_TEST_GUILD_ID) return;
 		if (String(interaction.channelId || '') !== DISCORD_TEST_CHANNEL_ID) return;
-		if (interaction.commandName !== 'จ่าย') return;
+		if (interaction.commandName !== 'pay') return;
 	}
 
 	if (interaction.isChatInputCommand()) {
@@ -1479,6 +1480,15 @@ client.on(Events.MessageCreate, async (message) => {
 	}
 
 	if (await processAutoMod(message)) return;
+
+	// "จ่าย ต.ค. 2569" with a slip, in a bill's own private thread. Every
+	// other message passes straight through after two cheap checks.
+	try {
+		if (await handleThreadPayment(message, { discordCall })) return;
+	}
+	catch (error) {
+		BotLogs('Megu', `${COLOR.red}Thread payment failed: ${error.message}`);
+	}
 
 	const ttsChannelId = client.ttsChannels?.get(message.guild.id);
 	if (ttsChannelId && message.channel.id === ttsChannelId) {
@@ -2648,6 +2658,20 @@ process.on('message', async (msg) => {
 		if (process.send) {
 			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, ...result });
 		}
+	}
+	else if (msg.type === 'bill_card_refresh') {
+		// The web changed a bill (its payee); the card in the bill's thread is
+		// redrawn so it does not keep naming the old one.
+		let refreshed = false;
+		try {
+			if (!discordBlock.blocked()) {
+				refreshed = await require('../../commands/utility/event.js').redrawBillCard(client, require('../../core/index.js'), String(msg.code || ''));
+			}
+		}
+		catch (error) {
+			BotLogs('Megu', `${COLOR.red}Could not redraw the card of ${msg.code}: ${error.message}`);
+		}
+		if (process.send) process.send({ target: 'web', type: 'bill_card_refresh_response', reqId: msg.reqId, refreshed });
 	}
 	else if (msg.type === 'validate_project_channel' || msg.type === 'project_channel_notice') {
 		const guild = client.guilds.cache.get(String(msg.guildId || ''));

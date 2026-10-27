@@ -1,11 +1,10 @@
-const crypto = require('node:crypto');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const defaultCore = require('../../core/index.js');
 const { readDiscordSlip, stampWhen } = require('./payment-evidence.js');
 
 // One slip, however it arrived.
 //
-// `/จ่าย` takes a slip as a command attachment; the pay button on a bill card
+// `/pay` takes a slip as a command attachment; the pay button on a bill card
 // or a due-date DM takes it through a modal upload. Both used to be — and must
 // stay — the same ledger write: record the payment, attach the evidence, let
 // the reader decide whether it confirms itself, and tell the organiser. Kept in
@@ -27,6 +26,7 @@ const HELD = {
 		receiver_mismatch: 'ชื่อผู้รับในสลิปไม่ตรงกับบัญชีที่ตั้งไว้',
 		time_unreadable: 'อ่านวันเวลาจากรูปไม่ออก',
 		time_in_future: 'สลิปลงวันที่ล่วงหน้า',
+		transferred_before_bill: 'สลิปลงวันที่ก่อนสร้างบิลนี้ อาจเป็นสลิปของรายการอื่น',
 		uploaded_late: 'ส่งมาหลังวันที่บนสลิปเกินหนึ่งเดือน',
 	},
 	en: {
@@ -38,6 +38,7 @@ const HELD = {
 		receiver_mismatch: 'The name on the slip is not the account you set up.',
 		time_unreadable: 'Could not read a date and time.',
 		time_in_future: 'The slip is dated in the future.',
+		transferred_before_bill: 'The slip is dated before this bill was made, so it may be for something else.',
 		uploaded_late: 'Sent more than a month after the transfer is dated.',
 	},
 };
@@ -51,7 +52,6 @@ function heldReasons(reasons = [], lang = 'th') {
 // reply follows the payer; the receiver's DM follows the receiver.
 const COPY = {
 	th: {
-		noPromptPay: title => `**${title}** ยังไม่มีพร้อมเพย์ของผู้รับ จึงตรวจการโอนผ่าน Discord ไม่ได้ ให้คนจัดตั้งพร้อมเพย์ก่อนนะ`,
 		overOwed: (title, owed) => `ยอดนี้เกินยอดค้างของ **${title}** (${owed})`,
 		unallocated: 'แบ่งยอดเข้ารายการนี้ไม่ได้ กรุณาลองใหม่',
 		badFile: 'สลิปต้องเป็น JPG, PNG หรือ WebP และมีขนาดไม่เกิน 2 MB',
@@ -64,9 +64,14 @@ const COPY = {
 		ownerDm: (name, amount, title) => `**${name}** แจ้งจ่าย ${amount} ให้ **${title}**`,
 		paid: (amount, title) => `บันทึกว่า **ชำระแล้ว ${amount}** ให้ **${title}**`,
 		held: (amount, title) => `รับสลิป **${amount}** ของ **${title}** แล้ว แต่ข้อมูลยังไม่ครบ จึงรอเจ้าของตรวจ`,
+		// The payer is told why a slip waits, so it is not a mystery.
+		heldWhy: (amount, title, reasons) => `รับสลิป **${amount}** ของ **${title}** แล้ว รอผู้รับตรวจ เพราะ
+${reasons || '• ต้องตรวจด้วยตนเอง'}`,
+		heldNoPromptPay: (amount, title, asked) => `รับสลิป **${amount}** ของ **${title}** แล้ว ผู้รับยังไม่ได้ตั้งพร้อมเพย์ จึงรอผู้รับยืนยันเอง${asked ? ' และ Megu ส่งปุ่มตั้งพร้อมเพย์ไปให้ผู้รับแล้ว' : ''}`,
+		noPromptPayNote: 'คุณยังไม่ได้ตั้งพร้อมเพย์ ตั้งไว้แล้ว Megu จะเทียบชื่อผู้รับและยืนยันสลิปถัดไปให้เองได้',
+		setPromptPay: 'ตั้งพร้อมเพย์',
 	},
 	en: {
-		noPromptPay: title => `**${title}** has no PromptPay number for the receiver yet, so a transfer cannot be checked from Discord. Ask the organiser to set one first.`,
 		overOwed: (title, owed) => `That is more than you still owe on **${title}** (${owed}).`,
 		unallocated: 'This amount could not be applied to the bill. Please try again.',
 		badFile: 'The slip must be a JPG, PNG or WebP of 2 MB or less.',
@@ -79,13 +84,18 @@ const COPY = {
 		ownerDm: (name, amount, title) => `**${name}** says they paid ${amount} for **${title}**`,
 		paid: (amount, title) => `Recorded as **paid, ${amount}** for **${title}**`,
 		held: (amount, title) => `Got your **${amount}** slip for **${title}**, but some details are missing, so the organiser will check it.`,
+		heldWhy: (amount, title, reasons) => `Got your **${amount}** slip for **${title}**. The receiver will check it, because:
+${reasons || '• It needs checking by hand'}`,
+		heldNoPromptPay: (amount, title, asked) => `Got your **${amount}** slip for **${title}**. The receiver has no PromptPay yet, so they will confirm it by hand${asked ? ', and Megu sent them a button to set PromptPay up' : ''}.`,
+		noPromptPayNote: 'You have no PromptPay yet. Once it is set, Megu can check the receiver name and confirm the next slips by itself.',
+		setPromptPay: 'Set PromptPay',
 	},
 };
 
 // The organiser's answer, on the DM that asked for it. Before these the only
 // way to say "that is not a slip" was the web, which a Discord-only group never
 // opens. The custom ids carry the `evt:` prefix, so `/event` handles them
-// wherever the DM came from (`/จ่าย` or a card's pay button).
+// wherever the DM came from (`/pay` or a card's pay button).
 const DECISION_LABELS = {
 	th: { confirm: 'ได้รับแล้ว', reject: 'ยังไม่เข้า', undo: 'เงินไม่เข้า ย้อนผล' },
 	en: { confirm: 'Received', reject: 'Not received', undo: 'Not received, undo' },
@@ -105,6 +115,14 @@ function ownerDecisionButtons(code, paymentId, { autoConfirmed = false, lang = '
 	}
 	return [row];
 }
+// Set PromptPay, answered by /event's router like the decision buttons. Once
+// it is set, later slips have a name to be checked against.
+function promptPayButton(lang = 'th') {
+	return new ActionRowBuilder().addComponents(
+		new ButtonBuilder().setCustomId('evt:pp').setStyle(ButtonStyle.Primary).setLabel((COPY[lang] || COPY.th).setPromptPay),
+	);
+}
+
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function money(satang) {
@@ -136,7 +154,10 @@ function parseBaht(value) {
  */
 async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDiscordUid, notifyOwner = null, core = defaultCore, lang = 'th', langFor = null }) {
 	const t = COPY[lang] || COPY.th;
-	if (!candidate.payee?.promptpayId) return t.noPromptPay(candidate.title);
+	// A receiver with no PromptPay yet still gets the slip. There is no name
+	// to check it against, so it waits for them to confirm by hand, and the
+	// DM that tells them about it carries the button to set PromptPay up.
+	const hasPromptPay = Boolean(candidate.payee?.promptpayId);
 	if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0 || amountSatang > candidate.outstandingSatang) {
 		return t.overOwed(candidate.title, money(candidate.outstandingSatang));
 	}
@@ -166,7 +187,7 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 		amountSatang,
 		method: 'bank_transfer',
 		expectedSatang: amountSatang,
-		promptpayTarget: candidate.payee.promptpayId,
+		promptpayTarget: candidate.payee?.promptpayId || null,
 		allocations: allocation.allocations,
 	});
 
@@ -175,20 +196,13 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 		result = await core.activities.attachSlip(payment.id, {
 			image: reading.normalizedImage,
 			mime: reading.normalizedMime,
-			evidenceImage: reading.evidenceImage,
-			evidenceMime: reading.evidenceImage ? 'image/png' : null,
-			evidenceHash: reading.evidenceImage
-				? crypto.createHash('sha256').update(reading.evidenceImage).digest('hex')
-				: null,
 			ref: reading.slip?.ref || null,
 			bank: reading.slip?.bank?.code || null,
 			amountSatang: reading.read.amountSatang,
 			when: stampWhen(reading.read.when),
-			senderName: reading.read.parties?.sender?.name || null,
 			receiverName: reading.read.parties?.receiver?.name || null,
-			senderAccountTail: reading.read.parties?.sender?.accountTail || null,
 			receiverAccountTail: reading.read.parties?.receiver?.accountTail || null,
-			expectedReceiverName: candidate.payee.promptpayName,
+			expectedReceiverName: candidate.payee?.promptpayName || null,
 		});
 	}
 	catch (error) {
@@ -201,6 +215,7 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 	// Told: whoever the money went to, since they are the one who can see
 	// whether it arrived. That is the owner unless someone else's card pays.
 	const receiverUid = candidate.payeeDiscordUid || candidate.ownerDiscordUid;
+	let askedForPromptPay = false;
 	if (notifyOwner && receiverUid && receiverUid !== String(senderDiscordUid)) {
 		let ownerLang;
 		try {
@@ -216,17 +231,25 @@ async function submitDiscordSlip({ candidate, amountSatang, attachment, senderDi
 		// guardRestClient() records it below every call — so this is not the
 		// swallowed failure DISCORD-RATE-LIMITS.md rule 3 forbids.
 		try {
+			const components = ownerDecisionButtons(candidate.code, payment.id, { autoConfirmed: result.autoConfirmed, lang: ownerLang });
+			if (!hasPromptPay) components.push(promptPayButton(ownerLang));
+			const setup = hasPromptPay ? '' : `\n${o.noPromptPayNote}`;
 			await notifyOwner(receiverUid, {
-				content: `${o.ownerDm(candidate.participantName, money(amountSatang), candidate.title)}\n${detail}\n${link}`,
-				components: ownerDecisionButtons(candidate.code, payment.id, { autoConfirmed: result.autoConfirmed, lang: ownerLang }),
+				content: `${o.ownerDm(candidate.participantName, money(amountSatang), candidate.title)}\n${detail}${setup}\n${link}`,
+				components,
 			});
+			askedForPromptPay = !hasPromptPay;
 		}
 		catch (error) {
 			console.warn(`[Megu] Could not DM the receiver of ${candidate.code}: ${error.message}`);
 		}
 	}
 
-	const status = result.autoConfirmed ? t.paid(money(amountSatang), candidate.title) : t.held(money(amountSatang), candidate.title);
+	const status = result.autoConfirmed
+		? t.paid(money(amountSatang), candidate.title)
+		: result.reasons.includes('receiver_not_configured')
+			? t.heldNoPromptPay(money(amountSatang), candidate.title, askedForPromptPay)
+			: t.heldWhy(money(amountSatang), candidate.title, heldReasons(result.reasons, lang));
 	return `${status}\n${link}`;
 }
 

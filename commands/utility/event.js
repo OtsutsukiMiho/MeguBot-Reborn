@@ -81,7 +81,10 @@ const T = {
 		payerPick: 'ใครเป็นคนจ่ายค่าบริการ (เงินจะโอนเข้าพร้อมเพย์ของคนนี้)',
 		payerMe: name => `${name} (คุณ)`,
 		payerLocked: 'เดือนนี้มีคนโอนเข้ามาแล้ว เลยเปลี่ยนคนจ่ายไม่ได้ เดี๋ยวเงินที่โอนไปแล้วจะเข้าผิดคน',
-		payerAsked: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ Megu ส่ง DM ไปขอให้แล้ว ระหว่างนี้ยังไม่มีใครแนบสลิปได้`,
+		payerPickEvent: 'ใครออกเงินไปก่อน (ทุกคนโอนคืนให้คนนี้)',
+		payerLockedEvent: 'บิลนี้มีคนโอนเข้ามาแล้ว เลยเปลี่ยนคนออกเงินไม่ได้ เดี๋ยวเงินที่โอนไปแล้วจะเข้าผิดคน',
+		payerMixed: 'บิลนี้มีหลายคนออกเงินคนละส่วน (ตั้งไว้บนเว็บ) เปลี่ยนจากตรงนี้ไม่ได้ เปิดบิลบนเว็บเพื่อแก้แทนนะ',
+		payerAsked: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ Megu ส่ง DM ไปขอให้แล้ว ระหว่างนี้สลิปที่ส่งมาจะรอให้ผู้รับยืนยันเอง`,
 		payerUnreachable: name => `${name} ยังไม่ได้ตั้งพร้อมเพย์ และ Megu ส่ง DM หาไม่ได้ บอกให้เขาตั้งพร้อมเพย์ ไม่อย่างนั้นยังไม่มีใครแนบสลิปได้`,
 		payerDm: title => `คุณถูกตั้งเป็นคนจ่ายค่าบริการ **${title}** เพื่อนๆ จะโอนส่วนของตัวเองเข้าพร้อมเพย์ของคุณทุกเดือน\nกด **ตั้งพร้อมเพย์** ด้านล่างเพื่อให้ทุกคนเริ่มแนบสลิปได้`,
 		leave: 'ออกจากบิล', manage: 'จัดการ',
@@ -163,7 +166,10 @@ const T = {
 		payerPick: 'Whose card pays for it (everyone pays this person back)',
 		payerMe: name => `${name} (you)`,
 		payerLocked: 'Someone has already sent money this month, so the payer cannot change now. It would send their transfer to the wrong person.',
-		payerAsked: name => `${name} has no PromptPay yet. Megu sent them a DM asking for it. Nobody can send a slip until then.`,
+		payerPickEvent: 'Who paid first (everyone pays this person back)',
+		payerLockedEvent: 'Someone has already sent money on this bill, so who paid first cannot change now. It would send their transfer to the wrong person.',
+		payerMixed: 'Several people paid for parts of this bill (set up on the web), so it cannot be changed from here. Open the bill on the web instead.',
+		payerAsked: name => `${name} has no PromptPay yet. Megu sent them a DM asking for it. Until then, slips wait for them to confirm by hand.`,
 		payerUnreachable: name => `${name} has no PromptPay yet and Megu could not DM them. Ask them to set it, or nobody can send a slip.`,
 		payerDm: title => `You are now the one paying for **${title}**. Everyone sends their share to your PromptPay each month.\nPress **Set PromptPay** below so they can start sending slips.`,
 		leave: 'Leave', manage: 'Manage',
@@ -406,6 +412,39 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 }
 
 /** Edit the card a component was pressed on, or the one named in a custom id. */
+/**
+ * Redraw a bill's card after a change made somewhere other than Discord, such
+ * as the web picking a different payee. One edit, or one lookup and one edit
+ * when the thread has fallen out of the cache, each through discordCall, and
+ * only because somebody changed the bill. Returns whether the card changed.
+ */
+async function redrawBillCard(client, core, code) {
+	const bill = await core.activities.getActivityByCode(code);
+	if (!bill?.channelId || !bill.cardMessageId) return false;
+	let channel = client.channels.cache.get(bill.channelId) || null;
+	if (!channel) channel = await discordCall(`finding the thread of ${code}`, () => client.channels.fetch(bill.channelId), null);
+	if (!channel?.messages) return false;
+	// The server's language, as for every card (cardLang), without an interaction.
+	let stored = null;
+	try {
+		stored = bill.guildId ? await readServerLang(bill.guildId) : null;
+	}
+	catch (error) {
+		console.warn(`[Megu] Could not read the language of server ${bill.guildId}: ${error.message}`);
+	}
+	const lang = serverLang({ stored, preferredLocale: client.guilds?.cache?.get(bill.guildId)?.preferredLocale || null });
+	const rendered = await renderCard(core, code, lang, { audience: audienceOf(channel) });
+	if (!rendered) return false;
+	return discordCall(`redrawing the card of ${code}`, async () => {
+		await channel.messages.edit(bill.cardMessageId, {
+			content: rendered.content,
+			components: cardButtons(code, T[lang] || T.en, rendered.monthly),
+			allowedMentions: NO_PINGS,
+		});
+		return true;
+	}, false);
+}
+
 async function refreshCard(core, interaction, code, messageId = null) {
 	// The card belongs to its server and channel, wherever the press came
 	// from. A panel or DM has no server language, and its own channel is not
@@ -598,6 +637,8 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 		await core.activities.setActivityChannel(activity.id, interaction.channelId);
 		where.push(posted ? t.threadFailed : t.failed);
 	}
+	// Remembered so a change made on the web can redraw this card too.
+	if (posted?.id) await core.activities.setCardMessage(activity.id, posted.id);
 	if (picked.length === 0) {
 		// Only the organiser is on Discord. An ephemeral note is gone on the
 		// next refresh, so the card also goes to their DMs, and the rest of
@@ -725,19 +766,21 @@ function organizerFollowUp(t, activity, period, interaction, { cardMessageId, mo
 			new ButtonBuilder().setCustomId(`${PREFIX}:pp`).setStyle(ButtonStyle.Primary).setLabel(t.setPromptPay),
 		));
 	}
-	const payer = monthly && cardMessageId ? payerSelect(t, activity, interaction, `${PREFIX}:payer:${activity.code}:${cardMessageId}`) : null;
+	// Who paid first: whose card a subscription is on, or who fronted a one-off
+	// bill. The creator until they pick someone else.
+	const payer = cardMessageId ? payerSelect(t, activity, interaction, `${PREFIX}:payer:${activity.code}:${cardMessageId}`, { monthly }) : null;
 	if (payer) rows.push(payer);
 	return { components: rows };
 }
 
 /** The "whose card pays" menu, or null when there is nobody else to pick. */
-function payerSelect(t, activity, interaction, customId) {
+function payerSelect(t, activity, interaction, customId, { monthly = activity.kind === 'recurring' } = {}) {
 	const choices = activity.participants.filter(p => p.discordUid).slice(0, 25);
 	if (choices.length < 2) return null;
 	const current = activity.payee?.participantId;
 	return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
 		.setCustomId(customId)
-		.setPlaceholder(t.payerPick)
+		.setPlaceholder(monthly ? t.payerPick : t.payerPickEvent)
 		.addOptions(choices.map(p => ({
 			label: (p.discordUid === interaction.user.id ? t.payerMe(p.displayName) : p.displayName).slice(0, 100),
 			value: p.id,
@@ -745,7 +788,7 @@ function payerSelect(t, activity, interaction, customId) {
 		}))));
 }
 
-// ── whose card the subscription is on ──────────────────────────────────────
+// ── who paid first: whose card a subscription is on, or who fronted a bill ──────────────────────────────────────
 
 async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel = false } = {}) {
 	const t = copyFor(interaction);
@@ -757,12 +800,15 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
 	const payer = activity.participants.find(p => p.id === interaction.values[0] && p.discordUid);
 	if (!payer) return interaction.followUp({ content: t.failed, flags: EPHEMERAL });
 
+	const monthly = activity.kind === 'recurring';
 	try {
 		// Core opens and picks this month itself; see setRecurringPayer.
-		await core.activities.setRecurringPayer(activity.id, payer.id);
+		if (monthly) await core.activities.setRecurringPayer(activity.id, payer.id);
+		else await core.activities.setEventPayer(activity.id, payer.id);
 	}
 	catch (error) {
-		if (error.code === 'payer_locked') return interaction.followUp({ content: t.payerLocked, flags: EPHEMERAL });
+		if (error.code === 'payer_locked') return interaction.followUp({ content: monthly ? t.payerLocked : t.payerLockedEvent, flags: EPHEMERAL });
+		if (error.code === 'payer_mixed') return interaction.followUp({ content: t.payerMixed, flags: EPHEMERAL });
 		throw error;
 	}
 
@@ -786,7 +832,7 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
 	return interaction.editReply({
 		content: lines.join('\n'),
 		allowedMentions: NO_PINGS,
-		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId, monthly: true }),
+		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId, monthly }),
 	});
 }
 
@@ -1231,9 +1277,17 @@ async function decisionTarget(core, interaction, code, paymentId, from) {
 	const t = copyFor(interaction);
 	const activity = await core.activities.getActivityByCode(code);
 	if (!activity) return { error: t.gone };
-	const account = await core.users.findByIdentity('discord', interaction.user.id);
 	// The owner, or whoever the money went to: they are the one who can see it.
-	const allowed = account && (account.id === activity.ownerUserId || account.id === activity.payee?.userId);
+	// The receiver is recognised by their Discord id on the bill as well as by
+	// account, because a friend picked as payee may never have signed in. The
+	// press itself proves who they are, so their account is made here.
+	const payeeRow = activity.payee?.participantId
+		? activity.participants.find(p => p.id === activity.payee.participantId)
+		: null;
+	const isReceiver = Boolean(payeeRow?.discordUid) && payeeRow.discordUid === interaction.user.id;
+	const account = await core.users.findByIdentity('discord', interaction.user.id)
+		|| (isReceiver ? await ensureOrganizer(core, interaction.user) : null);
+	const allowed = account && (isReceiver || account.id === activity.ownerUserId || account.id === activity.payee?.userId);
 	if (!allowed) return { error: t.notOwner };
 	const payment = activity.payments.find(p => p.id === paymentId);
 	if (!payment) return { error: t.paymentGone };
@@ -1417,6 +1471,7 @@ module.exports = {
 	handleComponent,
 	useDiscordCall,
 	resplitForNewcomer,
+	redrawBillCard,
 
 	async execute(interaction) {
 		const t = copyFor(interaction);

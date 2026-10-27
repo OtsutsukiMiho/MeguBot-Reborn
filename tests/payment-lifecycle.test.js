@@ -60,7 +60,7 @@ async function main() {
 	assert.deepStrictEqual(discordCandidates[0].periods.map(period => period.key).sort(), [
 		'2026-03', '2026-04', '2026-05', '2026-06', '2026-07',
 	]);
-	ok('/จ่าย finds only the linked debtor’s outstanding periods');
+	ok('/pay finds only the linked debtor’s outstanding periods');
 
 	const allocations = periods.map(period => ({ periodId: period.id, amountSatang: 2000 }));
 	const transfer = await core.activities.recordPayment(activity.id, debtor.id, {
@@ -84,16 +84,11 @@ async function main() {
 	const attached = await core.activities.attachSlip(transfer.id, {
 		image: Buffer.from('temporary original'),
 		mime: 'image/jpeg',
-		evidenceImage: Buffer.from('sanitized evidence card'),
-		evidenceMime: 'image/png',
-		evidenceHash: 'test-evidence-hash',
 		ref: `LIFECYCLE-${Date.now()}`,
 		bank: 'KTB',
 		amountSatang: 10000,
 		when: '2026-03-05 10:30',
-		senderName: 'บุคคลที่สาม ผู้โอนแทน',
 		receiverName: 'บี เจ้าหนี้',
-		senderAccountTail: '1234567890',
 		receiverAccountTail: '00002304',
 		expectedReceiverName: 'นาย บี เจ้าหนี้',
 	});
@@ -108,12 +103,18 @@ async function main() {
 		[transfer.id],
 	);
 	assert.strictEqual(privateRow.rows[0].slip_image, null);
-	assert.ok(privateRow.rows[0].evidence_image);
-	assert.strictEqual(privateRow.rows[0].slip_sender_account_tail, '7890');
+	assert.strictEqual(privateRow.rows[0].evidence_image, null, 'no card is stored; it is drawn when asked for');
+	assert.strictEqual(privateRow.rows[0].slip_sender_account_tail, null, 'the sender account digits are not kept');
 	assert.strictEqual(privateRow.rows[0].slip_receiver_account_tail, '2304');
 	assert.strictEqual(privateRow.rows[0].confirmation_source, 'system_slip_match');
 	assert.strictEqual(privateRow.rows[0].verification_level, 'slip_matched');
-	ok('the raw slip is destroyed after matching; only the evidence card and last four digits remain');
+	const virtual = await core.activities.getSlip(transfer.id);
+	assert.strictEqual(virtual.image, undefined);
+	assert.deepStrictEqual(
+		{ payer: virtual.evidence.payerName, amount: virtual.evidence.amountSatang, to: virtual.evidence.receiverName, when: virtual.evidence.when },
+		{ payer: 'เอ', amount: 10000, to: 'บี เจ้าหนี้', when: '2026-03-05 10:30' },
+	);
+	ok('the raw slip is destroyed after matching; a confirmed payment has the fields of its virtual slip');
 
 	full = await core.activities.getActivity(activity.id);
 	for (const period of periods) {
@@ -133,7 +134,8 @@ async function main() {
 		const row = core.activities.settlement(full, period.id).rows.find(item => item.participantId === debtor.id);
 		assert.strictEqual(row.outstanding, 2000);
 	}
-	ok('owner reversal requires a reason and reopens every allocated month');
+	assert.strictEqual(await core.activities.getSlip(transfer.id), null, 'a reversed payment has no virtual slip');
+	ok('owner reversal requires a reason, reopens every allocated month, and leaves no virtual slip');
 
 	const marchCash = await core.activities.recordPayment(activity.id, debtor.id, {
 		amountSatang: 2000,
@@ -168,9 +170,6 @@ async function main() {
 	const staleAttached = await core.activities.attachSlip(staleReview.id, {
 		image: Buffer.from('old temporary original'),
 		mime: 'image/jpeg',
-		evidenceImage: Buffer.from('old sanitized evidence card'),
-		evidenceMime: 'image/png',
-		evidenceHash: 'old-test-evidence-hash',
 		ref: `STALE-${Date.now()}`,
 		bank: 'KTB',
 		amountSatang: 400,
@@ -190,8 +189,53 @@ async function main() {
 		[staleReview.id],
 	);
 	assert.strictEqual(retainedEvidence.rows[0].slip_image, null);
-	assert.ok(retainedEvidence.rows[0].evidence_image);
-	ok('retention removes an old pending original while preserving sanitized evidence');
+	assert.strictEqual(await core.activities.getSlip(staleReview.id), null, 'nothing to show until somebody confirms it');
+	ok('retention removes an old pending original, and an unconfirmed payment has no virtual slip');
+
+	// A one-off bill whose receiver has no PromptPay: the first slip waits,
+	// the receiver confirms it, and the name on it is learned for the next.
+	const dinner = await core.activities.createActivity({
+		ownerUserId: ownerLogin.user.id,
+		title: 'ข้าวเย็น',
+		participants: [
+			{ displayName: 'บี', userId: ownerLogin.user.id },
+			{ displayName: 'เอ', discordUid: '__payment_lifecycle_debtor__' },
+			{ displayName: 'ซี', discordUid: '__payment_lifecycle_third__' },
+		],
+	});
+	created.activities.push(dinner.id);
+	const dinnerFull = await core.activities.getActivity(dinner.id);
+	const [, eater, third] = dinnerFull.participants;
+	const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+	const slipFor = async (participant, ref, when, expectedReceiverName = null) => {
+		const claim = await core.activities.recordPayment(dinner.id, participant.id, { amountSatang: 30000, method: 'bank_transfer', expectedSatang: 30000 });
+		const result = await core.activities.attachSlip(claim.id, {
+			image: Buffer.from('original'), mime: 'image/jpeg', ref, bank: 'KTB', amountSatang: 30000, when,
+			receiverName: 'MR. BEE CREDITOR', expectedReceiverName,
+		});
+		return { claim, result };
+	};
+
+	const early = await slipFor(eater, `EARLY-${Date.now()}`, '2020-01-01 09:00', 'MR. BEE CREDITOR');
+	assert.strictEqual(early.result.autoConfirmed, false);
+	assert.ok(early.result.reasons.includes('transferred_before_bill'));
+	ok('a slip dated before the bill could exist waits for the receiver, even when everything else matches');
+	await core.activities.removePayment(early.claim.id);
+
+	const first = await slipFor(eater, `FIRST-${Date.now()}`, `${today} 09:00`);
+	assert.deepStrictEqual(first.result.reasons, ['receiver_not_configured']);
+	await core.activities.confirmPayment(first.claim.id, ownerLogin.user.id, { source: 'owner_review' });
+	const learned = await core.db.query('SELECT learned_receiver_name FROM activities WHERE id = $1', [dinner.id]);
+	assert.strictEqual(learned.rows[0].learned_receiver_name, 'MR. BEE CREDITOR');
+	const next = await slipFor(third, `NEXT-${Date.now()}`, `${today} 09:30`);
+	assert.strictEqual(next.result.autoConfirmed, true, 'the learned name lets the next slip confirm itself');
+	ok('with no PromptPay, the first confirmed slip teaches the receiver name and the next one confirms itself');
+
+	const day = earliest => earliest.toISOString();
+	assert.strictEqual(day(core.activities.earliestTransferFor({ firstPeriodKey: '2026-10' })), '2026-09-29T17:00:00.000Z', 'from the day before the month opens');
+	assert.strictEqual(day(core.activities.earliestTransferFor({ createdAt: '2026-10-27T15:00:00Z' })), '2026-10-25T17:00:00.000Z', 'from the day before the bill was made, in Bangkok');
+	assert.strictEqual(day(core.activities.earliestTransferFor({ createdAt: '2026-10-27T15:00:00Z', startsAt: '2026-10-20T12:00:00Z' })), '2026-10-18T17:00:00.000Z', 'or before the day it happened');
+	ok('the earliest transfer date allows a day of slack before the bill or its month');
 }
 
 async function cleanup() {
