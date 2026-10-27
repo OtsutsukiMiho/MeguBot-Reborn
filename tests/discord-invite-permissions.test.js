@@ -11,6 +11,8 @@ const expectedNames = [
 	'ViewChannel',
 	'SendMessages',
 	'SendMessagesInThreads',
+	'CreatePrivateThreads',
+	'ManageThreads',
 	'ManageMessages',
 	'ReadMessageHistory',
 	'EmbedLinks',
@@ -49,6 +51,11 @@ for (const name of [
 ]) {
 	assert.equal(requested.has(PermissionFlagsBits[name]), false, `invite does not request ${name}`);
 }
+
+// The landing pages' invite lets Discord ask which server.
+const anyServer = new URL(createBotInviteUrl(clientId));
+assert.equal(anyServer.searchParams.get('guild_id'), null);
+assert.equal(anyServer.searchParams.get('permissions'), invite.searchParams.get('permissions'));
 
 const webSource = fs.readFileSync(require.resolve('../backend/web/web.js'), 'utf8');
 assert.equal((webSource.match(/createBotInviteUrl\(clientId,\s*gid\)/g) || []).length, 2, 'both guild-list branches use the shared invite builder');

@@ -416,6 +416,9 @@ function publicParticipant(p, meId, showAmounts, settlementRow, deferral = null)
 		rsvp: p.rsvp,
 		attended: p.attended,
 		claimed: Boolean(p.claimedAt),
+		// Whether the name is a Discord account's, never which one: the page
+		// sends that person to sign in instead of letting a tap claim it.
+		discordLinked: Boolean(p.discordUid),
 		isMe: p.id === meId,
 	};
 	// Why this person has not paid, in their own words. Passed in already
@@ -1984,6 +1987,14 @@ function router(deps = {}) {
 			}
 			if (target.claimedAt && !access.matchParticipant(req.actor, [target])) {
 				return fail(res, 409, 'participant_already_claimed');
+			}
+			// A name that came from Discord belongs to that Discord account. A
+			// tap on the link proves nothing about who is holding the phone, so
+			// it takes signing in with the same account; otherwise anyone with
+			// the link could become the organiser and send slips as them.
+			if (target.discordUid && !access.matchParticipant(req.actor, [target])
+				&& String(req.actor?.discordUid || '') !== String(target.discordUid)) {
+				return fail(res, 403, 'discord_sign_in_required');
 			}
 
 			await activities.claimParticipant(target.id, req.actor);

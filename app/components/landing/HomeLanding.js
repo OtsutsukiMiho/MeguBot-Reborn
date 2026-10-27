@@ -33,7 +33,7 @@ export default function HomeLanding() {
 						</h1>
 						<p className={styles.bandLede}>{h.lede}</p>
 						<div className={styles.ctas}>
-							<Link href="/servers" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</Link>
+							<a href="/api/invite" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</a>
 							<Link href="#worlds" className={`${styles.btn} ${styles.btnGhostBand}`}>{h.secondary}</Link>
 						</div>
 						<p className={styles.bandSmall}>{h.small}</p>
@@ -122,7 +122,7 @@ export default function HomeLanding() {
 					<div>
 						<Phrases as="p" className={styles.closeBubble} parts={h.closeLine} />
 						<div className={styles.ctas}>
-							<Link href="/servers" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</Link>
+							<a href="/api/invite" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</a>
 							<a href="/api/auth/login" className={`${styles.btn} ${styles.btnGhostBand}`}>{t.signIn}</a>
 						</div>
 					</div>

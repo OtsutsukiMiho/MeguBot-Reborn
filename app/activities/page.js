@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
@@ -35,13 +36,27 @@ function Icon({ children, size = 17 }) {
 
 const PlusIcon = () => <Icon><path d="M12 5v14" /><path d="M5 12h14" /></Icon>;
 
+// The list, read inside Suspense because it looks at ?new=1: the navbar's
+// New bill link lands here with the create form already open.
 export default function ActivitiesPage() {
+	return (
+		<Suspense fallback={null}>
+			<ActivitiesList />
+		</Suspense>
+	);
+}
+
+function ActivitiesList() {
+	const params = useSearchParams();
 	const { t, fmt } = useCopy();
 	const [me, setMe] = useState(null);
 	const [activities, setActivities] = useState([]);
 	const [guilds, setGuilds] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
+	useEffect(() => {
+		if (params.get('new') === '1') setCreating(true);
+	}, [params]);
 
 	useEffect(() => {
 		Promise.all([
@@ -90,7 +105,11 @@ export default function ActivitiesPage() {
 				<CreateActivity
 					guilds={guilds}
 					user={me.user}
-					onCancel={() => setCreating(false)}
+					onCancel={() => {
+						setCreating(false);
+						// So a reload does not open the form again.
+						if (params.get('new')) window.history.replaceState(null, '', '/activities');
+					}}
 					onCreated={a => (window.location.href = `/a/${a.code}`)}
 				/>
 			) : (

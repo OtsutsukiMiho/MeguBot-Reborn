@@ -291,17 +291,28 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 				<h2 id="next-step-title">{t.next.claim}</h2>
 				<p className="quiet-note">{t.claim.hint}</p>
 				<div className="names">
-					{participants.map(p => (
-						<button
-							key={p.id}
-							type="button"
-							className="name-btn"
-							disabled={busy || p.claimed}
-							onClick={() => call('POST', '/claim', { participantId: p.id })}
-						>
-							{p.displayName}
-						</button>
-					))}
+					{participants.map(p => (p.discordLinked && !p.claimed
+						// A Discord name is claimed by signing in with that account,
+						// never by a tap: the link may be in many hands.
+						? (
+							<a key={p.id} className="name-btn name-btn-discord" href={`/api/auth/login?returnTo=${encodeURIComponent(`/a/${code}`)}`}>
+								{p.displayName}
+								<small>{t.claim.discordSignIn}</small>
+							</a>
+						)
+						: (
+							<button
+								key={p.id}
+								type="button"
+								className="name-btn"
+								disabled={busy || p.claimed}
+								title={p.claimed ? t.claim.taken : undefined}
+								onClick={() => call('POST', '/claim', { participantId: p.id })}
+							>
+								{p.displayName}
+								{p.claimed && <small>{t.claim.taken}</small>}
+							</button>
+						)))}
 				</div>
 			</Rise>
 		);
