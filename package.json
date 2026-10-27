@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "node .",
     "start": "node index.js",
-    "build": "node scripts/vendor-ocr.js && next build",
+    "build": "node scripts/vendor-ocr.js && node scripts/register-commands-on-build.js && next build",
     "ocr:setup": "node scripts/vendor-ocr.js",
     "deploy": "node deploy-commands.js",
     "deploy:guild": "node deploy-commands.js --guild",
