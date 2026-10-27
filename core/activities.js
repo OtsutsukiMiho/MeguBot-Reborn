@@ -1333,7 +1333,7 @@ async function lockBestSlot(activityId) {
  * Make sure the period covering `date` exists, and bill it if it is new.
  * Called when a monthly agreement rolls over.
  */
-async function ensurePeriod(activityId, date = new Date(), { rollover = false, expense = null } = {}) {
+async function ensurePeriod(activityId, date = new Date(), { rollover = false, expense = null, ownerAsked = false } = {}) {
 	const activity = await getActivity(activityId);
 	if (!activity) throw new Error('activity not found');
 	if (activity.kind !== 'recurring') throw new Error('only recurring activities have periods');
@@ -1341,6 +1341,20 @@ async function ensurePeriod(activityId, date = new Date(), { rollover = false, e
 	const key = periodKeyFor(date);
 	const existing = activity.periods.find(p => p.key === key);
 	if (existing) return { period: existing, created: false };
+
+	// An automatic rollover only carries a bill that was in use last month.
+	// Before this, nothing opened months on its own, so a monthly bill a group
+	// stopped using months ago would otherwise come back as this month's debt,
+	// and the next reminder sweep would DM everybody on it. Opening a month
+	// after a gap stays a decision for the owner (`ownerAsked`, the web's
+	// "new month" button).
+	// Checked before the idle rule, so a cancelled bill says it has ended
+	// rather than that nobody used it.
+	if (rollover && activity.planState === 'cancelled') throw codedError('activity_cancelled');
+	if (rollover && !expense && !ownerAsked) {
+		const latest = activity.periods.filter(p => p.key < key).sort((a, b) => b.key.localeCompare(a.key))[0];
+		if (!latest || latest.key !== previousPeriodKey(key)) return { period: null, created: false, idle: true };
+	}
 
 	const period = await transaction(async (client) => {
 		const locked = await client.query('SELECT plan_state FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
@@ -1419,6 +1433,12 @@ function nextPeriodKey(key) {
 	const [year, month] = key.split('-').map(Number);
 	const next = new Date(Date.UTC(year, month, 1));
 	return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function previousPeriodKey(key) {
+	const [year, month] = key.split('-').map(Number);
+	const previous = new Date(Date.UTC(year, month - 2, 1));
+	return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /** Fold a new change into one already waiting. The latest word on a person or the price wins. */
@@ -2437,6 +2457,7 @@ module.exports = {
 	changeSubscription,
 	upcomingSubscription,
 	nextPeriodKey,
+	previousPeriodKey,
 	attachSlip,
 	getSlip,
 	forgetOldSlips,

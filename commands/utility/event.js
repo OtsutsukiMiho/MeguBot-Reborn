@@ -93,6 +93,8 @@ const T = {
 		payerCannotLeave: 'คนจ่ายค่าบริการออกจากบิลไม่ได้ ให้เจ้าของบิลเปลี่ยนคนจ่ายก่อน',
 		lastPerson: 'ถ้าออก บิลนี้จะไม่เหลือใครหารเลย',
 		changeNeedsWeb: 'บิลนี้มีหลายรายการต่อเดือน แก้ได้ที่เว็บ',
+		billIdle: 'บิลนี้ไม่ได้ใช้ตั้งแต่เดือนก่อนแล้ว เลยไม่เปิดเดือนนี้ให้เอง เจ้าของบิลเปิดเดือนใหม่ได้ที่เว็บ',
+		billEnded: 'บิลนี้ถูกยกเลิกไปแล้ว',
 		manageTitle: title => `จัดการ **${title}**`,
 		manageNow: (total, count) => `เดือนนี้ ${total} หาร ${count} คน`,
 		monthsLink: 'ย้อนหลังรายเดือน', priceButton: 'เปลี่ยนราคา', priceTitle: 'ราคาใหม่ต่อเดือน', priceLabel: 'ยอดต่อเดือน (บาท)',
@@ -175,6 +177,8 @@ const T = {
 		payerCannotLeave: 'The person paying for the service cannot leave. The owner has to change who pays first.',
 		lastPerson: 'If you leave, nobody is left to share this bill.',
 		changeNeedsWeb: 'This bill has several costs a month. Change it on the web.',
+		billIdle: 'This bill was not used last month, so this month was not opened for it. The owner can open a new month on the web.',
+		billEnded: 'This bill has been cancelled.',
 		manageTitle: title => `Manage **${title}**`,
 		manageNow: (total, count) => `This month ${total} split by ${count}`,
 		monthsLink: 'Month by month', priceButton: 'Change price', priceTitle: 'New monthly price', priceLabel: 'Amount per month (THB)',
@@ -250,8 +254,11 @@ async function renderCard(core, code, locale, { audience = 'members' } = {}) {
 	// rollover every other read does: the new month copies the last one.
 	let period = null;
 	if (activity.kind === 'recurring') {
-		await core.activities.ensurePeriod(activity.id, new Date(), { rollover: true });
-		activity = await core.activities.getActivityByCode(code);
+		// A cancelled bill is shown as it ended; there is no month to open.
+		if (activity.planState !== 'cancelled') {
+			await core.activities.ensurePeriod(activity.id, new Date(), { rollover: true });
+			activity = await core.activities.getActivityByCode(code);
+		}
 		period = core.activities.currentPeriod(activity);
 	}
 	const settlement = core.activities.settlement(activity, period?.id ?? null);
@@ -284,6 +291,8 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 		}
 		catch (error) {
 			if (error.code === 'change_needs_web') return 'skipped';
+			if (error.code === 'period_missing') return 'idle';
+			if (error.code === 'activity_cancelled') return 'ended';
 			throw error;
 		}
 	}
@@ -657,6 +666,8 @@ async function onPayerPick(interaction, core, code, cardMessageId, { fromPanel =
 	}
 	catch (error) {
 		if (error.code === 'payer_locked') return interaction.followUp({ content: t.payerLocked, flags: EPHEMERAL });
+		const refusal = changeRefusal(t, error);
+		if (refusal) return interaction.followUp({ content: refusal, flags: EPHEMERAL });
 		throw error;
 	}
 
@@ -710,6 +721,8 @@ async function onJoin(interaction, core, code) {
 	const activity = await core.activities.getActivityByCode(code);
 	if (!activity) return interaction.reply({ content: t.gone, flags: EPHEMERAL });
 	if (activity.guildId && activity.guildId !== interaction.guildId) return interaction.reply({ content: t.wrongServer, flags: EPHEMERAL });
+	// Nobody joins a bill that has ended, and nobody is added to it on the way.
+	if (activity.planState === 'cancelled') return interaction.reply({ content: t.billEnded, flags: EPHEMERAL });
 
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
 	const mine = isMine(activity, interaction.user.id, account?.id);
@@ -760,6 +773,8 @@ function joiningSoon(activity, participantId) {
 
 function joinReply(t, core, activity, outcome) {
 	if (outcome === 'skipped') return `${t.joined}\n${t.paidAlready}`;
+	if (outcome === 'idle') return t.billIdle;
+	if (outcome === 'ended') return t.billEnded;
 	if (outcome === 'next') {
 		const period = core.activities.currentPeriod(activity);
 		return t.joinedNext(formatPeriod(period ? core.activities.nextPeriodKey(period.key) : null, t.lang));
@@ -911,6 +926,10 @@ function changeRefusal(t, error) {
 		nobody_left: t.lastPerson,
 		change_needs_web: t.changeNeedsWeb,
 		amount_invalid: t.needAmount(''),
+		// A bill nobody used last month is not carried into this one, and a
+		// cancelled one is over; both are said rather than a generic failure.
+		period_missing: t.billIdle,
+		activity_cancelled: t.billEnded,
 	}[error.code] || null;
 }
 

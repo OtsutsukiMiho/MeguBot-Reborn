@@ -2864,6 +2864,8 @@ function router(deps = {}) {
 			const payer = activity.participants.find(p => p.userId === req.actor.userId) || activity.participants[0];
 			const { period } = await activities.ensurePeriod(activity.id, req.body?.date ? new Date(req.body.date) : new Date(), {
 				rollover: !(amountMinor > 0),
+				// The owner pressed "new month": open it even after a gap.
+				ownerAsked: true,
 				expense: amountMinor > 0 ? { label: activity.title, amountSatang: amountMinor, paidBy: payer?.id } : null,
 			});
 

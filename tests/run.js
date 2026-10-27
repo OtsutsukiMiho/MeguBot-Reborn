@@ -137,6 +137,7 @@ const SUITES = [
 	['sub-changes.test.js', 'subscription changes: price, leaving and joining, this month while unpaid and next month after'],
 	['monthly-history.test.js', 'month by month: every month newest first, paid, checking and owed, nothing for a stranger'],
 	['sub-review-fixes.test.js', 'subscription edges: the 1st of a month, a payer change, a booking taken back, refused and stale changes'],
+	['rollover-active-only.test.js', 'automatic rollover: only a bill used last month, never revived by a sweep, owner can still open after a gap'],
 	['sub-command.test.js', '/sub — a monthly bill from one modal, rolled into next month, announced once on its due day'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
