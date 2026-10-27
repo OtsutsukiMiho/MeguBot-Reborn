@@ -507,13 +507,17 @@ function activeDeferral(activity, participantId, scope, now = new Date()) {
  * Megu reads whichever axis is actually asking for attention: money first when
  * someone is behind, the plan otherwise.
  */
-function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
+function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG, { showAmounts = false } = {}) {
 	const seed = { seed: activity.id, lang };
 	const when = activity.startsAt ? core.format.formatWhen(activity.startsAt, lang) : null;
 
 	if (activity.planState === 'cancelled') return voice.say('cancelled', { title: activity.title }, seed);
 
 	if (sum.state === 'open') {
+		// The nudge names the debtor and the amount. Every other figure in the
+		// payload is withheld from a reader who may not see amounts, and this
+		// line used to be the one place it still leaked to anyone with the link.
+		if (!showAmounts) return voice.say('someoneUnpaid', { title: activity.title }, seed);
 		const first = sum.unpaid[0];
 		return voice.say('nudgeUnpaid', { name: first.displayName, amount: first.outstanding }, seed);
 	}
@@ -713,7 +717,7 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		// written before Megu recorded who they were sent to. A screen quoting
 		// one of those is required to say it is a reconstruction.
 		obligationsEstimated: showAmounts ? sum.hasLegacyPayments : null,
-		megu: meguLineFor(activity, sum, period, lang),
+		megu: meguLineFor(activity, sum, period, lang, { showAmounts }),
 		// `key` travels and `label` does not: a month's name is rendered by
 		// the reader's browser in the reader's language, rather than frozen
 		// into the row on whatever day the month happened to be opened.
@@ -1856,7 +1860,8 @@ function router(deps = {}) {
 				guildId: guildId || null,
 				channelId: channelId || null,
 				recurrence: recurring ? 'monthly' : null,
-				dueDay: recurring ? Number(req.body.dueDay) || 1 : null,
+				// 1 to 31; a month without the day falls due on its last one.
+				dueDay: recurring ? Math.min(31, Math.max(1, Math.trunc(Number(req.body.dueDay)) || 1)) : null,
 				// Deliberately separate from `startsAt`. The court is played on
 				// the 20th and settled on the 21st; a recurring agreement answers
 				// the same question per month through `dueDay` instead.
@@ -2587,9 +2592,15 @@ function router(deps = {}) {
 				channelId: activity.channelId,
 				message,
 				cta: origin ? { label: ctaLabel, url: `${origin}/a/${encodeURIComponent(activity.code)}` } : null,
+				// The summary names who owes whom and how much. It goes only
+				// into a private thread of the people on the bill; a bill tied
+				// to an ordinary channel would show everyone's debts to the
+				// whole server.
+				privateOnly: true,
 			});
 			if (!result?.delivered) {
 				summaryPostedAt.delete(activity.id);
+				if (result?.notPrivate) return fail(res, 409, 'summary_not_private');
 				return fail(res, 502, 'summary_not_delivered');
 			}
 			res.json({ posted: true });

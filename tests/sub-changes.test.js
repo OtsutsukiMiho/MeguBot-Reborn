@@ -4,6 +4,7 @@
 // Real core and a disposable database; Discord is a stand-in.
 require('dotenv').config();
 const assert = require('node:assert/strict');
+const { ChannelType } = require('discord.js');
 const core = require('../core/index.js');
 const event = require('../commands/utility/event.js');
 
@@ -16,8 +17,34 @@ function ok(name) {
 const snowflake = () => `1${Date.now()}${String(Math.floor(Math.random() * 1e5)).padStart(5, '0')}`;
 const GUILD = '123456789012345678';
 
+// The bill's private thread, kept where the bot's channel cache would keep
+// it. Edits to its card land in whichever call is running.
+const threads = new Map();
+let currentEdits = [];
+const parent = {
+	type: ChannelType.GuildText,
+	threads: {
+		async create() {
+			const thread = {
+				id: snowflake(),
+				type: ChannelType.PrivateThread,
+				sent: [],
+				members: { add: async () => undefined },
+				messages: { edit: async (id, value) => currentEdits.push({ id, ...value }) },
+			};
+			thread.send = async (value) => {
+				thread.sent.push(value);
+				return { id: 'card1' };
+			};
+			threads.set(thread.id, thread);
+			return thread;
+		},
+	},
+};
+
 function fake({ customId, user, kind, fields = null, values = null, users = null, cardEdits = [] }) {
 	const log = { replies: [], edits: [], followUps: [], modal: null };
+	currentEdits = cardEdits;
 	return {
 		log,
 		customId,
@@ -40,8 +67,8 @@ function fake({ customId, user, kind, fields = null, values = null, users = null
 		async followUp(value) { log.followUps.push(value); },
 		async showModal(modal) { log.modal = modal; },
 		message: { id: 'card1', content: '', editable: true, edit: async () => undefined },
-		channel: { messages: { edit: async (id, value) => cardEdits.push({ id, ...value }) } },
-		client: { users: { fetch: async () => ({ send: async () => undefined }) } },
+		channel: { ...parent, messages: { edit: async (id, value) => cardEdits.push({ id, ...value }) } },
+		client: { users: { fetch: async () => ({ send: async () => undefined }) }, channels: { cache: threads } },
 	};
 }
 
@@ -64,6 +91,16 @@ const lastText = call => {
 
 async function main() {
 	await core.initCoreSchema();
+
+	// Due on the 31st: February falls due on its last day, March goes back.
+	const dueOn = (key, day) => core.activities.periodDueAt(key, day).toISOString().slice(0, 10);
+	assert.equal(dueOn('2026-02', 31), '2026-02-28');
+	assert.equal(dueOn('2028-02', 31), '2028-02-29', 'a leap year has the 29th');
+	assert.equal(dueOn('2026-03', 31), '2026-03-31');
+	assert.equal(dueOn('2026-04', 31), '2026-04-30');
+	assert.equal(dueOn('2026-04', 15), '2026-04-15');
+	ok('a due day past the end of a short month falls on its last day, and the next month goes back');
+
 	const fig = { id: snowflake(), name: 'ฟิก' };
 	const om = { id: snowflake(), name: 'โอม' };
 	const mew = { id: snowflake(), name: 'มิว' };
@@ -73,8 +110,9 @@ async function main() {
 	try {
 		const create = subSubmit(fig, [om, mew]);
 		await event.handleComponent(create, { core });
-		code = create.log.edits[0].components[0].components[0].data.custom_id.split(':')[2];
-		assert.deepEqual(idsOf(create.log.edits[0].components[0]), [`evt:pay:${code}`, `evt:join:${code}`, `evt:leave:${code}`, `evt:manage:${code}`, 'link']);
+		const card = [...threads.values()].at(-1).sent[0];
+		code = card.components[0].components[0].data.custom_id.split(':')[2];
+		assert.deepEqual(idsOf(card.components[0]), [`evt:pay:${code}`, `evt:join:${code}`, `evt:leave:${code}`, `evt:manage:${code}`, 'link']);
 		ok('a monthly card carries leave and manage next to pay and join');
 
 		let activity = await core.activities.getActivityByCode(code);
@@ -158,7 +196,7 @@ async function main() {
 		});
 		call.client = {
 			...call.client,
-			channels: { cache: new Map([['223456789012345678', { messages: { edit: async (id, value) => channelEdits.push({ id, ...value }) } }]]) },
+			channels: { cache: new Map([[activity.channelId, { type: ChannelType.PrivateThread, messages: { edit: async (id, value) => channelEdits.push({ id, ...value }) } }]]) },
 			guilds: { cache: new Map([[GUILD, { preferredLocale: 'th' }]]) },
 		};
 		await event.handleComponent(call, { core });
