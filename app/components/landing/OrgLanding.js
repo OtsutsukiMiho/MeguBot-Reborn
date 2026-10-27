@@ -25,7 +25,7 @@ export default function OrgLanding() {
 		<div className={styles.page} lang={lang}>
 			<section className={styles.pageHero}>
 				<div className={styles.pageHeroInner}>
-					<div>
+					<div className={styles.pageHeroCopy}>
 						<h1>
 							<span className={styles.nb}>{o.h1[0]}</span>{' '}
 							<Phrases className={styles.accentLine} parts={o.h1Accent} />
@@ -138,7 +138,6 @@ export default function OrgLanding() {
 					</div>
 				</div>
 			</section>
-			<p className={styles.note}>{t.example}</p>
 		</div>
 	);
 }

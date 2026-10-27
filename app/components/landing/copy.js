@@ -17,7 +17,6 @@ const NAMES = { owner: 'Alex', a: 'Mina', b: 'Ken', c: 'Sara' };
 const th = {
 	addMegu: 'เพิ่ม Megu เข้า Discord',
 	signIn: 'เข้าสู่ระบบ',
-	example: 'ชื่อ ยอด และข้อความในหน้านี้เป็นตัวอย่าง',
 
 	home: {
 		h1: ['ให้ Megu เป็นคนพูด', 'เรื่องที่ไม่มีใคร', 'อยากพูด'],
@@ -100,7 +99,7 @@ const th = {
 		period: 'ตุลาคม 2026',
 		perHead: 'คนละ ฿65',
 		days: 'วันในเดือน',
-		hint: 'กดวันที่เพื่อดูว่า Megu ทำอะไรในแต่ละวัน ชื่อและยอดเป็นตัวอย่าง',
+		hint: 'กดวันที่เพื่อดูว่า Megu ทำอะไรในแต่ละวัน',
 		owner: { name: NAMES.owner, note: 'คนออกเงินไปก่อน', state: 'เจ้าของบิล' },
 		people: [
 			{ id: 'a', name: NAMES.a, note: 'พร้อมเพย์' },
@@ -129,7 +128,7 @@ const th = {
 		],
 		flow: ['ยังไม่เริ่ม', 'กำลังทำ', 'รอตรวจรับ', 'เสร็จแล้ว'],
 		days: 'วันในสัปดาห์',
-		hint: 'กดวันเพื่อดูว่า Megu ทำอะไร ชื่อและงานเป็นตัวอย่าง',
+		hint: 'กดวันเพื่อดูว่า Megu ทำอะไร',
 		steps: [
 			{ day: 'จ.', label: 'มอบหมาย', step: 0, bar: 0, where: 'Megu ในห้อง #งาน-เว็บ', say: `${NAMES.owner} มอบหัวข้องาน "หน้าราคาใหม่" ให้ ${NAMES.a} กำหนดส่งวันศุกร์` },
 			{ day: 'อ.', label: 'เริ่มทำ', step: 1, bar: 35, where: 'Megu ในห้อง #งาน-เว็บ', say: `${NAMES.a} เริ่มทำ "หน้าราคาใหม่" แล้ว` },
@@ -248,7 +247,6 @@ const th = {
 const en = {
 	addMegu: 'Add Megu to Discord',
 	signIn: 'Sign in',
-	example: 'Names, amounts and messages on this page are examples',
 
 	home: {
 		h1: ['Let Megu say', 'what nobody', 'wants to say'],
@@ -331,7 +329,7 @@ const en = {
 		period: 'October 2026',
 		perHead: '฿65 each',
 		days: 'Days of the month',
-		hint: 'Pick a day to see what Megu does. Names and amounts are examples.',
+		hint: 'Pick a day to see what Megu does.',
 		owner: { name: NAMES.owner, note: 'Paid up front', state: 'Owner' },
 		people: [
 			{ id: 'a', name: NAMES.a, note: 'PromptPay' },
@@ -360,7 +358,7 @@ const en = {
 		],
 		flow: ['Not started', 'In progress', 'In review', 'Done'],
 		days: 'Days of the week',
-		hint: 'Pick a day to see what Megu does. Names and work are examples.',
+		hint: 'Pick a day to see what Megu does.',
 		steps: [
 			{ day: 'Mon', label: 'Assigned', step: 0, bar: 0, where: 'Megu in #web-work', say: `${NAMES.owner} gave "New pricing page" to ${NAMES.a}, due Friday.` },
 			{ day: 'Tue', label: 'Started', step: 1, bar: 35, where: 'Megu in #web-work', say: `${NAMES.a} started "New pricing page".` },

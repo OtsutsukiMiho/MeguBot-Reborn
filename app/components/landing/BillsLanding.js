@@ -26,7 +26,7 @@ export default function BillsLanding() {
 		<div className={styles.page} lang={lang}>
 			<section className={styles.pageHero}>
 				<div className={styles.pageHeroInner}>
-					<div>
+					<div className={styles.pageHeroCopy}>
 						<h1>
 							<span className={styles.nb}>{b.h1[0]}</span>{' '}
 							<span className={`${styles.accentLine} ${styles.nb}`}>{b.h1[1]}</span>
@@ -156,7 +156,6 @@ export default function BillsLanding() {
 					</div>
 				</div>
 			</section>
-			<p className={styles.note}>{t.example}</p>
 		</div>
 	);
 }
