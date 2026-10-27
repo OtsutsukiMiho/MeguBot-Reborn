@@ -29,6 +29,9 @@ export default function PayPanel({ code, payTo, creditorParticipantId = null, am
 	const [flash, setFlash] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [attaching, setAttaching] = useState(false);
+	// Months and part-payments are for the few who need them. One month owed is
+	// paid in full unless the reader asks to change it.
+	const [adjusting, setAdjusting] = useState(false);
 	const [selected, setSelected] = useState({});
 	const [amounts, setAmounts] = useState({});
 	const [selectedMethodId, setSelectedMethodId] = useState(pending?.paymentDestination?.id || paymentOptions[0]?.id || '');
@@ -164,7 +167,26 @@ export default function PayPanel({ code, payTo, creditorParticipantId = null, am
 		}
 	}
 
-	const periodPicker = !pending && payablePeriods.length > 0 && (
+	/**
+	 * Paid, with the slip, in one step. Before this the slip upload appeared only
+	 * after "I have transferred it", and most people stopped at that button: the
+	 * claim then sat unchecked until the organiser confirmed it by hand.
+	 */
+	async function paidWithSlip(slip) {
+		if (slip?.error) return onError?.({ code: slip.error });
+		if (!slip?.dataUrl) return;
+		setAttaching(true);
+		try {
+			const claim = await call('POST', '/pay', claimBody);
+			if (!claim?.paymentId) return;
+			await call('POST', `/payments/${claim.paymentId}/slip`, { dataUrl: slip.dataUrl });
+		}
+		finally {
+			setAttaching(false);
+		}
+	}
+
+	const periodPicker = !pending && payablePeriods.length > 0 && !(payablePeriods.length === 1 && !adjusting) ? (
 		<div className="allocation-picker">
 			<div className="allocation-head">
 				<span className="field-label">{t.pay.choosePeriods}</span>
@@ -203,7 +225,9 @@ export default function PayPanel({ code, payTo, creditorParticipantId = null, am
 			))}
 			<p className="quiet-note">{t.pay.allocationHint}</p>
 		</div>
-	);
+	) : (!pending && payablePeriods.length === 1 && (
+		<button type="button" className="link-btn" onClick={() => setAdjusting(true)}>{t.pay.payLess}</button>
+	));
 
 	// Nobody has told this person where to send anything yet.
 	if (paymentOptions.length === 0) {
@@ -301,14 +325,36 @@ export default function PayPanel({ code, payTo, creditorParticipantId = null, am
 
 				{!pending ? (
 					<>
-						<button
-							type="button"
-							className="btn btn-pay btn-block btn-lg"
-							disabled={busy || allocationInvalid || payAmount <= 0}
-							onClick={() => call('POST', '/pay', claimBody)}
-						>
-							{t.pay.iHavePaid}
-						</button>
+						{acceptsTransferProof ? (
+							<>
+								<SlipPicker
+									className="btn btn-pay btn-block btn-lg"
+									label={t.pay.paidWithSlip}
+									busyLabel={t.pay.reading}
+									readingLabel={t.slip.readingImage}
+									disabled={busy || attaching || allocationInvalid || payAmount <= 0}
+									onPicked={paidWithSlip}
+								/>
+								<p className="quiet-note">{t.pay.paidWithSlipHint}</p>
+								<button
+									type="button"
+									className="link-btn"
+									disabled={busy || attaching || allocationInvalid || payAmount <= 0}
+									onClick={() => call('POST', '/pay', claimBody)}
+								>
+									{t.pay.paidWithoutSlip}
+								</button>
+							</>
+						) : (
+							<button
+								type="button"
+								className="btn btn-pay btn-block btn-lg"
+								disabled={busy || allocationInvalid || payAmount <= 0}
+								onClick={() => call('POST', '/pay', claimBody)}
+							>
+								{t.pay.iHavePaid}
+							</button>
+						)}
 						{/* The other honest answer. It is quiet and it is second,
 						    because it is an escape hatch rather than a choice
 						    competing with paying — but it is here, because the

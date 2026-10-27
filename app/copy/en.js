@@ -170,7 +170,7 @@ const en = {
 		emptyOneOff: 'No one-off bills yet. Once an activity has an expense, it will appear here automatically.',
 		status: {
 			awaiting: n => `${n} ${n === 1 ? 'payment' : 'payments'} to confirm`,
-			outstanding: (amount, n) => `${amount} due · ${n} ${n === 1 ? 'person' : 'people'}`,
+			outstanding: (amount, n) => `${amount} to collect from ${n} ${n === 1 ? 'person' : 'people'}`,
 			settled: 'This round is paid in full',
 			notStarted: 'No balance in this round yet',
 		},
@@ -1299,19 +1299,21 @@ const en = {
 	},
 
 	activities: {
-		title: 'Your activities',
+		title: 'Your bills',
 		liveCount: n => `${n} still running`,
 		pastCount: n => `${n} finished`,
-		newActivity: 'New activity',
+		newActivity: 'New bill',
 		liveTitle: 'Running now',
 		pastTitle: 'Earlier',
+		madeOn: when => `made ${when}`,
 		monthly: 'Monthly',
+		oneOff: 'One-off',
 		openMenu: 'Open',
 		standing: {
 			awaitingConfirmation: (n, amount) => amount
-				? `${n} to confirm · ${amount} due`
-				: `${n} to confirm`,
-			outstanding: (n, amount) => `${amount} due · ${n} ${n === 1 ? 'person' : 'people'}`,
+				? `${n} for you to confirm, ${amount} still to collect`
+				: `${n} for you to confirm`,
+			outstanding: (n, amount) => `${amount} to collect from ${n} ${n === 1 ? 'person' : 'people'}`,
 			answered: (answered, total) => `${answered}/${total} answered`,
 			allAnswered: total => `${total}/${total} answered`,
 			settled: 'Paid in full',
@@ -1332,7 +1334,7 @@ const en = {
 		kind: {
 			legend: 'What kind',
 			event: 'One time',
-			eventHint: 'Dinner, a trip, a shopping run, badminton — happens once, gets split, done.',
+			eventHint: 'Dinner, a trip, a shopping run, badminton. It happens once, gets split, and is done.',
 			recurring: 'Every month',
 			recurringHint: 'Wifi, Netflix, rent: the same amount each month, and Megu opens each round automatically.',
 		},
@@ -1452,10 +1454,10 @@ const en = {
 		answerTitle: 'Your answer',
 		answerFor: title => `for ${title}`,
 		answered: 'Answered',
-		manageTitle: 'Organizer tools',
+		manageTitle: 'Manage bill',
 		manageFor: title => `for ${title}`,
 		manageDenied: 'Only the organizer can open this.',
-		openManage: 'Organizer tools',
+		openManage: 'Manage bill',
 	},
 
 	// Month by month: every month on one screen, who has paid and who still owes.
@@ -1497,6 +1499,9 @@ const en = {
 		review: n => `${n} ${n === 1 ? 'payment is' : 'payments are'} waiting for you to check`,
 		reviewAction: 'Review them',
 		clear: 'Nothing needs you right now.',
+		ownerLabel: 'Still to come in',
+		ownerNote: n => `From ${n} ${n === 1 ? 'person' : 'people'}. Megu reminds them by DM on the due date.`,
+		ownerAction: 'See who still owes',
 		// The state every activity starts in, and the one the summary used to
 		// answer with "nothing needs you" — while the single thing that needed
 		// doing had no control anywhere on the page.
@@ -1630,12 +1635,14 @@ const en = {
 		payBySave: 'Save deadline',
 		payByClear: 'Clear',
 		addExpense: 'Add a cost',
+		addMonthCost: 'Add a cost to this month',
+		monthlyEditHint: 'The price, who shares it and the due day are changed from the Manage button on the card in the bill thread on Discord.',
 		shareSummary: 'Post the bill to Discord',
-		shareSummaryHint: 'Posts the total and who sends how much to whom in this activity’s Discord channel. Nobody is pinged.',
+		shareSummaryHint: 'Posts the total and who sends how much to whom in the bill thread on Discord. Nobody is pinged.',
 		summaryPosted: 'Posted to Discord',
 		typeItIn: 'Or type it in',
 		addAndSplit: 'Add it and split it',
-		planTitle: 'Where this activity is up to',
+		planTitle: 'Where this bill is up to',
 		planNothing: 'Nothing left to change here.',
 		cancelActivity: 'Cancel this activity',
 		confirmCancel: 'Cancel this activity?',
@@ -1753,6 +1760,10 @@ const en = {
 		allocationHint: 'Partial payments and several months on one transfer are supported.',
 		baht: 'baht',
 		iHavePaid: 'I have transferred it',
+		paidWithSlip: 'Paid, attach the slip',
+		paidWithSlipHint: 'Megu reads the slip. If the amount and receiver match, it is recorded as paid straight away.',
+		paidWithoutSlip: 'Paid, but no slip',
+		payLess: 'Pay part of it',
 		attachSlip: 'Attach the slip',
 		attachSlipHint: 'Attach transfer proof to help the organizer verify it. Only the minimum dispute evidence is retained.',
 		slipAttached: 'Slip attached',
@@ -1784,6 +1795,7 @@ const en = {
 		instructionsField: 'Instructions (optional)',
 		instructionsPlaceholder: 'Anything participants need to know',
 		add: 'Add this option',
+		open: 'Add another way to pay',
 		save: 'Save payment options',
 		types: {
 			promptpay: 'PromptPay',
@@ -1827,7 +1839,7 @@ const en = {
 		saved: 'Saved',
 		payee: 'Everyone pays',
 		payeeField: 'Who collects the money',
-		organizerOption: name => `Organizer${name ? ` — ${name}` : ''}`,
+		organizerOption: name => `Organizer${name ? ` (${name})` : ''}`,
 		notSet: 'Not set yet',
 		remove: 'Remove this number',
 		fromQr: 'Read it from my QR',

@@ -72,7 +72,9 @@ function bankSlip(bank, ref) {
 
 // This suite expects an ordinary recent upload. Keep the fixed-clock late-upload
 // boundary in payment-evidence.test.js; this fixture must not age into that case.
-const testSlipDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+// Yesterday in Bangkok, where slips are dated. A UTC date run between midnight
+// and 7am Bangkok time lands two days back, before the bill could exist.
+const testSlipDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date(Date.now() - 24 * 60 * 60 * 1000));
 const [testSlipYear, testSlipMonth, testSlipDay] = testSlipDate.split('-').map(Number);
 
 function exactSlipBody(ref, amountSatang, { qr = true } = {}) {

@@ -511,19 +511,36 @@ function activeDeferral(activity, participantId, scope, now = new Date()) {
  * Megu reads whichever axis is actually asking for attention: money first when
  * someone is behind, the plan otherwise.
  */
-function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG, { showAmounts = false } = {}) {
+/**
+ * A one-off bill rather than a plan: no time, no poll, and money or a Discord
+ * origin (/event). Such a bill has nothing to RSVP to or schedule, so the page
+ * and Megu talk about the money and nothing else.
+ */
+function isBillOnly(activity) {
+	return activity.kind !== 'recurring' && !activity.startsAt && activity.slots.length === 0
+		&& (Boolean(activity.guildId) || activity.expenses.length > 0);
+}
+
+function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG, { showAmounts = false, meId = null, isOwner = false } = {}) {
 	const seed = { seed: activity.id, lang };
 	const when = activity.startsAt ? core.format.formatWhen(activity.startsAt, lang) : null;
 
 	if (activity.planState === 'cancelled') return voice.say('cancelled', { title: activity.title }, seed);
 
 	if (sum.state === 'open') {
-		// The nudge names the debtor and the amount. Every other figure in the
-		// payload is withheld from a reader who may not see amounts, and this
-		// line used to be the one place it still leaked to anyone with the link.
+		// Every figure in the payload is withheld from a reader who may not see
+		// amounts, and this line used to be the one place it still leaked.
 		if (!showAmounts) return voice.say('someoneUnpaid', { title: activity.title }, seed);
-		const first = sum.unpaid[0];
-		return voice.say('nudgeUnpaid', { name: first.displayName, amount: first.outstanding }, seed);
+		// Spoken to whoever is reading: the debtor hears about their own share,
+		// not their own name in the third person, and the organiser hears how
+		// much is still out rather than a nudge meant for someone else.
+		const mine = meId ? sum.unpaid.find(row => row.participantId === meId) : null;
+		if (mine) return voice.say('youOwe', { amount: mine.outstanding }, seed);
+		if (isOwner) {
+			const amount = sum.unpaid.reduce((total, row) => total + row.outstanding, 0);
+			return voice.say('ownerWaiting', { count: sum.unpaid.length, amount }, seed);
+		}
+		return voice.say('othersUnpaid', { count: sum.unpaid.length }, seed);
 	}
 
 	if (sum.state === 'settled') {
@@ -532,7 +549,7 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG, { s
 			: voice.say('allSettled', { title: activity.title }, seed);
 	}
 
-	if (activity.kind === 'recurring') return voice.say('nothingOwedYet', { title: activity.title }, seed);
+	if (activity.kind === 'recurring' || isBillOnly(activity)) return voice.say('nothingOwedYet', { title: activity.title }, seed);
 
 	// A poll in progress is the loudest thing on the page: it is the decision
 	// the group has been avoiding.
@@ -721,7 +738,9 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		// written before Megu recorded who they were sent to. A screen quoting
 		// one of those is required to say it is a reconstruction.
 		obligationsEstimated: showAmounts ? sum.hasLegacyPayments : null,
-		megu: meguLineFor(activity, sum, period, lang, { showAmounts }),
+		megu: meguLineFor(activity, sum, period, lang, { showAmounts, meId: me?.id || null, isOwner: role === 'owner' }),
+		// A one-off bill with no time or poll: the page drops the plan parts.
+		billOnly: isBillOnly(activity),
 		// `key` travels and `label` does not: a month's name is rendered by
 		// the reader's browser in the reader's language, rather than frozen
 		// into the row on whatever day the month happened to be opened.
@@ -821,7 +840,13 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 			}))
 			: [],
 		totals: showAmounts
-			? { total: sum.total, unpaidCount: sum.unpaid.length, fullySettled: sum.fullySettled }
+			? {
+				total: sum.total,
+				unpaidCount: sum.unpaid.length,
+				// Still to come in, for the organiser's line at the top of the page.
+				outstanding: sum.unpaid.reduce((total, row) => total + row.outstanding, 0),
+				fullySettled: sum.fullySettled,
+			}
 			: null,
 
 		// Where the money goes.

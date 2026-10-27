@@ -17,7 +17,7 @@ async function prepare(file) {
  * @param {object} props
  * @param {(slip: {dataUrl: string}|{error: string}) => void} props.onPicked
  */
-export default function SlipPicker({ onPicked, label, busyLabel, readingLabel, disabled }) {
+export default function SlipPicker({ onPicked, label, busyLabel, readingLabel, disabled, className = 'btn btn-secondary btn-block' }) {
 	const inputRef = useRef(null);
 	const [stage, setStage] = useState(null);
 
@@ -56,7 +56,7 @@ export default function SlipPicker({ onPicked, label, busyLabel, readingLabel, d
 			/>
 			<button
 				type="button"
-				className="btn btn-secondary btn-block"
+				className={className}
 				disabled={disabled || working}
 				onClick={() => inputRef.current?.click()}
 			>
