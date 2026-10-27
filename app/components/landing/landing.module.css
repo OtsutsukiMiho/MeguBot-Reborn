@@ -414,15 +414,24 @@
 	align-items: start;
 }
 
+/* The headline is sized by its own column, not the window: 12.5cqi keeps the
+   longest Thai phrase (about 7.8em) on one line beside the demo, and English
+   wraps between words (below). */
+.pageHeroCopy { container-type: inline-size; min-width: 0; }
+
 .pageHero h1 {
 	font-family: var(--font-display);
 	font-weight: 700;
-	font-size: clamp(2.3rem, 4.3vw, 3.9rem);
+	font-size: clamp(2rem, 12.5cqi, 3.9rem);
 	line-height: 1.08;
 	letter-spacing: -.04em;
 }
 
 .accentLine { display: block; color: var(--accent); }
+
+/* Phrases stay whole so Thai never breaks mid-phrase. A language with spaces
+   may still wrap between words on a narrow screen rather than overflow. */
+.page:not(:lang(th)) .pageHero h1 .nb { white-space: normal; }
 .lede { font-size: 1.15rem; color: var(--ink-2); margin-top: 1.4rem; max-width: 31rem; }
 .small { margin-top: .9rem; font-size: .9rem; color: var(--faint); }
 
@@ -638,7 +647,6 @@
 .goalHide { margin: 1rem 0 0; border-radius: 12px; border: 1px dashed var(--line-2); padding: .9rem; font-size: .88rem; color: var(--muted); }
 .goalHide b { color: var(--ink-2); font-weight: 500; }
 
-.note { text-align: center; font-size: .78rem; color: var(--faint); margin: 2rem 0 0; }
 
 /* ------------------------------------------------------------ responsive */
 

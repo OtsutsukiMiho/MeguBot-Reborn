@@ -128,7 +128,6 @@ export default function HomeLanding() {
 					</div>
 				</div>
 			</section>
-			<p className={styles.note}>{t.example}</p>
 		</div>
 	);
 }
