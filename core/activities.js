@@ -1764,6 +1764,29 @@ async function updateActivity(activityId, input) {
 }
 
 /**
+ * Where the bill's Discord messages go. Kept out of updateActivity on
+ * purpose: that one takes input from the web, and a channel is decided by
+ * the bot when it creates the bill's private thread, never by a form.
+ */
+async function setActivityChannel(activityId, channelId) {
+	await query('UPDATE activities SET channel_id = $2, updated_at = now() WHERE id = $1', [activityId, channelId || null]);
+}
+
+/** The server's bills channel, or null when Megu has not opened one yet. */
+async function getBillChannel(guildId) {
+	const res = await query('SELECT channel_id FROM bill_channels WHERE guild_id = $1', [guildId]);
+	return res.rows[0]?.channel_id || null;
+}
+
+async function setBillChannel(guildId, channelId) {
+	await query(
+		`INSERT INTO bill_channels (guild_id, channel_id) VALUES ($1, $2)
+		ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id, updated_at = now()`,
+		[guildId, channelId],
+	);
+}
+
+/**
  * `expectedSatang` and `promptpayTarget` are what we asked for and where we
  * told them to send it, copied onto the row rather than looked up later.
  * Both move: the owner changes their PromptPay number, or a ฿4,000 typo is
@@ -2386,6 +2409,9 @@ module.exports = {
 	setAttended,
 	setPlanState,
 	updateActivity,
+	setActivityChannel,
+	getBillChannel,
+	setBillChannel,
 	DEFERRAL_SNOOZE_HOURS,
 	deferPayment,
 	activeDeferrals,

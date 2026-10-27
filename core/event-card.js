@@ -3,8 +3,12 @@
 // The whole point is that nobody has to open the web to start one. The
 // organiser names the thing, picks people from the server, types the names of
 // anyone who is not on Discord, and says what it cost. What comes back is one
-// message in the channel that everybody reads: who is in, who owes what, who
-// has paid.
+// message the people on the bill read: who is in, who owes what, who has paid.
+//
+// Who owes what is not the server's business. The full card goes only where
+// just those people can see it: a private thread of the bill's members, or
+// the organiser's DM when nobody else on the bill uses Discord. Anywhere the
+// whole server reads gets publicCardMessage, which has no names and no money.
 //
 // Nothing here talks to Discord or Postgres. The command adapter feeds in what
 // the modal returned and what the ledger says, and gets back plain values —
@@ -39,6 +43,14 @@ const COPY = {
 		startsFrom: period => `(เริ่ม${period})`,
 		lastMonth: '(เดือนสุดท้าย)',
 		upcoming: (period, total, count) => `ตั้งแต่${period}: ${total}/เดือน หาร ${count} คน`,
+		publicHeading: (title, count) => `**${title}** บิลของ ${count} คน`,
+		publicMonthly: (title, count, due) => `**${title}** บิลรายเดือนของ ${count} คน ครบกำหนด${due}`,
+		publicHowTo: 'ยอดของแต่ละคนไม่แสดงในช่องนี้ คนในบิลกด **แนบสลิป** เพื่อดูยอดของตัวเองและจ่าย ถ้าไปด้วยแต่ไม่มีชื่อ กด **ฉันไปด้วย**',
+		publicMonthlyHowTo: 'ยอดของแต่ละคนไม่แสดงในช่องนี้ คนในบิลกด **แนบสลิป** เพื่อดูยอดของตัวเองและจ่าย',
+		shareTotal: (total, count) => `ยอดรวม ${total} หาร ${count} คน`,
+		shareMonthly: (total, count, due) => `${total}/เดือน หาร ${count} คน ครบกำหนด${due}`,
+		shareLine: (name, amount) => `${name} ${amount}`,
+		shareLink: url => `ดูยอดและจ่ายได้ที่ ${url}`,
 	},
 	en: {
 		heading: (title, total, count) => (total
@@ -62,6 +74,14 @@ const COPY = {
 		startsFrom: period => `(from ${period})`,
 		lastMonth: '(last month)',
 		upcoming: (period, total, count) => `From ${period}: ${total}/month split by ${count}`,
+		publicHeading: (title, count) => `**${title}**, a bill for ${count} people`,
+		publicMonthly: (title, count, due) => `**${title}**, a monthly bill for ${count} people, due ${due}`,
+		publicHowTo: 'Amounts are not shown in this channel. If you are on the bill, press **Send slip** to see your share and pay. Coming but not listed? Press **I\'m in**',
+		publicMonthlyHowTo: 'Amounts are not shown in this channel. If you are on the bill, press **Send slip** to see your share and pay',
+		shareTotal: (total, count) => `${total} split by ${count}`,
+		shareMonthly: (total, count, due) => `${total}/month split by ${count}, due ${due}`,
+		shareLine: (name, amount) => `${name} ${amount}`,
+		shareLink: url => `See your share and pay at ${url}`,
 	},
 };
 
@@ -224,6 +244,57 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, u
 	return { content: lines.join('\n').slice(0, 1900), mentionUids };
 }
 
+function headcount(activity, settlement) {
+	const sharing = (settlement?.rows || []).filter(row => row.owes > 0).length;
+	return (settlement?.total || 0) > 0 && sharing > 0 ? sharing : activity.participants.length;
+}
+
+/**
+ * The card for a channel the whole server reads, used only when the bill's
+ * private thread could not be made. It says a bill exists and how to act on
+ * it, and nothing else: no names, no amounts, no mentions. Pressing
+ * **Send slip** shows each person their own share, privately.
+ *
+ * @returns {{ content: string, mentionUids: string[] }}
+ */
+function publicCardMessage({ activity, settlement = null, locale = 'th' }) {
+	const lang = langOf(locale);
+	const copy = COPY[lang];
+	const count = headcount(activity, settlement);
+	const monthly = activity.kind === 'recurring';
+	const lines = [monthly
+		? copy.publicMonthly(inert(activity.title), count, formatDueDay(activity.dueDay, lang))
+		: copy.publicHeading(inert(activity.title), count)];
+	lines.push('', monthly ? copy.publicMonthlyHowTo : copy.publicHowTo);
+	return { content: lines.join('\n').slice(0, 1900), mentionUids: [] };
+}
+
+/**
+ * Plain text the organiser can paste into LINE or anywhere else, for a bill
+ * whose other people are not on Discord. No Discord markdown or mentions,
+ * since it is read outside Discord.
+ */
+function shareText({ activity, settlement, shareUrl, locale = 'th' }) {
+	const lang = langOf(locale);
+	const copy = COPY[lang];
+	const money = satang => formatMoney(satang, activity.currency || 'THB', lang);
+	const total = settlement?.total || 0;
+	const rows = new Map((settlement?.rows || []).map(row => [row.participantId, row]));
+	const lines = [String(activity.title)];
+	if (total > 0) {
+		const count = headcount(activity, settlement);
+		lines.push(activity.kind === 'recurring'
+			? copy.shareMonthly(money(total), count, formatDueDay(activity.dueDay, lang))
+			: copy.shareTotal(money(total), count));
+		for (const p of activity.participants) {
+			const owes = rows.get(p.id)?.owes || 0;
+			if (owes > 0) lines.push(copy.shareLine(p.displayName, money(owes)));
+		}
+	}
+	lines.push(copy.shareLink(shareUrl));
+	return lines.join('\n');
+}
+
 /**
  * What the organiser is told privately after posting: who Megu can chase for
  * them, and who they will have to send the link to themselves.
@@ -267,11 +338,19 @@ function organizerNote({ activity, payeeHasPromptPay, shareUrl, period = null, l
 	return lines.join('\n');
 }
 
-/** "5", "วันที่ 5", "5th" → 5. Months are kept to 1–28 so every month has it. */
+/**
+ * The due day as people type it: "5", "๕", "วันที่ 5", "5th", or "สิ้นเดือน"
+ * for the last day. Any day 1 to 31 is kept as typed; a month too short for
+ * it falls due on its last day instead (periodDueAt in core/activities.js),
+ * the way subscription billing does it, and the next month goes back to the
+ * day that was asked for.
+ */
 function parseDueDay(value) {
-	const match = String(value ?? '').match(/\d{1,2}/);
+	const text = String(value ?? '').trim().replace(/[๐-๙]/g, digit => String('๐๑๒๓๔๕๖๗๘๙'.indexOf(digit)));
+	if (/สิ้นเดือน|วันสุดท้าย|last day|end of (the )?month/i.test(text)) return 31;
+	const match = text.match(/\d{1,2}/);
 	const day = match ? Number(match[0]) : NaN;
-	return Number.isInteger(day) && day >= 1 && day <= 28 ? day : null;
+	return Number.isInteger(day) && day >= 1 && day <= 31 ? day : null;
 }
 
 /**
@@ -296,4 +375,4 @@ function dueChannelMessage({ title, periodKey, lines, currency = 'THB', locale =
 	return out.join('\n').slice(0, 1900);
 }
 
-module.exports = { parseGuestNames, planRoster, eventCardMessage, organizerNote, parseDueDay, dueChannelMessage, langOf, inert, MAX_PEOPLE, SPLIT_MODES };
+module.exports = { parseGuestNames, planRoster, eventCardMessage, publicCardMessage, shareText, organizerNote, parseDueDay, dueChannelMessage, langOf, inert, MAX_PEOPLE, SPLIT_MODES };

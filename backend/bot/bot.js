@@ -19,7 +19,7 @@ let roleSyncWorker = null;
 if (fs.existsSync('.env')) {
 	require('dotenv').config();
 }
-const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, ActivityType, ChannelType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const { getOrCreateVoiceConnection, getReadyVoiceConnection, getActiveVoiceSession, isSameVoiceSession } = require('./voice_connection.js');
 const {
@@ -2662,14 +2662,20 @@ process.on('message', async (msg) => {
 		else {
 			let delivered = false;
 			let error = null;
-			if (valid && !discordBlock.blocked()) {
+			// A bill's own messages name who owes what. They go into the private
+			// thread of the people on the bill, never a channel the whole server
+			// reads. Checked here, after the lookup, because only the bot can
+			// tell a thread from a channel.
+			const notPrivate = Boolean(msg.privateOnly && valid && channel.type !== ChannelType.PrivateThread);
+			if (valid && !notPrivate && !discordBlock.blocked()) {
 				const content = String(msg.message || '').slice(0, 1900);
 				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, msg.defer?.code ? { code: msg.defer.code, payLabel: msg.defer.payLabel } : null), allowedMentions: { parse: [] } }).then(() => true), false));
 			}
 			if (!valid) error = 'The configured channel is unavailable or Megu cannot send there';
+			else if (notPrivate) error = 'The channel is not a private thread, so amounts are not posted there';
 			else if (discordBlock.blocked()) error = 'Discord is temporarily blocking this server';
 			else if (!delivered) error = 'Discord did not accept the channel message';
-			if (process.send) process.send({ target: 'web', type: 'project_channel_notice_response', reqId: msg.reqId, delivered, error });
+			if (process.send) process.send({ target: 'web', type: 'project_channel_notice_response', reqId: msg.reqId, delivered, error, notPrivate });
 		}
 	}
 	else if (msg.type === 'get_guild_details') {

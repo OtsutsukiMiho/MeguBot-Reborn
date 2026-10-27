@@ -450,9 +450,9 @@ app.use('/api/megu', meguApi.router({
 	},
 	// The bot's channel notice already checks the channel, the block guard and
 	// mentions; a bill summary is one more message of the same shape.
-	postChannelNotice: async ({ guildId, channelId, message, cta }) => {
-		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta }, 10_000);
-		return { delivered: response?.delivered === true };
+	postChannelNotice: async ({ guildId, channelId, message, cta, privateOnly = false }) => {
+		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, privateOnly }, 10_000);
+		return { delivered: response?.delivered === true, notPrivate: response?.notPrivate === true };
 	},
 }));
 
@@ -501,9 +501,11 @@ const paymentDueSweep = createPaymentDueSweep({
 	sendDiscord: sendDiscordNotice,
 	serverLang: serverLangFor,
 	// A monthly bill started with /sub posts its due-day summary back in the
-	// channel it came from, through the same guarded channel notice.
+	// private thread it lives in, through the same guarded channel notice. The
+	// summary lists who owes what, so an ordinary channel is refused; an older
+	// bill tied to one is recorded as done and gets its reminders by DM only.
 	postChannel: async ({ guildId, channelId, message, cta, defer }) => {
-		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, defer }, 10_000);
+		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, defer, privateOnly: true }, 10_000);
 		if (!response) return { delivered: false, blocked: true, error: 'The bot process did not answer' };
 		return { delivered: Boolean(response.delivered), blocked: /block/i.test(String(response.error || '')), error: response.error || null };
 	},

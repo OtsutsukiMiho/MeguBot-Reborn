@@ -651,6 +651,7 @@ const en = {
 		summary_unavailable: 'Posting to Discord is unavailable right now.',
 		summary_too_soon: 'A summary was just posted. Wait a minute before posting again.',
 		summary_not_delivered: 'Discord did not accept the message. Check Megu can still post in that channel.',
+		summary_not_private: 'This bill is linked to a channel the whole server can read, so Megu will not post amounts there. Send each person the bill link instead.',
 		defer_reason_required: 'Add a short reason so the organizer knows.',
 		defer_reason_too_long: 'Reasons can be up to 200 characters.',
 		payment_due_at_invalid: 'That payment deadline is not a valid date.',
@@ -1373,7 +1374,7 @@ const en = {
 		initialPayerField: 'Who paid this first?',
 		initialPayerHint: 'This person fronts the recurring charge and is the one the group pays back.',
 		dueDayField: 'Collect on day',
-		dueDayHint: 'of every month (1–28)',
+		dueDayHint: 'of every month (1 to 31; shorter months use their last day)',
 
 		// The day it happens and the day it is paid for are rarely the same:
 		// the court is played on the 20th and settled on the 21st. This is a

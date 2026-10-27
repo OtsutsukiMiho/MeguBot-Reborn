@@ -3,6 +3,7 @@
 // disposable database; only Discord is a stand-in.
 require('dotenv').config();
 const assert = require('node:assert/strict');
+const { ChannelType } = require('discord.js');
 const core = require('../core/index.js');
 const event = require('../commands/utility/event.js');
 const sub = require('../commands/utility/sub.js');
@@ -15,6 +16,26 @@ function ok(name) {
 }
 
 const snowflake = () => `1${Date.now()}${String(Math.floor(Math.random() * 1e5)).padStart(5, '0')}`;
+
+// The channel /sub is used in opens a private thread for the bill, and the
+// card goes there.
+const threads = [];
+const parent = {
+	id: '223456789012345678',
+	type: ChannelType.GuildText,
+	threads: {
+		async create(options) {
+			const thread = { id: snowflake(), type: ChannelType.PrivateThread, options, sent: [], members: { add: async () => undefined } };
+			thread.send = async (value) => {
+				thread.sent.push(value);
+				return { id: 'card1' };
+			};
+			threads.push(thread);
+			return thread;
+		},
+	},
+	messages: { edit: async () => undefined },
+};
 
 function fake({ customId, user, kind, fields = null }) {
 	const log = { replies: [], edits: [], followUps: [], cardEdits: [], modal: null };
@@ -38,7 +59,7 @@ function fake({ customId, user, kind, fields = null }) {
 		async followUp(value) { log.followUps.push(value); },
 		async showModal(modal) { log.modal = modal; },
 		message: { id: 'card1', editable: true, edit: async value => log.cardEdits.push(value) },
-		channel: { messages: { edit: async () => undefined } },
+		channel: parent,
 	};
 }
 
@@ -71,21 +92,22 @@ async function main() {
 		await sub.execute(call);
 		const modal = call.log.modal.toJSON();
 		assert.equal(modal.custom_id, 'evt:subcreate');
-		assert.match(JSON.stringify(modal), /Netflix/, 'the service typed after /sub is filled in');
-		ok('/sub opens the monthly modal with the service already filled in');
+		assert.equal(modal.components[0].component.value, undefined, 'the command takes no service, so nothing is filled in');
+		ok('/sub opens the monthly modal straight away');
 
 		// A monthly bill that bills nobody is refused, not created.
 		call = subSubmit(fig, { people: [om], amount: 'เยอะ' });
 		await event.handleComponent(call, { core });
 		assert.match(call.log.replies[0].content, /อ่านยอด "เยอะ" ไม่ออก/);
-		call = subSubmit(fig, { people: [om], dueDay: '31' });
+		call = subSubmit(fig, { people: [om], dueDay: '32' });
 		await event.handleComponent(call, { core });
-		assert.match(call.log.replies[0].content, /ใส่ 1–28/);
-		ok('an unreadable amount or a day not every month has is refused before anything is written');
+		assert.match(call.log.replies[0].content, /ใส่ตัวเลข 1 ถึง 31 หรือพิมพ์ว่า สิ้นเดือน/);
+		ok('an unreadable amount or a day no month has is refused before anything is written');
 
 		call = subSubmit(fig, { people: [om], guests: 'แม่', amount: '420', dueDay: '5' });
 		await event.handleComponent(call, { core });
-		const card = call.log.edits[0];
+		const thread = threads.at(-1);
+		const card = thread.sent[0];
 		const code = card.components[0].components[0].data.custom_id.split(':')[2];
 		codes.push(code);
 		let activity = await core.activities.getActivityByCode(code);
@@ -96,8 +118,9 @@ async function main() {
 		assert.deepEqual(activity.shares.filter(s => s.periodId === thisMonth.id).map(s => s.amountSatang), [14000, 14000, 14000]);
 		assert.match(card.content, /^\*\*Netflix\*\* ฿420\.00\/เดือน หารเท่า 3 คน\nรอบ.+ ครบกำหนดทุกวันที่ 5/);
 		assert.equal(card.components[0].components[1].data.label, 'ขอหารด้วย');
-		assert.match(call.log.followUps[0].content, /เปิดรอบใหม่ให้ทุกเดือน/);
-		ok('one modal: a monthly bill, this month opened and split three ways, one card');
+		assert.match(call.log.edits[0].content, /เปิดรอบใหม่ให้ทุกเดือน/);
+		assert.equal(activity.channelId, thread.id, 'later months and due days go to the thread');
+		ok('one modal: a monthly bill, this month opened and split three ways, one card in a private thread');
 
 		// Next month opens by itself on the sweep, copying this month's bill.
 		const due = new Date(new Date(thisMonth.dueAt).getTime() + 60_000);
@@ -122,7 +145,7 @@ async function main() {
 		await sweep.runOnce({ now: due });
 		const mine = posts.filter(p => p.defer?.code === code);
 		assert.equal(mine.length, 1);
-		assert.equal(mine[0].channelId, '223456789012345678');
+		assert.equal(mine[0].channelId, thread.id, 'the due-day post goes to the bill\'s private thread');
 		assert.match(mine[0].message, /^\*\*Netflix\*\* รอบ.+ ครบกำหนดวันนี้/);
 		assert.match(mine[0].message, new RegExp(`<@${om.id}> ยังค้าง ฿140\\.00`));
 		assert.match(mine[0].message, /แม่ ยังค้าง ฿140\.00/, 'the person Megu cannot DM is listed for the group');

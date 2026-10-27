@@ -355,6 +355,16 @@ async function main() {
 	assert.strictEqual(grandTotal, 60000);
 	pass(`โอม sees ${core.money.formatTHB(ohmRow.outstanding)}; all shares still sum to ฿600.00`);
 
+	// Megu's line used to say "<name> still owes ฿..." to anyone holding the
+	// link. A participant still gets the nudge; a stranger gets a line with no
+	// name and no amount.
+	assert.match(r.body.activity.megu, /฿/);
+	r = await strangerClient('GET', `/api/megu/a/${code}`);
+	assert.strictEqual(r.body.activity.role, 'none');
+	assert.doesNotMatch(r.body.activity.megu, /฿|\d/);
+	for (const p of createdActivity.participants) assert.ok(!r.body.activity.megu.includes(p.displayName), `stranger saw ${p.displayName}`);
+	pass(`a stranger hears someone owes, not who or how much: "${r.body.activity.megu}"`);
+
 	r = await ohmClient('POST', `/api/megu/a/${code}/pay`);
 	const payment = r.body.activity.payments.find(p => p.participantId === ohmId);
 	assert.strictEqual(payment.status, 'pending');
