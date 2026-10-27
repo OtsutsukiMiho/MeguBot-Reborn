@@ -357,8 +357,11 @@ happening with all of this in place, the remaining fix is infrastructure — a
 plan with a dedicated outbound IP, or a host with a clean one.
 
 Registering global slash commands on every wake is unnecessary boot traffic.
-`npm run boot` and `npm start` now only start the service; run `npm run deploy`
-explicitly when a command definition changes.
+`npm run boot` and `npm start` now only start the service. On Render,
+`npm run build` registers them once per deploy through
+`scripts/register-commands-on-build.js`; a build is never part of a wake, so
+this is one request per release. Elsewhere, run `npm run deploy` when a command
+definition changes.
 
 `next dev` on a deploy is the other one to watch. It compiles on demand and
 holds several times the memory of `next start`, so on a small instance it gets

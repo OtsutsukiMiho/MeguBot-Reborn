@@ -29,8 +29,10 @@ npm run dev              # เปิด bot + Express API + Next พร้อม
 ```
 
 เวลา deploy หรือ instance ตื่นจาก hibernate ให้ใช้ `npm start` หรือ `npm run boot`
-ซึ่งจะเริ่ม service โดยไม่ register slash commands ซ้ำทุกครั้ง ใช้ `npm run deploy`
-เฉพาะเมื่อไฟล์ใน `commands/` เปลี่ยนเท่านั้น
+ซึ่งจะเริ่ม service โดยไม่ register slash commands ซ้ำทุกครั้ง บน Render คำสั่ง
+`npm run build` จะ register ให้เองหนึ่งครั้งต่อการ deploy (ปิดได้ด้วย
+`MEGU_REGISTER_COMMANDS=0`) ถ้า build ที่อื่นให้ใช้ `npm run deploy` เมื่อไฟล์ใน
+`commands/` เปลี่ยน
 
 พอร์ตสำหรับเครื่องพัฒนามาจาก `.env`: `NEXT_PORT=3100`, `EXPRESS_PORT=3001`.
 ใน production ให้ลงทะเบียน OAuth redirect ของ Discord ให้ตรงกับ
