@@ -1656,6 +1656,19 @@ textarea.form-control {
 	cursor: not-allowed;
 }
 
+/* A name with a second line saying why it is different: taken, or a Discord
+   account that has to sign in rather than be tapped. */
+.name-btn small {
+	display: block;
+	font-size: .72rem;
+	font-weight: var(--w-regular, 400);
+	color: var(--muted);
+	margin-top: .1rem;
+}
+
+a.name-btn { display: inline-block; text-decoration: none; text-align: center; }
+.name-btn-discord { border-style: dashed; }
+
 /* ------------------------------------------------------------ month strip */
 
 .months {

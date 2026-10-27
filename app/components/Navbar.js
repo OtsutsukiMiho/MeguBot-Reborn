@@ -174,7 +174,9 @@ export default function Navbar() {
 							<Link href="/bills" aria-current={pathname === '/bills' || pathname.startsWith('/a/') ? 'page' : undefined} className={`tab-btn ${pathname === '/bills' || pathname.startsWith('/a/') ? 'active' : ''}`}>
 								{t.nav.myBills}
 							</Link>
-							<Link href="/activities" aria-current={pathname.startsWith('/activities') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
+							{/* New bill opens the create form itself, not the list it
+							    sits on top of. */}
+							<Link href="/activities?new=1" aria-current={pathname.startsWith('/activities') ? 'page' : undefined} className={`tab-btn ${pathname.startsWith('/activities') ? 'active' : ''}`}>
 								{t.nav.newBill}
 							</Link>
 						</>

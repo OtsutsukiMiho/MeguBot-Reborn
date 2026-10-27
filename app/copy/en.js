@@ -678,6 +678,7 @@ const en = {
 		participant_not_in_activity: 'That person is not on this activity',
 		device_already_claimed: 'This browser has already chosen a different name.',
 		participant_already_claimed: 'That name has already been chosen. Ask the organizer to reset it if it is yours.',
+		discord_sign_in_required: 'This name comes from Discord. Sign in with that Discord account first.',
 		expense_not_found: 'No such expense.',
 		not_on_this_activity: 'You are not on this activity',
 		claim_your_name_first: 'Tap your own name first',
@@ -1425,6 +1426,8 @@ const en = {
 		title: 'Which one are you?',
 		hint: 'Tap your own name. No signup, no app to install.',
 		takenByThisDevice: name => `This device is already "${name}"`,
+		discordSignIn: 'Sign in with Discord',
+		taken: 'Already taken',
 	},
 
 	rsvp: {

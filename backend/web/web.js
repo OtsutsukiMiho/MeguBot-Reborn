@@ -852,6 +852,15 @@ function beginDiscordOAuth(intent) {
 }
 
 app.get(['/api/auth/login', '/api/auth/discord'], beginDiscordOAuth('login'));
+
+// "Add Megu to Discord" on the landing pages. Discord's own page asks which
+// server, so nobody has to sign in to Megu first. Only a redirect: nothing is
+// asked of Discord's API here, and it happens only on a click.
+app.get('/api/invite', (req, res) => {
+	const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
+	if (!clientId) return res.redirect('/servers');
+	res.redirect(createBotInviteUrl(clientId));
+});
 app.get('/api/auth/discord/link', beginDiscordOAuth('link'));
 
 // ── signing in without OAuth, on a scratch workspace ────────────────────────

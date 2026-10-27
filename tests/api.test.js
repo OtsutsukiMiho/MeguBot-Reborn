@@ -256,6 +256,17 @@ async function main() {
 	assert.strictEqual(r.status, 409);
 	pass('another browser cannot steal a claimed slot');
 
+	// A name that came from Discord: the link alone is not enough to become it.
+	await core.db.query('UPDATE participants SET discord_uid = $2 WHERE id = $1', [figId, '999999999999999901']);
+	r = await strangerClient('GET', `/api/megu/a/${code}`);
+	assert.strictEqual(r.body.activity.participants.find(p => p.id === figId).discordLinked, true);
+	assert.ok(!JSON.stringify(r.body).includes('999999999999999901'), 'which Discord account stays on the server');
+	r = await strangerClient('POST', `/api/megu/a/${code}/claim`, { participantId: figId });
+	assert.strictEqual(r.status, 403);
+	assert.strictEqual(r.body.error, 'discord_sign_in_required');
+	await core.db.query('UPDATE participants SET discord_uid = NULL WHERE id = $1', [figId]);
+	pass('a Discord name cannot be claimed by tapping it; that takes signing in with the account');
+
 	r = await ohmClient('POST', `/api/megu/a/${code}/rsvp`, { rsvp: 'yes' });
 	assert.strictEqual(r.body.activity.me.rsvp, 'yes');
 	pass('โอม answered yes and it stuck to the right row');

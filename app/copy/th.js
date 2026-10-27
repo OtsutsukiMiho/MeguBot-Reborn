@@ -678,6 +678,7 @@ const th = {
 		participant_not_in_activity: 'ไม่พบคนนี้ในกิจกรรม',
 		device_already_claimed: 'เบราว์เซอร์นี้เลือกเป็นชื่ออื่นไปแล้ว',
 		participant_already_claimed: 'ชื่อนี้ถูกเลือกไปแล้ว ถ้าเป็นคุณจริงให้เจ้าของกิจกรรมรีเซ็ตชื่อให้',
+		discord_sign_in_required: 'ชื่อนี้มาจาก Discord ต้องเข้าสู่ระบบด้วย Discord บัญชีนั้นก่อน',
 		expense_not_found: 'ไม่พบรายการค่าใช้จ่ายนี้',
 		not_on_this_activity: 'คุณไม่ได้อยู่ในกิจกรรมนี้',
 		claim_your_name_first: 'เลือกชื่อตัวเองก่อน',
@@ -1306,6 +1307,8 @@ const th = {
 		title: 'คุณคือใครในกิจกรรมนี้',
 		hint: 'กดชื่อตัวเองได้เลย ไม่ต้องสมัคร ไม่ต้องโหลดแอป',
 		takenByThisDevice: name => `เครื่องนี้ถูกใช้เป็น "${name}" ไปแล้ว`,
+		discordSignIn: 'เข้าสู่ระบบด้วย Discord',
+		taken: 'มีคนเลือกชื่อนี้แล้ว',
 	},
 
 	rsvp: {

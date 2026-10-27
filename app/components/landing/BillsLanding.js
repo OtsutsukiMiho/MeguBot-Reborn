@@ -33,7 +33,7 @@ export default function BillsLanding() {
 						</h1>
 						<p className={styles.lede}>{b.lede}</p>
 						<div className={styles.ctas}>
-							<Link href="/servers" className={`${styles.btn} ${styles.btnBrand}`}><Plus aria-hidden="true" />{t.addMegu}</Link>
+							<a href="/api/invite" className={`${styles.btn} ${styles.btnBrand}`}><Plus aria-hidden="true" />{t.addMegu}</a>
 							<Link href="#places" className={`${styles.btn} ${styles.btnLine}`}>{b.secondary}</Link>
 						</div>
 						<p className={styles.small}>{b.small}</p>
@@ -150,7 +150,7 @@ export default function BillsLanding() {
 					<div>
 						<Phrases as="p" className={styles.closeBubble} parts={b.closeLine} />
 						<div className={styles.ctas}>
-							<Link href="/servers" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</Link>
+							<a href="/api/invite" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</a>
 							<Link href="/org" className={`${styles.btn} ${styles.btnGhostBand}`}>{b.seeOrg}</Link>
 						</div>
 					</div>

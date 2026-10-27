@@ -133,7 +133,7 @@ export default function BillsPage() {
 					<Users size={22} aria-hidden="true" />
 					<div><strong>{t.bills.guestTitle}</strong><p>{t.bills.guestBody}</p></div>
 				</div>
-				<Link href="/activities" className={styles.createLink}>
+				<Link href="/activities?new=1" className={styles.createLink}>
 					<CircleDollarSign size={19} aria-hidden="true" />
 					{t.bills.newBill}
 					<ArrowRight size={18} aria-hidden="true" />

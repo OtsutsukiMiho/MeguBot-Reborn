@@ -32,7 +32,7 @@ export default function OrgLanding() {
 						</h1>
 						<p className={styles.lede}>{o.lede}</p>
 						<div className={styles.ctas}>
-							<Link href="/servers" className={`${styles.btn} ${styles.btnBrand}`}><Plus aria-hidden="true" />{t.addMegu}</Link>
+							<a href="/api/invite" className={`${styles.btn} ${styles.btnBrand}`}><Plus aria-hidden="true" />{t.addMegu}</a>
 							<Link href="#contact" className={`${styles.btn} ${styles.btnLine}`}>{o.secondary}</Link>
 						</div>
 						<p className={styles.small}>{o.small}</p>
@@ -132,7 +132,7 @@ export default function OrgLanding() {
 					<div>
 						<Phrases as="p" className={styles.closeBubble} parts={o.closeLine} />
 						<div className={styles.ctas}>
-							<Link href="/servers" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</Link>
+							<a href="/api/invite" className={`${styles.btn} ${styles.btnLight}`}><Plus aria-hidden="true" />{t.addMegu}</a>
 						</div>
 						<p className={styles.closeNote}>{o.closeNote}</p>
 					</div>
