@@ -5044,3 +5044,11 @@ a.name-btn { display: inline-block; text-decoration: none; text-align: center; }
 .workspace-context a { text-decoration: underline; text-underline-offset: .2em; }
 .workspace-context [aria-current] { color: var(--muted); }
 .navbar.is-over-band .nav-menu.is-open a { color: var(--ink); }
+
+/* A phone narrower than the navbar's actions: the logo keeps its mark and
+   drops the word (the link is still named Megu), and the menu button loses
+   its spare padding, so Sign in is not cut off at the right edge. */
+@media (max-width: 420px) {
+	.nav-brand .brand-megubot { display: none; }
+	.navbar .nav-menu-toggle { min-width: 40px; padding: .4rem; }
+}

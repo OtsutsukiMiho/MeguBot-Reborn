@@ -222,7 +222,7 @@ export default function Navbar() {
 					<button ref={menuButton} type="button" className="btn btn-ghost nav-menu-toggle" aria-label={menuOpen ? t.nav.closeMenu : t.nav.openMenu} aria-expanded={menuOpen} aria-controls="main-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={22} aria-hidden="true" /> : <Menu size={22} aria-hidden="true" />}</button>
 					{user ? (
 						<div className="user-profile-badge">
-							<Link href="/account" className="user-identity-link" aria-current={pathname.startsWith('/account') ? 'page' : undefined} aria-label={`${user.displayName} · ${t.nav.account}`}>
+							<Link href="/account" className="user-identity-link" aria-current={pathname.startsWith('/account') ? 'page' : undefined} aria-label={`${user.displayName}, ${t.nav.account}`}>
 								<img src={avatarUrl} className="user-avatar" alt="" width={28} height={28} />
 								<span className="user-name">{user.displayName}</span>
 							</Link>

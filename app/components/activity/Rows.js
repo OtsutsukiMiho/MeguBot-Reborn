@@ -135,8 +135,8 @@ export function PendingRow({ p, code, nameOf, busy, call, lang, requestAction })
 				<div className="row-name">{nameOf(p.participantId)}</div>
 				<div className="row-sub">
 					{t.pending.saidTheyPaid}
-					{mismatch && ` · ${t.slip.expected(fmt.money(p.expectedSatang))}`}
-					{p.hasSlip && ` · ${p.slipVerdict === 'duplicate'
+					{mismatch && `, ${t.slip.expected(fmt.money(p.expectedSatang))}`}
+					{p.hasSlip && `, ${p.slipVerdict === 'duplicate'
 						? t.slip.verdictDuplicate
 						: p.slipVerdict === 'review' ? t.slip.verdictReview : p.slipVerdict === 'matched' ? t.slip.verdictMatched : t.slip.verdictUnread}`}
 				</div>
@@ -252,8 +252,8 @@ export function PaymentHistory({ payments, code, nameOf, lang }) {
 							<div className="row-name">{nameOf(p.participantId)}</div>
 							<div className="row-sub">
 								{p.status === 'rejected'
-									? t.pending.rejectedNotice(p.reversalReason || '—')
-									: t.pending.reversedNotice(p.reversalReason || '—')}
+									? t.pending.rejectedNotice(p.reversalReason || '-')
+									: t.pending.reversedNotice(p.reversalReason || '-')}
 							</div>
 							{p.transferAmountSatang !== p.amountSatang && (
 								<div className="row-sub">

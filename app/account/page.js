@@ -180,7 +180,7 @@ export default function AccountPage() {
 					<h2>{data.user.displayName}</h2>
 					<div className={styles.connectionState}>
 						<ShieldCheck size={15} aria-hidden="true" />
-						<span>{hasDiscord ? `${t.account.providers.discord} · ${t.account.connected}` : t.account.notConnected}</span>
+						<span>{hasDiscord ? `${t.account.providers.discord}, ${t.account.connected}` : t.account.notConnected}</span>
 					</div>
 				</div>
 

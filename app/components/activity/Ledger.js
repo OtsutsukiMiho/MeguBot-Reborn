@@ -183,7 +183,7 @@ export function PersonAccount({
 				{p.deferral && (
 					<div className="row-sub defer-reason">
 						{t.defer.reasonBy(p.displayName, p.deferral.reason)}
-						{' · '}
+						{', '}
 						{t.defer.snoozedUntil(fmt.when(p.deferral.snoozeUntil, { time: false }))}
 					</div>
 				)}
@@ -253,7 +253,7 @@ function AccountDetail({ p, activity, owesTo, owedBy }) {
 		.filter(share => share.amountSatang != null);
 
 	const theirs = activity.payments.filter(payment => payment.participantId === p.id);
-	const nameOf = id => activity.participants.find(person => person.id === id)?.displayName || '—';
+	const nameOf = id => activity.participants.find(person => person.id === id)?.displayName || '-';
 
 	return (
 		<div className="account-detail">
@@ -294,7 +294,7 @@ function AccountDetail({ p, activity, owesTo, owedBy }) {
 					<div className="account-line" key={payment.id}>
 						<span>
 							{t.ledger.sendsShort(nameOf(payment.creditorParticipantId))}
-							{' · '}
+							{', '}
 							{t.receiptPage.statuses[payment.status] || payment.status}
 						</span>
 						<span className="mono">{fmt.money(payment.amountSatang)}</span>
