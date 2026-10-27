@@ -97,11 +97,11 @@ export default function ActivitySummary() {
 				    "Activities" would send them to a sign-in wall they did not
 				    ask for. */}
 				{isOwner && (
-					<Link className="back-link" href="/activities">
+					<Link className="back-link" href="/bills">
 						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
 							<path d="M15 18l-6-6 6-6" />
 						</svg>
-						{t.nav.activities}
+						{t.nav.myBills}
 					</Link>
 				)}
 				<h1>{activity.title}</h1>
@@ -109,7 +109,8 @@ export default function ActivitySummary() {
 					{recurring
 						? <span>{period ? fmt.period(period.key) : t.activity.noPeriodYet}{activity.dueDay ? ` · ${t.activity.dueOn(activity.dueDay)}` : ''}</span>
 						: <>
-							<span>{fmt.when(activity.startsAt, { long: true }) || t.activity.notScheduled}</span>
+							{/* A bill made with /event has no time to be missing. */}
+							{!activity.billOnly && <span>{fmt.when(activity.startsAt, { long: true }) || t.activity.notScheduled}</span>}
 							{activity.location && <span>{activity.location}</span>}
 							{/* The day the money is due, which is rarely the day
 							    the thing happens. Only shown to people who can
@@ -118,7 +119,7 @@ export default function ActivitySummary() {
 								<span>{t.activity.payBy(fmt.when(activity.paymentDueAt, { time: false }))}</span>
 							)}
 						</>}
-					<span>{recurring ? t.activity.members(participants.length) : t.activity.peopleGoing(going, participants.length)}</span>
+					<span>{recurring || activity.billOnly ? t.activity.members(participants.length) : t.activity.peopleGoing(going, participants.length)}</span>
 					<span className="code">{activity.code}</span>
 				</div>
 			</Rise>
@@ -154,7 +155,7 @@ export default function ActivitySummary() {
 			))}
 
 			<Rise className="chips">
-				{!recurring && (
+				{!recurring && !activity.billOnly && (
 					<span className={`chip ${activity.planState === 'done' ? '' : 'chip-live'}`}>
 						{t.plan[activity.planState]}
 					</span>
@@ -187,8 +188,8 @@ export default function ActivitySummary() {
 					    reason a receipt has ever been laid out this way. */}
 					<Rise as="section" className="ledger">
 						<div className="ledger-head">
-							<h2>{recurring ? t.roster.titleRecurring : t.roster.titleEvent}</h2>
-							<span className="panel-count">{recurring ? participants.length : `${going}/${participants.length}`}</span>
+							<h2>{recurring || activity.billOnly ? t.roster.titleRecurring : t.roster.titleEvent}</h2>
+							<span className="panel-count">{recurring || activity.billOnly ? participants.length : `${going}/${participants.length}`}</span>
 						</div>
 						<div>
 							{/* Not expandable: the summary is orientation, and one
@@ -343,6 +344,19 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 	if (isOwner && pending.length > 0) {
 		return <Statement line={t.next.review(pending.length)} action={{ href: `/a/${code}/manage`, label: t.next.reviewAction }} />;
 	}
+	// The organiser with money still out. "Nothing to do" was true of their
+	// hands but not of the bill, and their tools sat at the bottom of the page.
+	if (isOwner && activity.moneyState === 'open' && activity.totals?.outstanding > 0) {
+		return (
+			<Statement
+				label={t.next.ownerLabel}
+				satang={activity.totals.outstanding}
+				currency={activity.currency}
+				note={t.next.ownerNote(activity.totals.unpaidCount)}
+				action={{ href: `/a/${code}/manage`, label: t.next.ownerAction }}
+			/>
+		);
+	}
 
 	// An event with no time and no poll. Every branch above needs one or the
 	// other — the RSVP branch cannot ask "are you coming?" about a date that
@@ -351,7 +365,7 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 	// time itself. The organizer is sent to set it; everyone else is told what
 	// is being waited on, which is the difference between a quiet page and a
 	// broken one.
-	if (!recurring && !activity.startsAt && !poll && planState === 'open') {
+	if (!recurring && !activity.billOnly && !activity.startsAt && !poll && planState === 'open') {
 		return isOwner
 			? <Statement line={t.next.setTime} action={{ href: `/a/${code}/rsvp`, label: t.next.setTimeAction }} />
 			: <Statement line={t.next.waitingForTime} quiet />;

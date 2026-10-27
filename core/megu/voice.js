@@ -23,18 +23,19 @@ function pick(options, seed) {
 // scolding, in the first person, and a sentence run through a translator comes
 // back polite and cold — which is a different character, and the character is
 // the product. Where Thai leans on particles to soften ("นะ", "ใช่มั้ย"),
-// English leans on brevity and the em dash; neither is a transliteration of
-// the other, and both are Megu.
+// English leans on brevity; neither is a transliteration of the other, and
+// both are Megu. No line uses a middle dot, an arrow, an em dash or an emoji:
+// these are read by people, and those marks read as machine-made.
 const TONES = {
 	megu: {
 		th: {
 			activityCreated: ({ title }) => [
 				`เอาละ "${title}" เราจัดให้เอง เดี๋ยวไปถามทุกคนให้`,
-				`รับทราบ "${title}" — เดี๋ยวจัดการต่อให้เอง`,
+				`รับทราบ "${title}" เดี๋ยวจัดการต่อให้เอง`,
 			],
 			askRsvp: ({ title }) => [
 				`ใครจะไป "${title}" บ้าง กดตอบในลิงก์เลยนะ`,
-				`"${title}" — ตอบหน่อยว่าไปหรือไม่ไป จะได้สรุปได้`,
+				`"${title}" ตอบหน่อยว่าไปหรือไม่ไป จะได้สรุปได้`,
 			],
 			waitingOn: ({ names }) => {
 				const list = Array.isArray(names) ? names : [names];
@@ -47,40 +48,40 @@ const TONES = {
 				}
 				return [
 					`เหลือ ${joined} ที่ยังไม่ตอบนะ`,
-					`ยังขาดอีก ${list.length} คน — ${joined}`,
+					`ยังขาดอีก ${list.length} คน คือ ${joined}`,
 				];
 			},
 			confirmed: ({ title, when, count }) => [
-				`สรุป "${title}" ${when} · ${count} คน — ใครถอนบอกตอนนี้ยังทัน`,
+				`สรุป "${title}" ${when} มา ${count} คน ใครจะถอนบอกตอนนี้ยังทัน`,
 			],
 			reminder: ({ title, when }) => [
 				`พรุ่งนี้ "${title}" ${when} นะ อย่าลืม`,
-				`เตือนความจำ — "${title}" ${when}`,
+				`เตือนความจำ "${title}" ${when}`,
 			],
 			expenseAdded: ({ label, amount, perHead }) => [
-				`${label} ${formatTHB(amount)} — ตกคนละ ${formatTHB(perHead)}`,
+				`${label} ${formatTHB(amount)} ตกคนละ ${formatTHB(perHead)}`,
 			],
 			nudgeUnpaid: ({ name, amount, days }) => [
 				`${name} ยังเหลือ ${formatTHB(amount)} นะ ไม่ได้ลืมใช่มั้ย`,
 				`${name} ค้างอยู่ ${formatTHB(amount)} ${days ? `${days} วันแล้ว ` : ''}เดี๋ยวเตือนให้อีกที`,
 			],
 			paymentConfirmed: ({ name, amount }) => [
-				`${name} จ่ายแล้ว ${formatTHB(amount)} ✓`,
-				`รับเงิน ${name} ${formatTHB(amount)} เรียบร้อย ✓`,
+				`${name} จ่ายแล้ว ${formatTHB(amount)}`,
+				`รับเงิน ${name} ${formatTHB(amount)} เรียบร้อย`,
 			],
 			allSettled: ({ title }) => [
-				`"${title}" ปิดจบแล้ว ทุกคนจ่ายครบ 🎉`,
-				`จบสวย — "${title}" เคลียร์ครบทุกคน`,
+				`"${title}" ปิดจบแล้ว ทุกคนจ่ายครบ`,
+				`จบสวย "${title}" เคลียร์ครบทุกคน`,
 			],
 			cancelled: ({ title }) => [
 				`"${title}" ยกเลิกแล้วนะ`,
 			],
 			recurringOpen: ({ title, period, perHead }) => [
-				`${period} ของ "${title}" — คนละ ${formatTHB(perHead)} นะ`,
+				`${period} ของ "${title}" คนละ ${formatTHB(perHead)} นะ`,
 				`ถึงรอบ ${period} แล้ว "${title}" คนละ ${formatTHB(perHead)}`,
 			],
 			recurringSettled: ({ title, period }) => [
-				`${period} ของ "${title}" เก็บครบแล้ว ✓`,
+				`${period} ของ "${title}" เก็บครบแล้ว`,
 			],
 			nothingOwedYet: ({ title }) => [
 				`"${title}" ยังไม่มีค่าใช้จ่ายนะ`,
@@ -91,8 +92,20 @@ const TONES = {
 			someoneUnpaid: ({ title }) => [
 				`"${title}" ยังมีคนค้างอยู่ เลือกชื่อตัวเองเพื่อดูยอดของคุณนะ`,
 			],
+			// The bill page knows who is reading. The person who owes is spoken
+			// to, the one collecting is told how much is still out, and anyone
+			// else on the bill is told only how many are left.
+			youOwe: ({ amount }) => [
+				`คุณยังเหลือ ${formatTHB(amount)} นะ กดจ่ายด้านบนได้เลย`,
+			],
+			ownerWaiting: ({ count, amount }) => [
+				`ยังรออีก ${count} คน รวม ${formatTHB(amount)} เดี๋ยว Megu ตามให้เอง`,
+			],
+			othersUnpaid: ({ count }) => [
+				`ยังรออีก ${count} คนในบิลนี้`,
+			],
 			askWhen: ({ title, count }) => [
-				`"${title}" — เลือกมาว่าว่างช่วงไหนบ้าง มี ${count} ตัวเลือก`,
+				`"${title}" เลือกมาว่าว่างช่วงไหนบ้าง มี ${count} ตัวเลือก`,
 				`ว่างช่วงไหนบ้าง กดเลือกได้หลายอันเลย (${count} ตัวเลือก)`,
 			],
 			pollWaiting: ({ names }) => {
@@ -100,10 +113,10 @@ const TONES = {
 				const joined = list.join(', ');
 				return list.length === 1
 					? [`รอ ${joined} คนเดียวแล้ว เลือกเวลาหน่อย`]
-					: [`ยังไม่เลือกเวลา ${list.length} คน — ${joined}`];
+					: [`ยังไม่เลือกเวลา ${list.length} คน คือ ${joined}`];
 			},
 			pollDecided: ({ when, count }) => [
-				`สรุปแล้ว ${when} · ${count} คน — ใครถอนบอกตอนนี้ยังทัน`,
+				`สรุปแล้ว ${when} มา ${count} คน ใครจะถอนบอกตอนนี้ยังทัน`,
 				`ฟันธง ${when} ไปเลย ${count} คน`,
 			],
 			pollDeadlocked: ({ title }) => [
@@ -116,12 +129,12 @@ const TONES = {
 
 		en: {
 			activityCreated: ({ title }) => [
-				`Right — "${title}". I'll go and ask everyone.`,
+				`Right, "${title}". I'll go and ask everyone.`,
 				`Got it, "${title}". Leave the rest to me.`,
 			],
 			askRsvp: ({ title }) => [
 				`Who's in for "${title}"? Tap the link and say.`,
-				`"${title}" — in or out? I need to know to call it.`,
+				`"${title}": in or out? I need to know to call it.`,
 			],
 			waitingOn: ({ names }) => {
 				const list = Array.isArray(names) ? names : [names];
@@ -134,7 +147,7 @@ const TONES = {
 				}
 				return [
 					`Still waiting on ${joined}.`,
-					`${list.length} still to answer — ${joined}.`,
+					`${list.length} still to answer: ${joined}.`,
 				];
 			},
 			confirmed: ({ title, when, count }) => [
@@ -142,32 +155,32 @@ const TONES = {
 			],
 			reminder: ({ title, when }) => [
 				`"${title}" is tomorrow, ${when}. Don't forget.`,
-				`Reminder — "${title}", ${when}.`,
+				`Reminder: "${title}", ${when}.`,
 			],
 			expenseAdded: ({ label, amount, perHead }) => [
-				`${label} ${formatTHB(amount)} — that's ${formatTHB(perHead)} each.`,
+				`${label} ${formatTHB(amount)}, that's ${formatTHB(perHead)} each.`,
 			],
 			nudgeUnpaid: ({ name, amount, days }) => [
 				`${name} still owes ${formatTHB(amount)}. Not forgotten, I hope.`,
-				`${name} is ${formatTHB(amount)} short${days ? `, ${days} days now` : ''} — I'll ask again.`,
+				`${name} is ${formatTHB(amount)} short${days ? `, ${days} days now` : ''}. I'll ask again.`,
 			],
 			paymentConfirmed: ({ name, amount }) => [
-				`${name} paid ${formatTHB(amount)} ✓`,
-				`${formatTHB(amount)} in from ${name} ✓`,
+				`${name} paid ${formatTHB(amount)}.`,
+				`${formatTHB(amount)} in from ${name}.`,
 			],
 			allSettled: ({ title }) => [
-				`"${title}" is done — everyone has paid 🎉`,
+				`"${title}" is done. Everyone has paid.`,
 				`That's "${title}" closed out. All square.`,
 			],
 			cancelled: ({ title }) => [
 				`"${title}" is off.`,
 			],
 			recurringOpen: ({ title, period, perHead }) => [
-				`${period} for "${title}" — ${formatTHB(perHead)} each.`,
+				`${period} for "${title}": ${formatTHB(perHead)} each.`,
 				`${period} is up. "${title}", ${formatTHB(perHead)} each.`,
 			],
 			recurringSettled: ({ title, period }) => [
-				`${period} for "${title}" is all in ✓`,
+				`${period} for "${title}" is all in.`,
 			],
 			nothingOwedYet: ({ title }) => [
 				`Nothing to pay on "${title}" yet.`,
@@ -175,16 +188,25 @@ const TONES = {
 			someoneUnpaid: ({ title }) => [
 				`Someone on "${title}" still owes. Tap your name to see your share.`,
 			],
+			youOwe: ({ amount }) => [
+				`You still owe ${formatTHB(amount)}. Pay from the button above.`,
+			],
+			ownerWaiting: ({ count, amount }) => [
+				`Still waiting on ${count}, ${formatTHB(amount)} in all. Megu will follow up.`,
+			],
+			othersUnpaid: ({ count }) => [
+				`Still waiting on ${count} on this bill.`,
+			],
 			askWhen: ({ title, count }) => [
-				`"${title}" — pick the times you're free. ${count} to choose from.`,
+				`"${title}": pick the times you're free. ${count} to choose from.`,
 				`When are you free? Pick as many as you like (${count} options).`,
 			],
 			pollWaiting: ({ names }) => {
 				const list = Array.isArray(names) ? names : [names];
 				const joined = list.join(', ');
 				return list.length === 1
-					? [`Only ${joined} left — pick a time.`]
-					: [`${list.length} haven't picked a time — ${joined}.`];
+					? [`Only ${joined} left to pick a time.`]
+					: [`${list.length} haven't picked a time: ${joined}.`];
 			},
 			pollDecided: ({ when, count }) => [
 				`It's ${when}, ${count} of you. Speak now if you're out.`,

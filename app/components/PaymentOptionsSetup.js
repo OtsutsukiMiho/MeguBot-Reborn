@@ -17,6 +17,9 @@ export default function PaymentOptionsSetup({ options, busy, call }) {
 	const [items, setItems] = useState(() => options.filter(option => option.source === 'activity'));
 	const [draft, setDraft] = useState(EMPTY);
 	const [saving, setSaving] = useState(false);
+	// PromptPay above covers most groups. The form for anything else opens on
+	// request instead of filling the tab for everyone.
+	const [adding, setAdding] = useState(false);
 	const copy = t.paymentMethods;
 
 	const needsDestination = draft.type === 'bank_transfer';
@@ -72,7 +75,11 @@ export default function PaymentOptionsSetup({ options, busy, call }) {
 				</div>
 			)}
 
-			<div className="form-stack payment-option-form">
+			{!adding && (
+				<button type="button" className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setAdding(true)}>{copy.open}</button>
+			)}
+
+			{adding && <div className="form-stack payment-option-form">
 				<label className="field">
 					<span className="field-label">{copy.typeField}</span>
 					<select className="form-control" value={draft.type} onChange={event => setDraft(previous => ({ ...previous, type: event.target.value }))}>
@@ -107,7 +114,7 @@ export default function PaymentOptionsSetup({ options, busy, call }) {
 				</label>
 				<button type="button" className="btn btn-secondary btn-block" disabled={!valid || busy || saving} onClick={addOption}>{copy.add}</button>
 				<button type="button" className="btn btn-primary btn-block" disabled={busy || saving} onClick={save}>{saving ? t.common.saving : copy.save}</button>
-			</div>
+			</div>}
 		</section>
 	);
 }

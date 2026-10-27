@@ -166,7 +166,7 @@ function BillCard({ activity, recurring = false, t, fmt }) {
 
 	const detail = recurring
 		? fmt.dueDay(activity.dueDay)
-		: [fmt.when(activity.startsAt, { time: false }), activity.location].filter(Boolean).join(' · ');
+		: [fmt.when(activity.startsAt, { time: false }), activity.location].filter(Boolean).join(', ');
 
 	return (
 		<Link href={`/a/${activity.code}`} className={`${styles.billCard} ${recurring ? styles.recurringCard : ''}`}>

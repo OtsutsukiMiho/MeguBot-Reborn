@@ -206,7 +206,13 @@ async function main() {
 	created.activities.push(dinner.id);
 	const dinnerFull = await core.activities.getActivity(dinner.id);
 	const [, eater, third] = dinnerFull.participants;
-	const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+	// A slip stamp in Bangkok wall-clock time, some minutes before now, so the
+	// test reads the same at any hour (a fixed 09:00 is in the future at 3am).
+	const stampAgo = minutes => {
+		const at = new Date(Date.now() - minutes * 60 * 1000);
+		const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at).map(p => [p.type, p.value]));
+		return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+	};
 	const slipFor = async (participant, ref, when, expectedReceiverName = null) => {
 		const claim = await core.activities.recordPayment(dinner.id, participant.id, { amountSatang: 30000, method: 'bank_transfer', expectedSatang: 30000 });
 		const result = await core.activities.attachSlip(claim.id, {
@@ -222,12 +228,12 @@ async function main() {
 	ok('a slip dated before the bill could exist waits for the receiver, even when everything else matches');
 	await core.activities.removePayment(early.claim.id);
 
-	const first = await slipFor(eater, `FIRST-${Date.now()}`, `${today} 09:00`);
+	const first = await slipFor(eater, `FIRST-${Date.now()}`, stampAgo(30));
 	assert.deepStrictEqual(first.result.reasons, ['receiver_not_configured']);
 	await core.activities.confirmPayment(first.claim.id, ownerLogin.user.id, { source: 'owner_review' });
 	const learned = await core.db.query('SELECT learned_receiver_name FROM activities WHERE id = $1', [dinner.id]);
 	assert.strictEqual(learned.rows[0].learned_receiver_name, 'MR. BEE CREDITOR');
-	const next = await slipFor(third, `NEXT-${Date.now()}`, `${today} 09:30`);
+	const next = await slipFor(third, `NEXT-${Date.now()}`, stampAgo(20));
 	assert.strictEqual(next.result.autoConfirmed, true, 'the learned name lets the next slip confirm itself');
 	ok('with no PromptPay, the first confirmed slip teaches the receiver name and the next one confirms itself');
 

@@ -90,7 +90,7 @@ export default function PromptPaySetup({ payTo, participants, busy, call, onSave
 			{!open && (
 				<p className="pp-summary">
 					{payTo?.ready
-						? <>{t.promptpay.payee} <strong>{payTo.displayName}</strong> · <span className="pay-number">{payTo.masked}</span></>
+						? <>{t.promptpay.payee} <strong>{payTo.displayName}</strong>{payTo.masked && ` (${payTo.masked})`}</>
 						: <span className="pp-missing">{t.promptpay.notSet}</span>}
 				</p>
 			)}

@@ -80,6 +80,9 @@ export default function ManageScreen() {
 	// form under it.
 	const [editingPeople, setEditingPeople] = useState(false);
 	const [editingCosts, setEditingCosts] = useState(false);
+	// The add form opens by itself only while a one-off bill has no costs yet.
+	// A monthly bill is billed by its rollover, so adding by hand is rare there.
+	const [addingCost, setAddingCost] = useState(false);
 
 	const { role, participants, expenses, payments, totals, period, payTo } = activity;
 	const recurring = activity.kind === 'recurring';
@@ -222,10 +225,16 @@ export default function ManageScreen() {
 					<>
 						{/* Reading the bill is the first thing offered, not the
 						    fifth. On a phone it used to start 2,532px down. */}
-						<section className="panel">
-							<div className="panel-head"><span className="panel-title">{t.owner.addExpense}</span></div>
-							<AddExpense activity={activity} participants={participants} busy={busy} call={call} />
-						</section>
+						{addingCost || (!recurring && expenses.length === 0) ? (
+							<section className="panel">
+								<div className="panel-head"><span className="panel-title">{t.owner.addExpense}</span></div>
+								<AddExpense activity={activity} participants={participants} busy={busy} call={call} />
+							</section>
+						) : (
+							<button type="button" className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => setAddingCost(true)}>
+								{recurring ? t.owner.addMonthCost : t.owner.addExpense}
+							</button>
+						)}
 
 						{expenses.length > 0 && (
 							<section className="panel">
@@ -379,6 +388,9 @@ export default function ManageScreen() {
 						<section className="panel">
 							<div className="panel-head"><span className="panel-title">{t.owner.planTitle}</span></div>
 							<PlanControls activity={activity} busy={busy} call={call} />
+							{/* The web has no editor for a subscription's terms; say where
+							    they are rather than leave the tab looking like all there is. */}
+							{recurring && <p className="quiet-note">{t.owner.monthlyEditHint}</p>}
 						</section>
 						<CancelActivity activity={activity} busy={busy} requestAction={requestAction} />
 					</>
