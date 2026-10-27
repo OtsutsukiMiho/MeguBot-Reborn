@@ -85,6 +85,12 @@ const TONES = {
 			nothingOwedYet: ({ title }) => [
 				`"${title}" ยังไม่มีค่าใช้จ่ายนะ`,
 			],
+			// For a reader who may not see amounts: someone owes, but not who
+			// or how much. Naming the debtor to anyone holding the link is the
+			// leak this line exists to close.
+			someoneUnpaid: ({ title }) => [
+				`"${title}" ยังมีคนค้างอยู่ เลือกชื่อตัวเองเพื่อดูยอดของคุณนะ`,
+			],
 			askWhen: ({ title, count }) => [
 				`"${title}" — เลือกมาว่าว่างช่วงไหนบ้าง มี ${count} ตัวเลือก`,
 				`ว่างช่วงไหนบ้าง กดเลือกได้หลายอันเลย (${count} ตัวเลือก)`,
@@ -165,6 +171,9 @@ const TONES = {
 			],
 			nothingOwedYet: ({ title }) => [
 				`Nothing to pay on "${title}" yet.`,
+			],
+			someoneUnpaid: ({ title }) => [
+				`Someone on "${title}" still owes. Tap your name to see your share.`,
 			],
 			askWhen: ({ title, count }) => [
 				`"${title}" — pick the times you're free. ${count} to choose from.`,

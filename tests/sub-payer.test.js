@@ -3,6 +3,7 @@
 // after. Real core and a disposable database; Discord is a stand-in.
 require('dotenv').config();
 const assert = require('node:assert/strict');
+const { ChannelType } = require('discord.js');
 const core = require('../core/index.js');
 const event = require('../commands/utility/event.js');
 
@@ -15,8 +16,14 @@ function ok(name) {
 const snowflake = () => `1${Date.now()}${String(Math.floor(Math.random() * 1e5)).padStart(5, '0')}`;
 const GUILD = '123456789012345678';
 
+// The bill's private thread, kept where the bot's channel cache would keep
+// it. Edits to its card land in whichever call is running.
+const threads = new Map();
+let currentEdits = [];
+
 function fake({ customId, user, kind, fields = null, values = null, sent = [], cardEdits = [] }) {
 	const log = { replies: [], edits: [], followUps: [], modal: null };
+	currentEdits = cardEdits;
 	return {
 		log,
 		customId,
@@ -39,8 +46,25 @@ function fake({ customId, user, kind, fields = null, values = null, sent = [], c
 		async followUp(value) { log.followUps.push(value); },
 		async showModal(modal) { log.modal = modal; },
 		message: { content: '', editable: true, edit: async () => undefined },
-		channel: { messages: { edit: async (id, value) => cardEdits.push({ id, ...value }) } },
-		client: { users: { fetch: async id => ({ send: async value => sent.push({ id, ...value }) }) } },
+		channel: {
+			type: ChannelType.GuildText,
+			// The new bill's private thread; its card comes back as a message.
+			threads: {
+				async create() {
+					const thread = {
+						id: snowflake(),
+						type: ChannelType.PrivateThread,
+						members: { add: async () => undefined },
+						send: async () => ({ id: 'card1' }),
+						messages: { edit: async (id, value) => currentEdits.push({ id, ...value }) },
+					};
+					threads.set(thread.id, thread);
+					return thread;
+				},
+			},
+			messages: { edit: async (id, value) => cardEdits.push({ id, ...value }) },
+		},
+		client: { users: { fetch: async id => ({ send: async value => sent.push({ id, ...value }) }) }, channels: { cache: threads } },
 	};
 }
 
@@ -69,11 +93,11 @@ async function main() {
 	try {
 		const create = subSubmit(fig, [om, mew]);
 		await event.handleComponent(create, { core });
-		code = create.log.edits[0].components[0].components[0].data.custom_id.split(':')[2];
+		const menu = menuOf(create.log.edits[0]);
+		code = menu.custom_id.split(':')[2];
 		let activity = await core.activities.getActivityByCode(code);
 		const row = name => activity.participants.find(p => p.displayName === name);
 
-		const menu = menuOf(create.log.followUps[0]);
 		assert.equal(menu.custom_id, `evt:payer:${code}:card1`);
 		assert.deepEqual(menu.options.map(o => o.label), ['ฟิก (คุณ)', 'โอม', 'มิว']);
 		assert.equal(menu.options.find(o => o.default).label, 'ฟิก (คุณ)', 'the creator pays until told otherwise');

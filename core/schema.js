@@ -322,6 +322,15 @@ const STATEMENTS = [
 	'CREATE INDEX IF NOT EXISTS activities_owner_idx ON activities (owner_user_id);',
 	'CREATE INDEX IF NOT EXISTS activities_guild_idx ON activities (guild_id);',
 
+	// The one channel per server that holds every bill's private thread, so
+	// bills do not pile up under whichever channel they were started in. Kept
+	// by id, so an admin can rename or move it and Megu still finds it.
+	`CREATE TABLE IF NOT EXISTS bill_channels (
+		guild_id    TEXT PRIMARY KEY,
+		channel_id  TEXT NOT NULL,
+		updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+
 	// One row per month of a recurring agreement. Expenses and payments point
 	// at a period when there is one, and at nothing when the activity is a
 	// single event.

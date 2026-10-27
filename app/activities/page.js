@@ -425,7 +425,7 @@ function CreateActivity({ guilds, user, onCreated, onCancel }) {
 						    without a label the box just reads as a bare "1". */}
 						<div className="field">
 							<label className="field-label" htmlFor="megu-due-day">{c.dueDayField}</label>
-							<input id="megu-due-day" className="form-control" type="number" inputMode="numeric" min="1" max="28" value={dueDay} onChange={e => setDueDay(e.target.value)} />
+							<input id="megu-due-day" className="form-control" type="number" inputMode="numeric" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} />
 							<p className="field-hint">{c.dueDayHint}</p>
 						</div>
 					</div>

@@ -1,7 +1,7 @@
 const {
 	SlashCommandBuilder, MessageFlags, ModalBuilder, LabelBuilder, TextInputBuilder, TextInputStyle,
 	UserSelectMenuBuilder, StringSelectMenuBuilder, FileUploadBuilder, TextDisplayBuilder,
-	ActionRowBuilder, ButtonBuilder, ButtonStyle,
+	ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ThreadAutoArchiveDuration, PermissionFlagsBits,
 } = require('discord.js');
 const defaultCore = require('../../core/index.js');
 const card = require('../../core/event-card.js');
@@ -10,8 +10,9 @@ const { submitDiscordSlip, ownerDecisionButtons, parseBaht, money, siteUrl } = r
 
 // `/event ตีแบด` — start a shared bill without leaving the chat.
 //
-// The slash command carries one optional word, the title, because that is what
-// people type without thinking. Everything else is a modal: picking people
+// The slash command takes nothing. The modal asks for the title anyway, so an
+// option for it was only a second place to type the same word. Everything is
+// in the modal: picking people
 // from a list and choosing a split from a menu is faster, on a phone, than
 // typing mentions and remembering option names.
 //
@@ -59,13 +60,20 @@ const T = {
 		ppSaved: 'บันทึกพร้อมเพย์แล้ว ทุกคนแนบสลิปได้เลย',
 		ppInvalid: 'เลขนี้ไม่ใช่พร้อมเพย์ที่รู้จัก ใช้เบอร์มือถือ 10 หลัก หรือเลขบัตร 13 หลัก',
 		failed: 'ทำรายการไม่สำเร็จ ลองใหม่อีกทีนะ',
+		inThread: id => `การ์ดบิลอยู่ในเธรดส่วนตัว <#${id}> เห็นเฉพาะคนในบิล`,
+		roomName: 'บิล',
+		roomTopic: 'ห้องบิลของ Megu แต่ละบิลเป็นเธรดส่วนตัว เห็นเฉพาะคนในบิลนั้น',
+		threadFailed: 'สร้างเธรดส่วนตัวไม่ได้ เลยโพสต์การ์ดในช่องนี้โดยไม่แสดงชื่อและยอดเงิน แต่ละคนกด **แนบสลิป** เพื่อดูยอดของตัวเอง',
+		shareHeading: 'ข้อความสำหรับส่งต่อใน LINE หรือแชทอื่น',
+		dmSent: 'ส่งการ์ดบิลเข้า DM ของคุณแล้ว ข้อความนี้จะหายไปเมื่อรีเฟรช',
+		dmFailed: 'ส่ง DM หาคุณไม่ได้ เก็บลิงก์ด้านบนไว้นะ ข้อความนี้จะหายไปเมื่อรีเฟรช',
 		subModalTitle: 'บิลรายเดือนใหม่',
 		service: 'ชื่อบริการ', serviceHint: 'เช่น Netflix, Spotify Family',
 		monthlyAmount: 'ยอดต่อเดือน (บาท)', monthlyAmountHint: 'เช่น 419',
-		dueDay: 'ครบกำหนดทุกวันที่', dueDayHint: '1–28',
+		dueDay: 'ครบกำหนดทุกวันที่', dueDayHint: '1 ถึง 31 หรือพิมพ์ว่า สิ้นเดือน',
 		peopleSub: 'ใครหารด้วย (คนในดิส)',
 		needAmount: raw => `อ่านยอด "${raw}" ไม่ออก ใส่เป็นตัวเลข เช่น 419 แล้วลองใหม่นะ`,
-		badDueDay: raw => `วันที่ "${raw}" ใช้ไม่ได้ ใส่ 1–28 (ทุกเดือนมีวันนั้นแน่นอน)`,
+		badDueDay: raw => `อ่านวันที่ "${raw}" ไม่ออก ใส่ตัวเลข 1 ถึง 31 หรือพิมพ์ว่า สิ้นเดือน แล้วลองใหม่นะ`,
 		joinSub: 'ขอหารด้วย',
 		notOwner: 'เฉพาะเจ้าของบิลหรือคนรับเงินเท่านั้นที่ยืนยันหรือปฏิเสธรายการนี้ได้',
 		ownerOnly: 'เฉพาะเจ้าของบิลเท่านั้นที่เปลี่ยนคนจ่ายได้',
@@ -134,13 +142,20 @@ const T = {
 		ppSaved: 'PromptPay saved. Everyone can send slips now.',
 		ppInvalid: 'That is not a PromptPay number Megu recognises. Use a 10-digit mobile or 13-digit ID.',
 		failed: 'That did not work. Please try again.',
+		inThread: id => `The bill card is in the private thread <#${id}>, which only people on the bill can see.`,
+		roomName: 'bills',
+		roomTopic: 'Megu keeps each bill here as a private thread that only the people on it can see.',
+		threadFailed: 'Megu could not open a private thread, so the card in this channel shows no names or amounts. Each person presses **Send slip** to see their own share.',
+		shareHeading: 'Text to paste into LINE or another chat',
+		dmSent: 'The bill card is in your DMs too, since this message goes away when you refresh.',
+		dmFailed: 'Megu could not DM you. Keep the link above; this message goes away when you refresh.',
 		subModalTitle: 'New monthly bill',
 		service: 'Service', serviceHint: 'e.g. Netflix, Spotify Family',
 		monthlyAmount: 'Amount per month (THB)', monthlyAmountHint: 'e.g. 419',
-		dueDay: 'Due every month on day', dueDayHint: '1–28',
+		dueDay: 'Due every month on day', dueDayHint: '1 to 31, or type: end of month',
 		peopleSub: 'Who shares it (on Discord)',
 		needAmount: raw => `Could not read "${raw}" as an amount. Enter a number such as 419 and try again.`,
-		badDueDay: raw => `"${raw}" is not a usable day. Use 1–28, which every month has.`,
+		badDueDay: raw => `Could not read "${raw}" as a day. Enter a number from 1 to 31, or "end of month", and try again.`,
 		joinSub: 'Count me in',
 		notOwner: 'Only the owner of this bill or the person receiving the money can confirm or reject it.',
 		ownerOnly: 'Only the owner of this bill can change who pays.',
@@ -218,7 +233,17 @@ function cardButtons(code, t, monthly = false) {
 	return [row];
 }
 
-async function renderCard(core, code, locale) {
+/**
+ * Who reads a channel decides which card goes in it. A private thread of the
+ * bill's people, or a DM, gets names and amounts; anything else is read by
+ * the whole server and gets the card with neither.
+ */
+function audienceOf(channel) {
+	if (channel?.type === ChannelType.PrivateThread || channel?.isDMBased?.()) return 'members';
+	return 'public';
+}
+
+async function renderCard(core, code, locale, { audience = 'members' } = {}) {
 	let activity = await core.activities.getActivityByCode(code);
 	if (!activity) return null;
 	// A monthly bill is shown for this month. Opening it here is the same
@@ -231,7 +256,9 @@ async function renderCard(core, code, locale) {
 	}
 	const settlement = core.activities.settlement(activity, period?.id ?? null);
 	const upcoming = period ? core.activities.upcomingSubscription(activity, period) : null;
-	const built = card.eventCardMessage({ activity, settlement, payee: activity.payee, period, upcoming, locale });
+	const built = audience === 'public'
+		? card.publicCardMessage({ activity, settlement, locale })
+		: card.eventCardMessage({ activity, settlement, payee: activity.payee, period, upcoming, locale });
 	return { activity, settlement, period, monthly: activity.kind === 'recurring', ...built };
 }
 
@@ -282,10 +309,17 @@ async function refreshCard(core, interaction, code, messageId = null) {
 	if (!bill) return;
 	const guild = bill.guildId ? interaction.client?.guilds?.cache?.get(bill.guildId) : null;
 	const locale = interaction.guildLocale || guild?.preferredLocale || interaction.locale;
-	const rendered = await renderCard(core, code, locale);
+	// A bill's private thread falls out of the cache when the bot restarts.
+	// Looking it up again is one request, made only because somebody pressed
+	// something on this bill.
+	let home = bill.channelId ? interaction.client?.channels?.cache?.get(bill.channelId) || null : null;
+	if (bill.channelId && !home && messageId && interaction.client?.channels?.fetch) {
+		home = await discordCall(`finding the thread of ${code}`, () => interaction.client.channels.fetch(bill.channelId), null);
+	}
+	const channel = home || interaction.channel;
+	const rendered = await renderCard(core, code, locale, { audience: audienceOf(messageId ? channel : interaction.channel) });
 	if (!rendered) return;
 	const payload = { content: rendered.content, components: cardButtons(code, T[card.langOf(locale)], rendered.monthly), allowedMentions: NO_PINGS };
-	const channel = (bill.channelId && interaction.client?.channels?.cache?.get(bill.channelId)) || interaction.channel;
 	try {
 		if (messageId && channel) await channel.messages.edit(messageId, payload);
 		else if (interaction.message?.editable) await interaction.message.edit(payload);
@@ -299,14 +333,14 @@ async function refreshCard(core, interaction, code, messageId = null) {
 
 // ── the command ────────────────────────────────────────────────────────────
 
-function createModal(t, title) {
+function createModal(t) {
 	return new ModalBuilder()
 		.setCustomId(`${PREFIX}:create`)
 		.setTitle(t.modalTitle)
 		.addLabelComponents(
 			new LabelBuilder().setLabel(t.title).setTextInputComponent(new TextInputBuilder()
 				.setCustomId('title').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
-				.setPlaceholder(t.titleHint).setValue(String(title || '').slice(0, 100))),
+				.setPlaceholder(t.titleHint)),
 			new LabelBuilder().setLabel(t.people).setDescription(t.peopleHint).setUserSelectMenuComponent(new UserSelectMenuBuilder()
 				.setCustomId('people').setMinValues(0).setMaxValues(24).setRequired(false)),
 			new LabelBuilder().setLabel(t.guests).setTextInputComponent(new TextInputBuilder()
@@ -324,14 +358,14 @@ function createModal(t, title) {
 		);
 }
 
-function subModal(t, title) {
+function subModal(t) {
 	return new ModalBuilder()
 		.setCustomId(`${PREFIX}:subcreate`)
 		.setTitle(t.subModalTitle)
 		.addLabelComponents(
 			new LabelBuilder().setLabel(t.service).setTextInputComponent(new TextInputBuilder()
 				.setCustomId('title').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
-				.setPlaceholder(t.serviceHint).setValue(String(title || '').slice(0, 100))),
+				.setPlaceholder(t.serviceHint)),
 			new LabelBuilder().setLabel(t.peopleSub).setDescription(t.peopleHint).setUserSelectMenuComponent(new UserSelectMenuBuilder()
 				.setCustomId('people').setMinValues(0).setMaxValues(24).setRequired(false)),
 			new LabelBuilder().setLabel(t.guests).setTextInputComponent(new TextInputBuilder()
@@ -367,8 +401,9 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	if (monthly && !parseBaht(rawAmount)) return interaction.reply({ content: t.needAmount(rawAmount), flags: EPHEMERAL });
 	if (monthly && !dueDay) return interaction.reply({ content: t.badDueDay(rawDueDay), flags: EPHEMERAL });
 
-	// Public: the card is the reply. Everything after this is an edit.
-	await interaction.deferReply();
+	// Private: the reply is the organiser's note. The card goes where only the
+	// people on the bill can read it, never into the channel as a reply.
+	await interaction.deferReply({ flags: EPHEMERAL });
 
 	const organizer = await ensureOrganizer(core, interaction.user);
 	const pickedPeople = [];
@@ -391,6 +426,11 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 		splitMode,
 	});
 
+	// Other people from Discord share one private thread, made once, here. It
+	// becomes the bill's channel, so every later message about the bill goes
+	// there too. With nobody else on Discord there is no channel at all.
+	const room = picked.length > 0 ? await billRoom(interaction, core) : null;
+	const thread = room ? await openBillThread(room, title, plan.participants) : null;
 	const created = await core.activities.createActivity({
 		ownerUserId: organizer.id,
 		title,
@@ -398,7 +438,7 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 		recurrence: monthly ? 'monthly' : null,
 		dueDay,
 		guildId: interaction.guildId,
-		channelId: interaction.channelId,
+		channelId: thread?.id || null,
 		participants: plan.participants,
 	});
 	let activity = await core.activities.getActivity(created.id);
@@ -424,20 +464,135 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 		});
 	}
 
-	const rendered = await renderCard(core, activity.code, interaction.guildLocale || interaction.locale);
+	const locale = interaction.guildLocale || interaction.locale;
+	const rendered = await renderCard(core, activity.code, locale);
 	activity = rendered.activity;
-	const posted = await interaction.editReply({
-		content: rendered.content,
-		components: cardButtons(activity.code, T[card.langOf(interaction.guildLocale || interaction.locale)], monthly),
-		allowedMentions: { parse: [], users: rendered.mentionUids },
-	});
+	const buttons = cardButtons(activity.code, T[card.langOf(locale)], monthly);
+	let posted = null;
+	const where = [];
 
-	await interaction.followUp({
+	if (thread) {
+		posted = await discordCall(`posting the card of ${activity.code} in its thread`, () => thread.send({
+			content: rendered.content,
+			components: buttons,
+			allowedMentions: { parse: [], users: rendered.mentionUids },
+		}), null);
+		if (posted) where.push(t.inThread(thread.id));
+		else await discordCall(`removing the empty thread of ${activity.code}`, () => thread.delete(), null);
+	}
+	if (picked.length > 0 && !posted) {
+		// No private thread: the channel gets a card with no names and no
+		// money, and each person sees their own share when they press pay.
+		// Sent to the channel rather than as a follow-up: the first follow-up
+		// to an ephemeral defer can come out ephemeral too.
+		const open = await renderCard(core, activity.code, locale, { audience: 'public' });
+		posted = await discordCall(`posting the card of ${activity.code} in its channel`, () => interaction.channel.send({
+			content: open.content, components: buttons, allowedMentions: NO_PINGS,
+		}), null);
+		await core.activities.setActivityChannel(activity.id, interaction.channelId);
+		where.push(posted ? t.threadFailed : t.failed);
+	}
+	if (picked.length === 0) {
+		// Only the organiser is on Discord. An ephemeral note is gone on the
+		// next refresh, so the card also goes to their DMs, and the rest of
+		// the group gets the text to paste into LINE.
+		const dmed = await discordCall(`sending the card of ${activity.code} to its organiser`, async () => {
+			await interaction.user.send({
+				content: rendered.content,
+				components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(shareUrl(activity.code)).setLabel(t.open))],
+				allowedMentions: NO_PINGS,
+			});
+			return true;
+		}, false);
+		const text = card.shareText({ activity, settlement: rendered.settlement, shareUrl: shareUrl(activity.code), locale: interaction.locale }).replace(/`/g, '\'');
+		where.push(`${t.shareHeading}\n\`\`\`\n${text}\n\`\`\``, dmed ? t.dmSent : t.dmFailed);
+	}
+
+	await interaction.editReply({
 		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly }),
-		content: [organizerNoteFor(activity, rendered.period, interaction.locale), ...notes].join('\n'),
-		flags: EPHEMERAL,
+		content: [organizerNoteFor(activity, rendered.period, interaction.locale), ...notes, ...where].join('\n').slice(0, 2000),
 		allowedMentions: NO_PINGS,
 	});
+}
+
+// One opening at a time per server, so two bills made in the same second do
+// not each create a bills channel.
+const billRoomOpening = new Map();
+
+/**
+ * Where a bill's private thread is opened: the server's bills channel, made
+ * once by Megu and remembered by id. Thread lists stay in that one channel
+ * instead of growing under every channel a bill was started in.
+ *
+ * When the channel cannot be made (no Manage Channels), the thread opens in
+ * the channel the command was used in, or that channel's parent when it was
+ * used inside a thread, since a thread cannot hold threads of its own.
+ */
+async function billRoom(interaction, core) {
+	const here = interaction.channel?.isThread?.() ? interaction.channel.parent : interaction.channel;
+	const fallback = here?.type === ChannelType.GuildText ? here : null;
+	const guild = interaction.guild;
+	if (!guild?.channels?.create) return fallback;
+	if (!billRoomOpening.has(guild.id)) {
+		billRoomOpening.set(guild.id, findOrOpenBillRoom(interaction, core).finally(() => billRoomOpening.delete(guild.id)));
+	}
+	return (await billRoomOpening.get(guild.id)) || fallback;
+}
+
+async function findOrOpenBillRoom(interaction, core) {
+	const guild = interaction.guild;
+	// Every channel of a server is in the cache from the moment the bot
+	// connects, so a saved id that is not there is a deleted channel. Making
+	// a new one costs nothing more than finding the old one would.
+	const savedId = await core.activities.getBillChannel(guild.id);
+	const saved = savedId ? guild.channels.cache?.get(savedId) : null;
+	if (saved?.type === ChannelType.GuildText) return saved;
+
+	const t = T[card.langOf(interaction.guildLocale || interaction.locale)];
+	const botId = interaction.client?.user?.id;
+	const room = await discordCall(`opening the bills channel of ${guild.id}`, () => guild.channels.create({
+		name: t.roomName,
+		type: ChannelType.GuildText,
+		topic: t.roomTopic,
+		// Everyone can see the channel, which a private thread needs of its
+		// members, but only Megu starts threads or posts in the channel
+		// itself. Talking inside a bill's thread stays open.
+		permissionOverwrites: [
+			{
+				id: guild.id,
+				deny: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads],
+				allow: [PermissionFlagsBits.SendMessagesInThreads],
+			},
+			...(botId ? [{
+				id: botId,
+				allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.ManageThreads],
+			}] : []),
+		],
+	}), null);
+	if (room) await core.activities.setBillChannel(guild.id, room.id);
+	return room;
+}
+
+/**
+ * The bill's own room: a private thread holding only the people on it. One
+ * request to make it and one per person to add them, capped by the roster,
+ * each through discordCall so a block stops the work instead of feeding it.
+ * Returns null when the channel cannot hold a private thread.
+ */
+async function openBillThread(parent, title, participants) {
+	if (parent?.type !== ChannelType.GuildText || !parent.threads?.create) return null;
+	const thread = await discordCall(`opening a private thread for "${title}"`, () => parent.threads.create({
+		name: title.slice(0, 100) || 'Megu',
+		type: ChannelType.PrivateThread,
+		invitable: false,
+		autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+	}), null);
+	if (!thread) return null;
+	const uids = participants.map(p => p.discordUid).filter(Boolean).slice(0, card.MAX_PEOPLE);
+	for (const uid of uids) {
+		await discordCall(`adding someone to the thread of "${title}"`, () => thread.members.add(uid), null);
+	}
+	return thread;
 }
 
 function organizerNoteFor(activity, period, locale) {
@@ -1134,13 +1289,7 @@ module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('event')
 		.setDescription('Start a shared bill: who is in, what it cost, how to split')
-		.setDescriptionLocalizations({ th: 'เปิดบิลกิจกรรม: ใครไปบ้าง ค่าใช้จ่ายเท่าไหร่ หารยังไง' })
-		.addStringOption(option => option
-			.setName('title')
-			.setNameLocalizations({ th: 'ชื่อ' })
-			.setDescription('What it is, e.g. Badminton')
-			.setDescriptionLocalizations({ th: 'ชื่อกิจกรรม เช่น ตีแบด' })
-			.setMaxLength(100)),
+		.setDescriptionLocalizations({ th: 'เปิดบิลกิจกรรม: ใครไปบ้าง ค่าใช้จ่ายเท่าไหร่ หารยังไง' }),
 	PREFIX,
 	copyFor,
 	subModal,
@@ -1152,6 +1301,6 @@ module.exports = {
 		const t = copyFor(interaction);
 		if (!interaction.guildId) return interaction.reply({ content: t.guildOnly, flags: EPHEMERAL });
 		// The modal must be the first response, so nothing is looked up first.
-		return interaction.showModal(createModal(t, interaction.options.getString('title')));
+		return interaction.showModal(createModal(t));
 	},
 };

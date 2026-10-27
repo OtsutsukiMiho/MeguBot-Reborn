@@ -58,6 +58,7 @@ async function main() {
 
 	const posted = [];
 	let deliver = true;
+	let isPrivate = true;
 	let whoAmI = owner;
 	const app = express();
 	app.use(express.json());
@@ -69,6 +70,8 @@ async function main() {
 		frontendUrl: 'https://megu.test',
 		postChannelNotice: async notice => {
 			posted.push(notice);
+			// The bot refuses a summary for anything but a private thread.
+			if (notice.privateOnly && !isPrivate) return { delivered: false, notPrivate: true };
 			return { delivered: deliver };
 		},
 	}));
@@ -91,6 +94,14 @@ async function main() {
 		assert.equal((await post(unlinked.code)).body.code, 'summary_no_channel');
 		ok('an activity with no Discord channel is refused before anything is sent');
 
+		isPrivate = false;
+		const refused = await post(linked.code);
+		assert.equal(refused.status, 409);
+		assert.equal(refused.body.code, 'summary_not_private');
+		assert.equal(posted.at(-1).privateOnly, true, 'the summary always asks for a private thread');
+		isPrivate = true;
+		ok('a bill tied to a channel the whole server reads gets no summary of who owes what');
+
 		deliver = false;
 		assert.equal((await post(linked.code)).body.code, 'summary_not_delivered');
 		deliver = true;
@@ -103,7 +114,7 @@ async function main() {
 		ok('the organiser posts one summary to the linked channel, with a link to pay');
 
 		assert.equal((await post(linked.code)).body.code, 'summary_too_soon');
-		assert.equal(posted.length, 2, 'the second click sent nothing');
+		assert.equal(posted.length, 3, 'the second click sent nothing');
 		ok('a second post inside a minute is refused, not sent');
 
 		const page = await fetch(`${base}/a/${linked.code}`).then(res => res.json());
