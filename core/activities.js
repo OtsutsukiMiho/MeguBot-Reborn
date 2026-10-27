@@ -73,6 +73,7 @@ function rowToActivity(row) {
 		recurringChange: row.recurring_change || null,
 		guildId: row.guild_id,
 		channelId: row.channel_id,
+		cardMessageId: row.card_message_id || null,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 		closedAt: row.closed_at,
@@ -610,8 +611,10 @@ async function loadActivity(where, value) {
 		// The image itself is never loaded here — it is fetched by the one route
 		// that serves it, so a page render does not drag a megabyte of other
 		// people's bank slips through memory to display a list of names.
-		hasSlip: Boolean(r.slip_uploaded_at || r.evidence_image),
-		hasEvidence: Boolean(r.evidence_image),
+		// Something to show only while it waits (the original) or once it is
+		// confirmed (the virtual slip, drawn on request); see getSlip.
+		hasSlip: Boolean(r.slip_uploaded_at) && ['pending', 'confirmed'].includes(r.status),
+		hasEvidence: Boolean(r.slip_uploaded_at) && r.status === 'confirmed',
 		slipVerdict: r.slip_verdict || null,
 		slipUploadedAt: r.slip_uploaded_at,
 		slipBank: r.slip_bank || null,
@@ -622,9 +625,7 @@ async function loadActivity(where, value) {
 		slipAmountSatang: r.slip_amount_satang == null ? null : Number(r.slip_amount_satang),
 		slipWhen: r.slip_when || null,
 		slipTransferredAt: r.slip_transferred_at || null,
-		slipSenderName: r.slip_sender_name || null,
 		slipReceiverName: r.slip_receiver_name || null,
-		slipSenderAccountTail: r.slip_sender_account_tail || null,
 		slipReceiverAccountTail: r.slip_receiver_account_tail || null,
 		confirmationSource: r.confirmation_source || null,
 		verificationLevel: r.verification_level || 'none',
@@ -741,7 +742,7 @@ async function setPayee(activityId, participantId) {
 		if (found.rows.length === 0) throw new Error('participant_not_in_activity');
 	}
 	const res = await query(
-		'UPDATE activities SET payee_participant_id = $2, updated_at = now() WHERE id = $1 RETURNING *',
+		'UPDATE activities SET learned_receiver_name = CASE WHEN payee_participant_id IS DISTINCT FROM $2 THEN NULL ELSE learned_receiver_name END, payee_participant_id = $2, updated_at = now() WHERE id = $1 RETURNING *',
 		[activityId, participantId || null],
 	);
 	return rowToActivity(res.rows[0]);
@@ -768,9 +769,41 @@ async function setRecurringPayer(activityId, participantId, { now = new Date() }
 		if (!member.rows.length) throw codedError('participant_not_in_activity');
 		const periodId = await thisMonthPeriodId(client, activityId, now);
 		if (await monthHasMoney(client, activityId, periodId)) throw codedError('payer_locked');
-		await client.query('UPDATE activities SET payee_participant_id = $2, updated_at = now() WHERE id = $1', [activityId, participantId]);
+		await client.query('UPDATE activities SET learned_receiver_name = CASE WHEN payee_participant_id IS DISTINCT FROM $2 THEN NULL ELSE learned_receiver_name END, payee_participant_id = $2, updated_at = now() WHERE id = $1', [activityId, participantId]);
 		await client.query('UPDATE expenses SET paid_by = $3 WHERE activity_id = $1 AND period_id = $2', [activityId, periodId, participantId]);
 		return { participantId, periodId };
+	});
+}
+
+/**
+ * Who paid first on a one-off bill: the creator unless told otherwise. The
+ * bill is marked as paid by them and everybody's share goes to them, the
+ * same move setRecurringPayer makes for one month of a subscription.
+ *
+ * Refused once any money has been sent, for the same reason, and when the
+ * bill already has more than one person paying for parts of it (set up on
+ * the web), since moving all of it to one person would erase that.
+ */
+async function setEventPayer(activityId, participantId) {
+	return transaction(async (client) => {
+		const locked = await client.query('SELECT kind FROM activities WHERE id = $1 FOR UPDATE', [activityId]);
+		if (!locked.rows.length) throw codedError('activity_not_found');
+		if (locked.rows[0].kind === 'recurring') throw codedError('not_event');
+		const member = await client.query('SELECT id FROM participants WHERE id = $1 AND activity_id = $2', [participantId, activityId]);
+		if (!member.rows.length) throw codedError('participant_not_in_activity');
+		const sent = await client.query(
+			"SELECT 1 FROM payments WHERE activity_id = $1 AND status IN ('pending', 'confirmed') LIMIT 1",
+			[activityId],
+		);
+		if (sent.rows.length) throw codedError('payer_locked');
+		const payers = await client.query('SELECT DISTINCT paid_by FROM expenses WHERE activity_id = $1', [activityId]);
+		if (payers.rows.length > 1) throw codedError('payer_mixed');
+		await client.query(
+			'UPDATE activities SET learned_receiver_name = CASE WHEN payee_participant_id IS DISTINCT FROM $2 THEN NULL ELSE learned_receiver_name END, payee_participant_id = $2, updated_at = now() WHERE id = $1',
+			[activityId, participantId],
+		);
+		await client.query('UPDATE expenses SET paid_by = $2 WHERE activity_id = $1', [activityId, participantId]);
+		return { participantId };
 	});
 }
 
@@ -1772,6 +1805,22 @@ async function setActivityChannel(activityId, channelId) {
 	await query('UPDATE activities SET channel_id = $2, updated_at = now() WHERE id = $1', [activityId, channelId || null]);
 }
 
+/**
+ * The bill whose own thread this is, by code. Null when no bill or more than
+ * one bill points at the channel: a channel shared by several bills says
+ * nothing about which one is meant.
+ */
+async function getActivityCodeByChannel(channelId) {
+	if (!channelId) return null;
+	const res = await query('SELECT code FROM activities WHERE channel_id = $1 LIMIT 2', [String(channelId)]);
+	return res.rows.length === 1 ? res.rows[0].code : null;
+}
+
+/** Which message in the bill's channel is its card. */
+async function setCardMessage(activityId, messageId) {
+	await query('UPDATE activities SET card_message_id = $2 WHERE id = $1', [activityId, messageId || null]);
+}
+
 /** The server's bills channel, or null when Megu has not opened one yet. */
 async function getBillChannel(guildId) {
 	const res = await query('SELECT channel_id FROM bill_channels WHERE guild_id = $1', [guildId]);
@@ -1935,20 +1984,20 @@ const SLIP_VERDICTS = ['unread', 'review', 'matched', 'duplicate'];
  * `ref` is the transaction reference the HTTP/Discord adapter re-parsed from a
  * checksummed slip QR. It is unique across Megu. OCR readings can still be
  * wrong, so the decision level remains explicit and reversible.
+ *
+ * No evidence card is drawn here. The card is the record of money that
+ * arrived, so it exists only for a confirmed payment and is drawn from the
+ * stored fields when someone asks to see it (getSlip). Until then the
+ * original stays for the receiver to look at, and goes once they decide.
  */
 async function attachSlip(paymentId, {
 	image,
 	mime,
-	evidenceImage = null,
-	evidenceMime = 'image/png',
-	evidenceHash = null,
 	ref = null,
 	bank = null,
 	amountSatang = null,
 	when = null,
-	senderName = null,
 	receiverName = null,
-	senderAccountTail = null,
 	receiverAccountTail = null,
 	expectedReceiverName = null,
 }) {
@@ -1962,15 +2011,29 @@ async function attachSlip(paymentId, {
 			const payment = locked.rows[0];
 			if (!['pending', 'rejected'].includes(payment.status)) throw codedError('payment_not_pending');
 
+			// What the slip is checked against besides the amount: the name the
+			// receiver confirmed on an earlier slip of this bill, and the
+			// earliest a transfer for this bill can plausibly be dated.
+			const context = await client.query(
+				`SELECT a.created_at, a.starts_at, a.learned_receiver_name,
+				        (SELECT MIN(per.period_key) FROM payment_allocations pa
+				         JOIN periods per ON per.id = pa.period_id
+				         WHERE pa.payment_id = $2) AS first_period
+				 FROM activities a WHERE a.id = $1`,
+				[payment.activity_id, paymentId],
+			);
+			const bill = context.rows[0] || {};
+
 			const assessment = assessSlip({
 				ref,
 				expectedSatang: Number(payment.expected_satang || payment.amount_satang),
 				amountSatang: read,
-				expectedReceiverName,
+				expectedReceiverName: [expectedReceiverName, bill.learned_receiver_name].filter(Boolean),
 				receiverName,
 				transferredAt: when,
+				earliestAt: earliestTransferFor({ createdAt: bill.created_at, startsAt: bill.starts_at, firstPeriodKey: bill.first_period }),
 			});
-			const autoConfirmed = assessment.decision === 'confirm' && Buffer.isBuffer(evidenceImage) && evidenceImage.length > 0;
+			const autoConfirmed = assessment.decision === 'confirm';
 			const verdict = autoConfirmed ? 'matched' : (ref ? 'review' : 'unread');
 			const original = autoConfirmed ? null : image;
 			const transferredAt = assessment.transferredAt;
@@ -1983,21 +2046,23 @@ async function attachSlip(paymentId, {
 				     slip_sender_name = $9, slip_receiver_name = $10,
 				     slip_sender_account_tail = $11, slip_receiver_account_tail = $12,
 				     slip_transferred_at = $13,
-				     evidence_image = $14, evidence_mime = $15, evidence_hash = $16,
-				     status = CASE WHEN $17 THEN 'confirmed' ELSE 'pending' END,
-				     confirmation_source = CASE WHEN $17 THEN 'system_slip_match' ELSE NULL END,
-				     verification_level = CASE WHEN $17 THEN 'slip_matched' ELSE 'none' END,
+				     evidence_image = NULL, evidence_mime = NULL, evidence_hash = NULL,
+				     status = CASE WHEN $14 THEN 'confirmed' ELSE 'pending' END,
+				     confirmation_source = CASE WHEN $14 THEN 'system_slip_match' ELSE NULL END,
+				     verification_level = CASE WHEN $14 THEN 'slip_matched' ELSE 'none' END,
 				     confirmed_by = NULL,
-				     confirmed_at = CASE WHEN $17 THEN now() ELSE NULL END,
+				     confirmed_at = CASE WHEN $14 THEN now() ELSE NULL END,
 				     reversed_by = NULL, reversed_at = NULL, reversal_reason = NULL
 				 WHERE id = $1
 				 RETURNING id, activity_id, slip_verdict, slip_uploaded_at, status`,
 				[
 					paymentId, original, mime || 'image/jpeg', ref, verdict, bank || null, read, when || null,
-					senderName || null, receiverName || null,
-					onlyAccountTail(senderAccountTail), onlyAccountTail(receiverAccountTail),
-					transferredAt, Buffer.isBuffer(evidenceImage) ? evidenceImage : null,
-					evidenceMime || 'image/png', evidenceHash || null, autoConfirmed,
+					// The sender's bank name and account digits are never kept: the
+					// payer is already known from the bill, and these columns are
+					// cleared on rows written before this rule (core/schema.js).
+					null, receiverName || null,
+					null, onlyAccountTail(receiverAccountTail),
+					transferredAt, autoConfirmed,
 				],
 			);
 			await addPaymentEvent(client, {
@@ -2050,23 +2115,74 @@ async function attachSlip(paymentId, {
 	}
 }
 
+/**
+ * The earliest a transfer for this bill can be dated, as the start of a day
+ * in Bangkok.
+ *
+ * A monthly payment: the day before the month it pays opened. Months are
+ * often logged after the fact, so the bill's own creation date says nothing.
+ * A one-off bill: the day before it was made, or before the day it happened
+ * when that is known and earlier. The day of slack is for the ordinary order
+ * of things, where people transfer at the restaurant and the bill is written
+ * up the next day. Earlier slips are not refused, only held for the receiver.
+ */
+function earliestTransferFor({ createdAt = null, startsAt = null, firstPeriodKey = null } = {}) {
+	const DAY = 24 * 60 * 60 * 1000;
+	const BANGKOK = 7 * 60 * 60 * 1000;
+	const dayStart = time => Math.floor((time + BANGKOK) / DAY) * DAY - BANGKOK;
+	if (firstPeriodKey) {
+		const [year, month] = String(firstPeriodKey).split('-').map(Number);
+		if (year && month) return new Date(Date.UTC(year, month - 1, 1) - BANGKOK - DAY);
+	}
+	const known = [createdAt, startsAt].map(value => (value ? new Date(value).getTime() : NaN)).filter(Number.isFinite);
+	return known.length ? new Date(dayStart(Math.min(...known)) - DAY) : null;
+}
+
 function onlyAccountTail(value) {
 	const digits = String(value || '').replace(/\D/g, '');
 	return digits ? digits.slice(-4) : null;
 }
 
+/**
+ * What can be shown for a payment's slip.
+ *
+ * While the payment waits for the receiver, the original upload, so they can
+ * check it. Once confirmed, the fields of a virtual slip for the caller to
+ * draw (adapters/payment-evidence-card.js): who paid as the bill names them,
+ * to whom, how much, when, and the end of the reference. Anything else, a
+ * rejected or reversed slip, has nothing to show.
+ */
 async function getSlip(paymentId) {
 	const res = await query(
-		`SELECT CASE WHEN status = 'pending' AND slip_image IS NOT NULL THEN slip_image
-		             ELSE COALESCE(evidence_image, slip_image) END AS image,
-		        CASE WHEN status = 'pending' AND slip_image IS NOT NULL THEN slip_mime
-		             WHEN evidence_image IS NOT NULL THEN evidence_mime ELSE slip_mime END AS mime
-		 FROM payments
-		 WHERE id = $1 AND (evidence_image IS NOT NULL OR slip_image IS NOT NULL)`,
+		`SELECT p.status, p.slip_image, p.slip_mime, p.slip_uploaded_at, p.slip_bank, p.slip_ref,
+		        p.amount_satang, p.slip_when, p.slip_receiver_name, p.confirmed_at,
+		        pt.display_name AS payer_name
+		 FROM payments p
+		 JOIN participants pt ON pt.id = p.participant_id
+		 WHERE p.id = $1`,
 		[paymentId],
 	);
-	if (res.rows.length === 0) return null;
-	return { image: res.rows[0].image, mime: res.rows[0].mime || 'image/jpeg' };
+	const row = res.rows[0];
+	if (!row) return null;
+	if (row.status === 'pending' && row.slip_image) {
+		return { image: row.slip_image, mime: row.slip_mime || 'image/jpeg' };
+	}
+	if (row.status === 'confirmed' && row.slip_uploaded_at) {
+		return {
+			evidence: {
+				payerName: row.payer_name,
+				bank: row.slip_bank || null,
+				ref: row.slip_ref || null,
+				// What was confirmed, not what was read: a receiver who confirms a
+				// slip the reader got wrong has said what actually arrived.
+				amountSatang: Number(row.amount_satang),
+				when: row.slip_when || null,
+				receiverName: row.slip_receiver_name || null,
+				confirmedAt: row.confirmed_at || null,
+			},
+		};
+	}
+	return null;
 }
 
 /**
@@ -2115,6 +2231,17 @@ async function confirmPayment(paymentId, confirmedByUserId, {
 			reason,
 			metadata: { source, verificationLevel },
 		});
+		// The first slip a person confirms by hand teaches Megu the name on
+		// their account, as their bank prints it. Later slips on this bill are
+		// checked against it and can confirm themselves, which is what makes a
+		// bill with no PromptPay set up stop needing the receiver every time.
+		// Forgotten when the bill's payee changes (setPayee, setRecurringPayer).
+		if (row.slip_receiver_name) {
+			await client.query(
+				'UPDATE activities SET learned_receiver_name = $2 WHERE id = $1 AND learned_receiver_name IS NULL',
+				[row.activity_id, row.slip_receiver_name],
+			);
+		}
 		return { id: row.id, participantId: row.participant_id, amountSatang: Number(row.amount_satang), status: row.status };
 	});
 }
@@ -2286,8 +2413,9 @@ function currentPeriod(activity, date = new Date()) {
 	return activity.periods.find(p => p.key === key) || activity.periods[0] || null;
 }
 
-/** Explicit Discord payment intake. This is only called by `/จ่าย`; ordinary
- * channel messages are never scanned for financial evidence. */
+/** Explicit Discord payment intake: `/pay`, and a message in a bill's own
+ * private thread that starts with a payment keyword and carries an image
+ * (adapters/discord/thread-pay.js). Other messages are never read. */
 async function listPaymentCandidatesForDiscord(discordUid, guildId = null, search = '') {
 	const identity = await query(
 		'SELECT user_id FROM identities WHERE provider = \'discord\' AND provider_uid = $1 LIMIT 1',
@@ -2411,7 +2539,9 @@ module.exports = {
 	updateActivity,
 	setActivityChannel,
 	getBillChannel,
+	setCardMessage,
 	setBillChannel,
+	getActivityCodeByChannel,
 	DEFERRAL_SNOOZE_HOURS,
 	deferPayment,
 	activeDeferrals,
@@ -2434,10 +2564,12 @@ module.exports = {
 	resolvePayee,
 	setPayee,
 	setRecurringPayer,
+	setEventPayer,
 	changeSubscription,
 	upcomingSubscription,
 	nextPeriodKey,
 	attachSlip,
+	earliestTransferFor,
 	getSlip,
 	forgetOldSlips,
 };

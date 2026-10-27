@@ -307,6 +307,13 @@ const STATEMENTS = [
 	// { from, amountSatang, join, leave } and applied when month `from` opens,
 	// so nobody's transfer for this month stops matching what they owed.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurring_change JSONB;',
+	// The receiver's name as their bank prints it, taken from the first slip
+	// they confirmed by hand. Slips are checked against it as well as against
+	// the PromptPay name, and it is cleared when the payee changes.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS learned_receiver_name TEXT;',
+	// The message that holds the bill's card in its channel, so a change made
+	// on the web can redraw it instead of leaving it showing the old payer.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS card_message_id TEXT;',
 	// Portable settlement instructions live on the activity. PromptPay stays a
 	// profile default on `users`; these options cover the rest of the world.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_options JSONB NOT NULL DEFAULT \'[]\'::jsonb;',
@@ -510,6 +517,10 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_sender_account_tail TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_receiver_account_tail TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_transferred_at TIMESTAMPTZ;',
+	// The sender's bank name and account digits are no longer kept; the payer
+	// is known from the bill. Rows written before that rule are cleared here.
+	`UPDATE payments SET slip_sender_name = NULL, slip_sender_account_tail = NULL
+	 WHERE slip_sender_name IS NOT NULL OR slip_sender_account_tail IS NOT NULL;`,
 
 	// A derived evidence card contains only the fields needed for a dispute.
 	// The original upload is temporary and is discarded as soon as a decision
@@ -517,6 +528,11 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_image BYTEA;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_mime TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_hash TEXT;',
+	// The card is no longer stored: it is drawn from the slip fields when a
+	// confirmed payment is looked at. Cards stored before that printed the
+	// sender's bank name and digits, so they are cleared.
+	`UPDATE payments SET evidence_image = NULL, evidence_mime = NULL, evidence_hash = NULL
+	 WHERE evidence_image IS NOT NULL;`,
 
 	// Confirmation is intentionally two-dimensional. `status` says what the
 	// ledger currently counts, while these columns say why it was allowed to

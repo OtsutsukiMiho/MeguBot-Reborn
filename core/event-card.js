@@ -323,7 +323,7 @@ function organizerNote({ activity, payeeHasPromptPay, shareUrl, period = null, l
 		}
 		lines.push(shareUrl);
 		if (payeeIsOther) lines.push(`ทุกคนโอนคืนเข้าพร้อมเพย์ของ **${payeeName}**${payeeHasPromptPay ? '' : ' ซึ่งยังไม่ได้ตั้ง ระหว่างนี้ยังไม่มีใครแนบสลิปได้'}`);
-		else if (!payeeHasPromptPay) lines.push('ยังไม่มีพร้อมเพย์ของคุณ คนอื่นจะยังแนบสลิปไม่ได้ กด **ตั้งพร้อมเพย์** ด้านล่าง');
+		else if (!payeeHasPromptPay) lines.push('ยังไม่มีพร้อมเพย์ของคุณ สลิปที่ส่งมาจะรอให้คุณยืนยันเอง กด **ตั้งพร้อมเพย์** ด้านล่าง');
 	}
 	else {
 		lines.push(`Created **${inert(activity.title)}**. Megu can remind ${reachable.length} of ${others.length} people by DM`);
@@ -332,7 +332,7 @@ function organizerNote({ activity, payeeHasPromptPay, shareUrl, period = null, l
 		}
 		lines.push(shareUrl);
 		if (payeeIsOther) lines.push(`Everyone pays **${payeeName}** back by PromptPay${payeeHasPromptPay ? '.' : ', who has not set it yet, so nobody can send a slip until then.'}`);
-		else if (!payeeHasPromptPay) lines.push('You have no PromptPay yet, so nobody can send a slip. Press **Set PromptPay** below.');
+		else if (!payeeHasPromptPay) lines.push('You have no PromptPay yet, so slips wait for you to confirm them by hand. Press **Set PromptPay** below.');
 	}
 	if (monthlyLine) lines.splice(1, 0, monthlyLine);
 	return lines.join('\n');

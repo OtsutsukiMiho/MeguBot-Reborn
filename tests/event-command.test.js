@@ -343,6 +343,57 @@ async function main() {
 		assert.equal(made.parentId, PARENT);
 		assert.equal(await core.activities.getBillChannel(GUILD), null);
 		ok('without permission to make a channel, the thread opens in the channel the command was used in');
+
+		// Who paid first on a one-off bill: Fig made it, Om paid at the counter.
+		call = createSubmit({ user: fig, title: 'ค่าตั๋ว', people: [om], amount: '400' });
+		await event.handleComponent(call, { core });
+		made = [...threads.values()].at(-1);
+		const ticketCode = made.sent[0].components[0].components[0].data.custom_id.split(':')[2];
+		codes.push(ticketCode);
+		let ticket = await core.activities.getActivityByCode(ticketCode);
+		assert.equal(ticket.cardMessageId, 'card1', 'the card message is remembered');
+		const payerMenu = call.log.edits[0].components
+			.map(row => row.components[0].toJSON())
+			.find(item => String(item.custom_id).startsWith('evt:payer:'));
+		assert.ok(payerMenu, 'a one-off bill offers the who-paid-first menu too');
+		assert.match(payerMenu.placeholder, /ใครออกเงินไปก่อน/);
+		const omTicket = ticket.participants.find(p => p.displayName === 'โอม');
+
+		call = base({ customId: payerMenu.custom_id, user: om, kind: 'select', channel: made });
+		call.values = [omTicket.id];
+		await event.handleComponent(call, { core });
+		assert.match(call.log.followUps[0].content, /เฉพาะเจ้าของบิล/);
+		ticket = await core.activities.getActivityByCode(ticketCode);
+		assert.notEqual(ticket.payee.participantId, omTicket.id, 'only the owner moves the money');
+
+		call = base({ customId: payerMenu.custom_id, user: fig, kind: 'select', channel: made });
+		call.values = [omTicket.id];
+		await event.handleComponent(call, { core });
+		ticket = await core.activities.getActivityByCode(ticketCode);
+		assert.equal(ticket.payee.participantId, omTicket.id);
+		assert.ok(ticket.expenses.every(e => e.paidBy === omTicket.id), 'the bill is now paid by Om');
+		const figTicket = ticket.participants.find(p => p.displayName === 'ฟิก');
+		assert.equal(core.activities.settlement(ticket).rows.find(r => r.participantId === figTicket.id).outstanding, 20000, 'Fig now owes Om his half');
+		assert.ok(call.log.cardEdits.some(edit => edit.content.includes(`<@${om.id}>`)), 'the card is redrawn');
+		ok('a one-off bill lets its owner say who paid first, and the card and the debts follow');
+
+		// Money sent: who paid first is fixed.
+		await core.activities.recordPayment(ticket.id, figTicket.id, { amountSatang: 20000, method: 'bank_transfer' });
+		call = base({ customId: payerMenu.custom_id, user: fig, kind: 'select', channel: made });
+		call.values = [figTicket.id];
+		await event.handleComponent(call, { core });
+		assert.match(call.log.followUps[0].content, /บิลนี้มีคนโอนเข้ามาแล้ว/);
+		ok('once money has been sent, who paid first cannot change');
+
+		// A payee changed on the web: the bot redraws the remembered card.
+		const redrawn = [];
+		const client = { channels: { cache: new Map([[made.id, { type: ChannelType.PrivateThread, messages: { edit: async (id, value) => redrawn.push({ id, ...value }) } }]]) }, guilds: { cache: new Map() } };
+		await core.activities.setPayee(ticket.id, figTicket.id);
+		assert.equal(await event.redrawBillCard(client, core, ticketCode), true);
+		assert.equal(redrawn[0].id, 'card1');
+		assert.match(redrawn[0].content, new RegExp(`<@${fig.id}>`));
+		assert.equal(await event.redrawBillCard({ channels: { cache: new Map(), fetch: async () => null }, guilds: { cache: new Map() } }, core, ticketCode), false, 'a thread that is gone changes nothing');
+		ok('a change made on the web redraws the card in the bill thread');
 	}
 	finally {
 		for (const code of codes) {

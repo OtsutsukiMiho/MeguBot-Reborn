@@ -1,6 +1,5 @@
 const express = require('express');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const QRCode = require('qrcode');
 const core = require('../../core/index.js');
 const roleMappings = require('../../core/server-role-mappings');
@@ -10,6 +9,8 @@ const roleTitles = require('../../core/server-role-titles');
 const billSummary = require('../../core/bill-summary.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
+const { renderEvidenceCard } = require('../payment-evidence-card.js');
+const { bankFor } = require('../../core/slip.js');
 
 const { activities, projects, teams, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
 
@@ -804,9 +805,7 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				slipBank: p.slipBank,
 				slipAmountSatang: p.slipAmountSatang,
 				slipWhen: p.slipWhen,
-				slipSenderName: p.slipSenderName,
 				slipReceiverName: p.slipReceiverName,
-				slipSenderAccountTail: p.slipSenderAccountTail,
 				slipReceiverAccountTail: p.slipReceiverAccountTail,
 				// Why Megu held it back, rather than only that it did.
 				...slipAssessment(p),
@@ -2414,26 +2413,19 @@ function router(deps = {}) {
 			const serverResult = await serverReader(original.image);
 			const verifiedQr = serverResult?.slip || null;
 			const serverRead = serverResult?.read || {};
-			const sender = serverRead.parties?.sender || null;
 			const receiver = serverRead.parties?.receiver || null;
 			const readAmount = Number(serverRead.amountSatang);
 			const normalizedReadAmount = Number.isSafeInteger(readAmount) && readAmount > 0 ? readAmount : null;
 			const readWhen = stampWhen(serverRead.when);
-			const evidenceImage = serverResult?.evidenceImage || null;
 
 			const result = await activities.attachSlip(payment.id, {
 				image: serverResult?.normalizedImage || original.image,
 				mime: serverResult?.normalizedMime || original.mime,
-				evidenceImage,
-				evidenceMime: 'image/png',
-				evidenceHash: evidenceImage ? crypto.createHash('sha256').update(evidenceImage).digest('hex') : null,
 				ref: verifiedQr?.ref || null,
 				bank: verifiedQr?.bank?.code || null,
 				amountSatang: normalizedReadAmount,
 				when: readWhen,
-				senderName: sender?.name ? String(sender.name).slice(0, 160) : null,
 				receiverName: receiver?.name ? String(receiver.name).slice(0, 160) : null,
-				senderAccountTail: sender?.accountTail || null,
 				receiverAccountTail: receiver?.accountTail || null,
 				expectedReceiverName: payment.paymentDestination?.accountName || activity.payee?.promptpayName || null,
 			});
@@ -2519,9 +2511,23 @@ function router(deps = {}) {
 			const storedSlip = await activities.getSlip(payment.id);
 			if (!storedSlip) return fail(res, 404, 'no_slip');
 
-			res.setHeader('Content-Type', storedSlip.mime);
+			// A confirmed payment shows its virtual slip, drawn now from what
+			// was kept; a waiting one shows the original for the receiver.
+			let image = storedSlip.image;
+			let mime = storedSlip.mime;
+			if (storedSlip.evidence) {
+				const card = storedSlip.evidence;
+				image = await renderEvidenceCard(
+					{ bank: card.bank ? bankFor(card.bank) : null, transRef: card.ref },
+					{ amountSatang: card.amountSatang, when: card.when, parties: { receiver: card.receiverName ? { name: card.receiverName } : null } },
+					card.confirmedAt ? new Date(card.confirmedAt) : new Date(),
+					{ payerName: card.payerName },
+				);
+				mime = 'image/png';
+			}
+			res.setHeader('Content-Type', mime);
 			res.setHeader('Cache-Control', 'private, no-store');
-			res.send(storedSlip.image);
+			res.send(image);
 		}
 		catch (error) {
 			next(error);
@@ -2536,6 +2542,12 @@ function router(deps = {}) {
 			if (!activity) return;
 
 			await activities.setPayee(activity.id, req.body?.participantId || null);
+			// The card in Discord names the payee; it is redrawn so it does not
+			// keep pointing people at the old one. Not waited for: the change is
+			// saved either way, and a closed thread is not the web's problem.
+			if (deps.refreshBillCard) {
+				deps.refreshBillCard(activity.code).catch(error => log('Megu', `Could not ask the bot to redraw ${activity.code}: ${error.message}`));
+			}
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor) });
 		}

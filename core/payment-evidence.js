@@ -48,9 +48,10 @@ function parseBangkokWallClock(value) {
 /**
  * Whether a slip can optimistically settle a claim.
  *
- * Old transfers are allowed. A five-month-late recurring payment is ordinary;
- * age is surfaced for audit, never used as an automatic rejection. A future
- * transfer, on the other hand, is impossible beyond a small clock/OCR margin.
+ * A late upload is allowed. A five-month-late recurring payment is ordinary;
+ * age is surfaced for audit, never used as an automatic rejection. A transfer
+ * dated before the bill could exist (earliestAt), or in the future beyond a
+ * small clock/OCR margin, is held for the receiver instead.
  */
 function assessSlip(input, { now = new Date() } = {}) {
 	const reasons = [];
@@ -62,9 +63,12 @@ function assessSlip(input, { now = new Date() } = {}) {
 	if (!Number.isSafeInteger(read) || read <= 0) reasons.push('amount_unreadable');
 	else if (!Number.isSafeInteger(expected) || expected <= 0 || read !== expected) reasons.push('amount_mismatch');
 
-	if (!input.expectedReceiverName) reasons.push('receiver_not_configured');
+	// One name or several: the PromptPay name, and the name the receiver's
+	// bank printed on a slip they confirmed earlier. Matching any one is enough.
+	const expectedNames = [].concat(input.expectedReceiverName || []).filter(Boolean);
+	if (expectedNames.length === 0) reasons.push('receiver_not_configured');
 	else if (!input.receiverName) reasons.push('receiver_unreadable');
-	else if (!namesMatch(input.expectedReceiverName, input.receiverName)) reasons.push('receiver_mismatch');
+	else if (!expectedNames.some(name => namesMatch(name, input.receiverName))) reasons.push('receiver_mismatch');
 
 	const transferredAt = parseBangkokWallClock(input.transferredAt);
 	if (!transferredAt) {
@@ -72,6 +76,9 @@ function assessSlip(input, { now = new Date() } = {}) {
 	}
 	else {
 		if (transferredAt.getTime() > new Date(now).getTime() + FUTURE_SKEW_MS) reasons.push('time_in_future');
+		// Older than the bill can be: a slip for something else. Held, not refused.
+		const earliest = input.earliestAt ? new Date(input.earliestAt) : null;
+		if (earliest && !Number.isNaN(earliest.getTime()) && transferredAt.getTime() < earliest.getTime()) reasons.push('transferred_before_bill');
 		const submittedAt = input.submittedAt ? new Date(input.submittedAt) : new Date(now);
 		if (!Number.isNaN(submittedAt.getTime()) && submittedAt.getTime() - transferredAt.getTime() > 30 * 24 * 60 * 60 * 1000) {
 			flags.push('uploaded_late');
