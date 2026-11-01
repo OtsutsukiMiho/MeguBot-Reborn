@@ -19,8 +19,34 @@ const { dueChannelMessage } = require('../../core/event-card.js');
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 
-function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel = null, log = () => undefined } = {}) {
+// The buttons under a due-date message, in the language of whoever reads it.
+const LABELS = {
+	th: { pay: 'จ่ายเงิน', notNow: 'ยังไม่จ่ายตอนนี้', slip: 'แนบสลิป', open: 'เปิดบิล' },
+	en: { pay: 'Pay now', notNow: 'Not now', slip: 'Send slip', open: 'Open bill' },
+};
+
+/**
+ * `serverLang(guildId)` answers the language a server chose for Megu (see
+ * core/server-lang.js). It is asked once per server per sweep, and only reads
+ * the settings store and the bot's cache; it never calls Discord.
+ */
+function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel = null, serverLang = null, log = () => undefined } = {}) {
 	let running = false;
+
+	async function langsFor(guildIds) {
+		const langs = new Map();
+		for (const guildId of new Set(guildIds.filter(Boolean))) {
+			let lang = null;
+			try {
+				lang = serverLang ? await serverLang(guildId) : null;
+			}
+			catch (error) {
+				log(`Server language for ${guildId} could not be read: ${error.message}`);
+			}
+			langs.set(guildId, LABELS[lang] ? lang : 'th');
+		}
+		return langs;
+	}
 
 	async function runOnce({ now = new Date() } = {}) {
 		if (running) return { queued: 0, dmed: 0, digests: 0, skipped: true };
@@ -31,6 +57,10 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel =
 			let dmed = 0;
 			let digests = 0;
 			let posted = 0;
+			// A bill with no server (made on the web) stays Thai, as before.
+			const langs = await langsFor([...notices, ...channelNotices, ...hostDigests.map(digest => digest.lines[0] || {})]
+				.map(notice => notice.guildId));
+			const langOf = notice => langs.get(notice.guildId) || 'th';
 
 			for (const notice of notices) {
 				try {
@@ -39,7 +69,7 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel =
 							userId: notice.userId,
 							eventType: 'payment_due',
 							dedupeKey: notice.dedupeKey,
-							payload: payloadFor(notice),
+							payload: { ...payloadFor(notice), contextLocale: langOf(notice) },
 						});
 						// Counted only when the outbox actually took a new event.
 						// A dedupe key that has been seen before is this sweep
@@ -47,11 +77,14 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel =
 						if (enqueued.created) queued++;
 					}
 					else if (notice.discordUid && sendDiscord) {
+						// No account, so no preference: the bill's server decides.
+						const lang = langOf(notice);
+						const labels = LABELS[lang];
 						assertDelivered(await sendDiscord({
 							recipients: [notice.discordUid],
-							message: core.reminders.composeDueNotice(notice, { locale: 'th' }),
-							cta: { label: 'จ่ายเงิน', url: notice.payUrl },
-							defer: { participantId: notice.participantId, periodId: notice.periodId, code: notice.code, label: 'ยังไม่จ่ายตอนนี้', payLabel: 'แนบสลิป' },
+							message: core.reminders.composeDueNotice(notice, { locale: lang }),
+							cta: { label: labels.pay, url: notice.payUrl },
+							defer: { participantId: notice.participantId, periodId: notice.periodId, code: notice.code, label: labels.notNow, payLabel: labels.slip },
 						}));
 						dmed++;
 					}
@@ -93,6 +126,7 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel =
 							ctaUrl: digest.shareUrl || null,
 							ctaLabelTh: 'เปิดกิจกรรม',
 							ctaLabelEn: 'Open activity',
+							contextLocale: langOf(digest.lines[0] || {}),
 						},
 					});
 					if (enqueued.created) digests++;
@@ -105,13 +139,14 @@ function createPaymentDueSweep({ baseUrl = '', sendDiscord = null, postChannel =
 			for (const notice of channelNotices) {
 				if (!postChannel) break;
 				try {
+					const lang = langOf(notice);
 					const result = await postChannel({
 						guildId: notice.guildId,
 						channelId: notice.channelId,
-						message: dueChannelMessage({ title: notice.title, periodKey: notice.periodKey, lines: notice.lines, currency: notice.currency }),
-						cta: notice.shareUrl ? { label: 'เปิดบิล', url: notice.shareUrl } : null,
+						message: dueChannelMessage({ title: notice.title, periodKey: notice.periodKey, lines: notice.lines, currency: notice.currency, locale: lang }),
+						cta: notice.shareUrl ? { label: LABELS[lang].open, url: notice.shareUrl } : null,
 						// Drawn as the "send slip" button; no participant, so no "not now".
-						defer: { code: notice.code, payLabel: 'แนบสลิป' },
+						defer: { code: notice.code, payLabel: LABELS[lang].slip },
 					});
 					// A block leaves it due for the next sweep after the ban.
 					// Anything else — a deleted channel, a lost permission — is
@@ -193,4 +228,4 @@ function payloadFor(notice) {
 	};
 }
 
-module.exports = { createPaymentDueSweep, DEFAULT_INTERVAL_MS };
+module.exports = { createPaymentDueSweep, DEFAULT_INTERVAL_MS, LABELS };

@@ -79,7 +79,11 @@ const LOCALES = {
 				const head = `${dayName} ${day} ${month} ${year}`;
 				return time ? `${head}, ${time}` : head;
 			},
-			dueDay: ({ ordinal }) => `the ${ordinal} of every month`,
+			// Past the 28th some months are too short, and those fall due on
+			// their last day, which the reader is told rather than left to guess.
+			dueDay: ({ day, ordinal }) => (day === 31 ? 'the last day of every month'
+				: day > 28 ? `the ${ordinal} of every month (the last day in shorter months)`
+					: `the ${ordinal} of every month`),
 		},
 	},
 	th: {
@@ -101,7 +105,9 @@ const LOCALES = {
 				const head = `${long ? 'วัน' : ''}${dayName} ${day} ${month} ${year}`;
 				return time ? `${head} ${time} น.` : head;
 			},
-			dueDay: ({ day }) => `ทุกวันที่ ${day}`,
+			dueDay: ({ day }) => (day === 31 ? 'ทุกวันสิ้นเดือน'
+				: day > 28 ? `ทุกวันที่ ${day} (เดือนที่สั้นกว่าใช้วันสุดท้ายของเดือน)`
+					: `ทุกวันที่ ${day}`),
 		},
 	},
 };

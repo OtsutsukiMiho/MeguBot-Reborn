@@ -119,7 +119,7 @@ export default function AccountMergePage() {
 					<ul className="merge-counts">
 						{plan.duplicateParticipants.map(item => <li key={item.activityId}>
 							{copy.duplicatesIn(item.title, item.code)}
-							<span className="quiet-note"> — {item.names.join(', ')}</span>
+							<span className="quiet-note">: {item.names.join(', ')}</span>
 						</li>)}
 					</ul>
 				</section>}

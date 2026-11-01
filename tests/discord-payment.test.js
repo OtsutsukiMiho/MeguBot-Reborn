@@ -2,7 +2,8 @@ const assert = require('node:assert');
 const QRCode = require('qrcode');
 const promptpay = require('../core/promptpay.js');
 const { readDiscordSlip } = require('../adapters/discord/payment-evidence.js');
-const paymentCommand = require('../commands/utility/จ่าย.js');
+const paymentCommand = require('../commands/utility/pay.js');
+const { evidenceRows, renderEvidenceCard } = require('../adapters/payment-evidence-card.js');
 
 function field(id, value) {
 	return `${id}${String(value.length).padStart(2, '0')}${value}`;
@@ -21,8 +22,8 @@ async function main() {
 		if (!option.required) optionalSeen = true;
 		assert.ok(!(optionalSeen && option.required), 'Discord requires every required option before optional options');
 	}
-	assert.deepStrictEqual(commandOptions.map(option => option.name), ['จำนวน', 'สลิป', 'รายการ']);
-	console.log('\n  ok  /จ่าย serializes required options before the optional autocomplete field');
+	assert.deepStrictEqual(commandOptions.map(option => option.name), ['amount', 'slip', 'bill']);
+	console.log('\n  ok  /pay serializes required options before the optional autocomplete field');
 
 	const payload = bankSlip('006', 'DISCORD-TRANSFER-001');
 	const image = await QRCode.toBuffer(payload, { width: 900, margin: 3 });
@@ -42,11 +43,24 @@ async function main() {
 	assert.strictEqual(read.read.parties.receiver.accountTail, '2304');
 	assert.deepStrictEqual(read.read.when, { year: 2026, month: 8, day: 18, hour: 3, minute: 27 });
 	assert.strictEqual(read.text, undefined, 'raw OCR must not escape the intake boundary');
-	assert.deepStrictEqual([...read.evidenceImage.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+	assert.strictEqual(read.evidenceImage, undefined, 'no card is drawn until the payment is confirmed');
 	assert.deepStrictEqual([...read.normalizedImage.subarray(0, 3)], [255, 216, 255]);
 	assert.strictEqual(read.normalizedMime, 'image/jpeg');
 	await assert.rejects(readDiscordSlip(Buffer.from('not really an image')), /slip_unreadable/);
-	console.log('\n  ok  /จ่าย decodes the bank QR, keeps only account tails, drops raw OCR, and renders new PNG evidence');
+	console.log('\n  ok  /pay decodes the bank QR, keeps only account tails, drops raw OCR, and draws no card yet');
+
+	// The evidence card names the payer as the bill does. The name and digits
+	// of the sender's bank account are not drawn, and the reference is cut.
+	const rows = Object.fromEntries(evidenceRows(read.slip, read.read, { payerName: 'Mina' }));
+	assert.strictEqual(rows['ผู้จ่าย'], 'Mina');
+	assert.strictEqual(rows['ไปยัง'], 'นาย บี เจ้าหนี้');
+	assert.strictEqual(rows['จำนวนเงิน'], '100.00 บาท');
+	assert.strictEqual(rows['เลขอ้างอิง'], '•••• -001');
+	const drawn = JSON.stringify(rows);
+	assert.doesNotMatch(drawn, /คนอื่น|1234|2304|DISCORD-TRANSFER/);
+	const png = await renderEvidenceCard(read.slip, read.read, new Date(), { payerName: 'Mina' });
+	assert.deepStrictEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+	console.log('\n  ok  the evidence card shows the payer from the bill, no sender account, and only the end of the reference');
 }
 
 main().catch((error) => {

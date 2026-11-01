@@ -1,7 +1,8 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const event = require('./event.js');
 
-// `/sub Netflix` — a bill that comes back every month.
+// `/sub`: a bill that comes back every month. The service name is asked in
+// the modal, so the command itself takes nothing.
 //
 // The same modal and card as `/event`, and the same buttons, because a
 // subscription is the same money problem on a timer: who shares it, what it
@@ -17,13 +18,7 @@ module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('sub')
 		.setDescription('Split a monthly subscription: who shares it, how much, which day')
-		.setDescriptionLocalizations({ th: 'หารค่าบริการรายเดือน: ใครหารบ้าง เท่าไหร่ ครบกำหนดวันไหน' })
-		.addStringOption(option => option
-			.setName('service')
-			.setNameLocalizations({ th: 'บริการ' })
-			.setDescription('What it is, e.g. Netflix')
-			.setDescriptionLocalizations({ th: 'ชื่อบริการ เช่น Netflix' })
-			.setMaxLength(100)),
+		.setDescriptionLocalizations({ th: 'หารค่าบริการรายเดือน: ใครหารบ้าง เท่าไหร่ ครบกำหนดวันไหน' }),
 
 	async execute(interaction) {
 		const t = event.copyFor(interaction);
@@ -31,6 +26,6 @@ module.exports = {
 			return interaction.reply({ content: t.guildOnly.replace('/event', '/sub'), flags: MessageFlags.Ephemeral });
 		}
 		// The modal must be the first response, so nothing is looked up first.
-		return interaction.showModal(event.subModal(t, interaction.options.getString('service')));
+		return interaction.showModal(event.subModal(t));
 	},
 };

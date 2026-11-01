@@ -28,12 +28,15 @@ const PAIRS = [
 	['faint', 'surface', AA_LARGE, 'counts and captions on a panel'],
 	['accent', 'paper', AA_BODY, 'links and the current state'],
 	['accent', 'surface', AA_BODY, 'links on a panel'],
-	// Megu's own aside sits on this tint with her name in accent on top of it,
+	// Megu's own aside sits on this tint with the name in accent on top of it,
 	// and so does the incoming half of a two-way roster figure. The pair was in
 	// the stylesheet before it was in this table.
 	['accent', 'accent-soft', AA_BODY, 'accent text on its own tint'],
 	['gold', 'paper', AA_BODY, 'Megu name mark'],
 	['gold', 'surface', AA_BODY, 'Megu name mark on a panel'],
+	// Unsaved changes and things still waiting: the one warm colour left.
+	['pending', 'paper', AA_BODY, 'unsaved and pending marks'],
+	['pending', 'surface', AA_BODY, 'unsaved and pending marks on a panel'],
 	['due', 'paper', AA_BODY, 'amounts owed'],
 	['due', 'surface', AA_BODY, 'amounts owed on a panel'],
 	['due', 'due-soft', AA_BODY, 'error text on its own tint'],

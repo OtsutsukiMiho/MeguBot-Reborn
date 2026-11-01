@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import CreateTeamsFromRoles from '../../../../components/teams/CreateTeamsFromRoles';
 
-export const metadata = { title: 'Create teams from Discord roles · Megu' };
+export const metadata = { title: 'Create teams from Discord roles' };
 
 export default async function CreateRoleTeamsPage({ params }) {
 	const { guildId } = await params;

@@ -10,11 +10,11 @@ function statementEmbed(person) {
 	const fields = person.lines.slice(0, 20).map((line) => {
 		const late = line.dueAt ? core.reminders.daysLate(line.dueAt) : 0;
 		return {
-			name: line.periodLabel ? `${line.title} · ${line.periodLabel}` : line.title,
+			name: line.periodLabel ? `${line.title} (${line.periodLabel})` : line.title,
 			value: [
 				`**${core.format.formatMoney(line.amountSatang, line.currency || person.currency)}**`,
 				late > 0 ? `เลยกำหนด ${late} วัน` : null,
-			].filter(Boolean).join('  ·  '),
+			].filter(Boolean).join(', '),
 			inline: false,
 		};
 	});
@@ -23,7 +23,7 @@ function statementEmbed(person) {
 		color: 0x1C2260,
 		author: { name: 'Megu' },
 		title: person.lines.length === 1 ? 'ยอดค้างชำระ' : `ยอดค้างชำระ ${person.lines.length} รายการ`,
-		description: `${person.displayName} — นี่คือยอดที่ยังค้างอยู่นะ`,
+		description: `${person.displayName} นี่คือยอดที่ยังค้างอยู่นะ`,
 		fields,
 		footer: { text: `รวมทั้งหมด ${core.format.formatMoney(person.total, person.currency)}` },
 		timestamp: new Date().toISOString(),
@@ -84,8 +84,8 @@ async function runOnce(client, { baseUrl = '', cooldownHours, isBlocked = () => 
 			const user = client.users.cache.get(person.discordUid) || await client.users.fetch(person.discordUid);
 			await user.send({
 				content: person.lines.length === 1
-					? `${person.displayName} ยังค้างอยู่นิดนึงนะ 🙂`
-					: `${person.displayName} มีของค้างอยู่หลายรายการเลย 🙂`,
+					? `${person.displayName} ยังค้างอยู่นิดนึงนะ`
+					: `${person.displayName} มีของค้างอยู่หลายรายการเลย`,
 				embeds: [statementEmbed(person)],
 			});
 			for (const line of person.lines) {

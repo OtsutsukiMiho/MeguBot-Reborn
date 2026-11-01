@@ -2,7 +2,6 @@
 // the synthetic slip through the production reader, then leave the payment in
 // the owner-reversed state that the browser flow is expected to produce.
 require('dotenv').config();
-const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const https = require('node:https');
 const path = require('node:path');
@@ -97,18 +96,11 @@ async function main() {
 	const attached = await core.activities.attachSlip(payment.id, {
 		image: reading.normalizedImage,
 		mime: reading.normalizedMime,
-		evidenceImage: reading.evidenceImage,
-		evidenceMime: reading.evidenceImage ? 'image/png' : null,
-		evidenceHash: reading.evidenceImage
-			? crypto.createHash('sha256').update(reading.evidenceImage).digest('hex')
-			: null,
 		ref: reading.slip?.ref || null,
 		bank: reading.slip?.bank?.code || null,
 		amountSatang: reading.read.amountSatang,
 		when: stampWhen(reading.read.when),
-		senderName: reading.read.parties?.sender?.name || null,
 		receiverName: reading.read.parties?.receiver?.name || null,
-		senderAccountTail: reading.read.parties?.sender?.accountTail || null,
 		receiverAccountTail: reading.read.parties?.receiver?.accountTail || null,
 		expectedReceiverName: candidate.payee.promptpayName,
 	});
@@ -117,7 +109,6 @@ async function main() {
 
 	const verified = await core.db.query(
 		`SELECT p.status, p.amount_satang, p.slip_verdict, p.slip_image IS NULL AS raw_deleted,
-		        p.evidence_image IS NOT NULL AS evidence_kept,
 		        p.reversal_reason, count(pa.id)::int AS allocations
 		 FROM payments p
 		 LEFT JOIN payment_allocations pa ON pa.payment_id = p.id
@@ -133,7 +124,6 @@ async function main() {
 		amountSatang: Number(row.amount_satang),
 		slipVerdict: row.slip_verdict,
 		rawDeleted: row.raw_deleted,
-		evidenceKept: row.evidence_kept,
 		allocations: row.allocations,
 		reversalReason: row.reversal_reason,
 	}));

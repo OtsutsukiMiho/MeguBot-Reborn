@@ -124,7 +124,7 @@ export function PersonAccount({
 
 	// A monthly agreement has nowhere to go, so "going" is not a fact about
 	// anyone on it. What matters there is whether this month is paid.
-	const status = recurring
+	const status = recurring || activity.billOnly
 		? (showMoney ? (p.outstanding > 0 ? t.money.open : t.roster.clear) : null)
 		: (activity.planState === 'done' && p.attended != null
 			? (p.attended ? t.attendance.came : t.attendance.absent)
@@ -170,7 +170,10 @@ export function PersonAccount({
 					    a phone. */}
 				</div>
 				<div className="row-sub">
-					{[status, !p.isMe && !p.claimed ? t.roster.notLinked : null].filter(Boolean).join(' · ')}
+					{/* "Has not picked their name" only matters for someone Megu
+					    cannot reach any other way. A Discord name is already
+					    reachable, so it is not flagged. */}
+					{[status, !p.isMe && !p.claimed && !p.discordLinked ? t.roster.notLinked : null].filter(Boolean).join(', ')}
 				</div>
 
 				{/* Why, in their own words. The whole reason the defer button
@@ -180,7 +183,7 @@ export function PersonAccount({
 				{p.deferral && (
 					<div className="row-sub defer-reason">
 						{t.defer.reasonBy(p.displayName, p.deferral.reason)}
-						{' · '}
+						{', '}
 						{t.defer.snoozedUntil(fmt.when(p.deferral.snoozeUntil, { time: false }))}
 					</div>
 				)}
@@ -250,7 +253,7 @@ function AccountDetail({ p, activity, owesTo, owedBy }) {
 		.filter(share => share.amountSatang != null);
 
 	const theirs = activity.payments.filter(payment => payment.participantId === p.id);
-	const nameOf = id => activity.participants.find(person => person.id === id)?.displayName || '—';
+	const nameOf = id => activity.participants.find(person => person.id === id)?.displayName || '-';
 
 	return (
 		<div className="account-detail">
@@ -291,7 +294,7 @@ function AccountDetail({ p, activity, owesTo, owedBy }) {
 					<div className="account-line" key={payment.id}>
 						<span>
 							{t.ledger.sendsShort(nameOf(payment.creditorParticipantId))}
-							{' · '}
+							{', '}
 							{t.receiptPage.statuses[payment.status] || payment.status}
 						</span>
 						<span className="mono">{fmt.money(payment.amountSatang)}</span>

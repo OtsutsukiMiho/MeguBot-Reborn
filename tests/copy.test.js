@@ -197,6 +197,11 @@ assert.strictEqual(format.formatWhen(null, 'en'), '');
 assert.strictEqual(format.formatWhen('not a date', 'en'), '');
 assert.strictEqual(format.formatPeriod('', 'en'), '');
 assert.strictEqual(format.formatDueDay(99, 'en'), '');
+// Past the 28th the reader is told what a short month does.
+assert.strictEqual(format.formatDueDay(31, 'th'), 'ทุกวันสิ้นเดือน');
+assert.strictEqual(format.formatDueDay(31, 'en'), 'the last day of every month');
+assert.strictEqual(format.formatDueDay(30, 'th'), 'ทุกวันที่ 30 (เดือนที่สั้นกว่าใช้วันสุดท้ายของเดือน)');
+assert.strictEqual(format.formatDueDay(29, 'en'), 'the 29th of every month (the last day in shorter months)');
 ok('missing and malformed values render as nothing, not as "Invalid Date"');
 
 console.log('\nkeys the components actually ask for');

@@ -1,6 +1,5 @@
 const express = require('express');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const QRCode = require('qrcode');
 const core = require('../../core/index.js');
 const roleMappings = require('../../core/server-role-mappings');
@@ -10,6 +9,8 @@ const roleTitles = require('../../core/server-role-titles');
 const billSummary = require('../../core/bill-summary.js');
 const { log } = require('../../core/log.js');
 const { readPaymentSlip, stampWhen } = require('../discord/payment-evidence.js');
+const { renderEvidenceCard } = require('../payment-evidence-card.js');
+const { bankFor } = require('../../core/slip.js');
 
 const { activities, projects, teams, users, access, tokens, money, format, voice, promptpay, notifications, paymentMethods, ids } = core;
 
@@ -415,6 +416,9 @@ function publicParticipant(p, meId, showAmounts, settlementRow, deferral = null)
 		rsvp: p.rsvp,
 		attended: p.attended,
 		claimed: Boolean(p.claimedAt),
+		// Whether the name is a Discord account's, never which one: the page
+		// sends that person to sign in instead of letting a tap claim it.
+		discordLinked: Boolean(p.discordUid),
 		isMe: p.id === meId,
 	};
 	// Why this person has not paid, in their own words. Passed in already
@@ -507,15 +511,36 @@ function activeDeferral(activity, participantId, scope, now = new Date()) {
  * Megu reads whichever axis is actually asking for attention: money first when
  * someone is behind, the plan otherwise.
  */
-function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
+/**
+ * A one-off bill rather than a plan: no time, no poll, and money or a Discord
+ * origin (/event). Such a bill has nothing to RSVP to or schedule, so the page
+ * and Megu talk about the money and nothing else.
+ */
+function isBillOnly(activity) {
+	return activity.kind !== 'recurring' && !activity.startsAt && activity.slots.length === 0
+		&& (Boolean(activity.guildId) || activity.expenses.length > 0);
+}
+
+function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG, { showAmounts = false, meId = null, isOwner = false } = {}) {
 	const seed = { seed: activity.id, lang };
 	const when = activity.startsAt ? core.format.formatWhen(activity.startsAt, lang) : null;
 
 	if (activity.planState === 'cancelled') return voice.say('cancelled', { title: activity.title }, seed);
 
 	if (sum.state === 'open') {
-		const first = sum.unpaid[0];
-		return voice.say('nudgeUnpaid', { name: first.displayName, amount: first.outstanding }, seed);
+		// Every figure in the payload is withheld from a reader who may not see
+		// amounts, and this line used to be the one place it still leaked.
+		if (!showAmounts) return voice.say('someoneUnpaid', { title: activity.title }, seed);
+		// Spoken to whoever is reading: the debtor hears about their own share,
+		// not their own name in the third person, and the organiser hears how
+		// much is still out rather than a nudge meant for someone else.
+		const mine = meId ? sum.unpaid.find(row => row.participantId === meId) : null;
+		if (mine) return voice.say('youOwe', { amount: mine.outstanding }, seed);
+		if (isOwner) {
+			const amount = sum.unpaid.reduce((total, row) => total + row.outstanding, 0);
+			return voice.say('ownerWaiting', { count: sum.unpaid.length, amount }, seed);
+		}
+		return voice.say('othersUnpaid', { count: sum.unpaid.length }, seed);
 	}
 
 	if (sum.state === 'settled') {
@@ -524,7 +549,7 @@ function meguLineFor(activity, sum, period, lang = core.format.DEFAULT_LANG) {
 			: voice.say('allSettled', { title: activity.title }, seed);
 	}
 
-	if (activity.kind === 'recurring') return voice.say('nothingOwedYet', { title: activity.title }, seed);
+	if (activity.kind === 'recurring' || isBillOnly(activity)) return voice.say('nothingOwedYet', { title: activity.title }, seed);
 
 	// A poll in progress is the loudest thing on the page: it is the decision
 	// the group has been avoiding.
@@ -713,7 +738,9 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 		// written before Megu recorded who they were sent to. A screen quoting
 		// one of those is required to say it is a reconstruction.
 		obligationsEstimated: showAmounts ? sum.hasLegacyPayments : null,
-		megu: meguLineFor(activity, sum, period, lang),
+		megu: meguLineFor(activity, sum, period, lang, { showAmounts, meId: me?.id || null, isOwner: role === 'owner' }),
+		// A one-off bill with no time or poll: the page drops the plan parts.
+		billOnly: isBillOnly(activity),
 		// `key` travels and `label` does not: a month's name is rendered by
 		// the reader's browser in the reader's language, rather than frozen
 		// into the row on whatever day the month happened to be opened.
@@ -800,9 +827,7 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 				slipBank: p.slipBank,
 				slipAmountSatang: p.slipAmountSatang,
 				slipWhen: p.slipWhen,
-				slipSenderName: p.slipSenderName,
 				slipReceiverName: p.slipReceiverName,
-				slipSenderAccountTail: p.slipSenderAccountTail,
 				slipReceiverAccountTail: p.slipReceiverAccountTail,
 				// Why Megu held it back, rather than only that it did.
 				...slipAssessment(p),
@@ -815,7 +840,13 @@ function serializeActivity(activity, actor, { periodId, creditorParticipantId = 
 			}))
 			: [],
 		totals: showAmounts
-			? { total: sum.total, unpaidCount: sum.unpaid.length, fullySettled: sum.fullySettled }
+			? {
+				total: sum.total,
+				unpaidCount: sum.unpaid.length,
+				// Still to come in, for the organiser's line at the top of the page.
+				outstanding: sum.unpaid.reduce((total, row) => total + row.outstanding, 0),
+				fullySettled: sum.fullySettled,
+			}
 			: null,
 
 		// Where the money goes.
@@ -985,6 +1016,8 @@ function availablePaymentOptions(activity, creditorParticipantId = null) {
  *        Rechecks that the bot can view and send to an owner-selected channel.
  * @param {(notice: {guildId: string, channelId: string, message: string, cta: object}) => Promise<{delivered: boolean}>} [deps.postChannelNotice]
  *        Posts one message in the activity's Discord channel through the bot.
+ * @param {(guildId: string) => Promise<string>} [deps.serverLang]
+ *        The language Megu posts in for that server (core/server-lang.js).
  */
 function router(deps = {}) {
 	const api = express.Router();
@@ -1105,6 +1138,7 @@ function router(deps = {}) {
 				notificationPreferences = await users.setNotificationPreferences(req.actor.userId, {
 					mode: body.notificationMode || current.mode,
 					locale: body.notificationLocale || current.locale,
+					localeChosen: Boolean(body.notificationLocale),
 				});
 			}
 			if (!user) user = await users.getUser(req.actor.userId);
@@ -1856,7 +1890,8 @@ function router(deps = {}) {
 				guildId: guildId || null,
 				channelId: channelId || null,
 				recurrence: recurring ? 'monthly' : null,
-				dueDay: recurring ? Number(req.body.dueDay) || 1 : null,
+				// 1 to 31; a month without the day falls due on its last one.
+				dueDay: recurring ? Math.min(31, Math.max(1, Math.trunc(Number(req.body.dueDay)) || 1)) : null,
 				// Deliberately separate from `startsAt`. The court is played on
 				// the 20th and settled on the 21st; a recurring agreement answers
 				// the same question per month through `dueDay` instead.
@@ -1943,13 +1978,18 @@ function router(deps = {}) {
 				activity = await activities.getActivity(activity.id);
 			}
 			res.json({
-				activity: serializeActivity(activity, req.actor, {
-					periodId: req.query.period,
-					// The pay screen asks for one creditor at a time. Without it
-					// the page answers for whoever the reader owes, and says it
-					// cannot choose when that is more than one person.
-					creditorParticipantId: req.query.creditorParticipantId || null,
-				}),
+				activity: {
+					...serializeActivity(activity, req.actor, {
+						periodId: req.query.period,
+						// The pay screen asks for one creditor at a time. Without it
+						// the page answers for whoever the reader owes, and says it
+						// cannot choose when that is more than one person.
+						creditorParticipantId: req.query.creditorParticipantId || null,
+					}),
+					// The language of the server the bill lives in, for the link
+					// preview. A language code is all it says about the server.
+					serverLang: await billServerLang(activity),
+				},
 			});
 		}
 		catch (error) {
@@ -1972,6 +2012,14 @@ function router(deps = {}) {
 			}
 			if (target.claimedAt && !access.matchParticipant(req.actor, [target])) {
 				return fail(res, 409, 'participant_already_claimed');
+			}
+			// A name that came from Discord belongs to that Discord account. A
+			// tap on the link proves nothing about who is holding the phone, so
+			// it takes signing in with the same account; otherwise anyone with
+			// the link could become the organiser and send slips as them.
+			if (target.discordUid && !access.matchParticipant(req.actor, [target])
+				&& String(req.actor?.discordUid || '') !== String(target.discordUid)) {
+				return fail(res, 403, 'discord_sign_in_required');
 			}
 
 			await activities.claimParticipant(target.id, req.actor);
@@ -2409,26 +2457,19 @@ function router(deps = {}) {
 			const serverResult = await serverReader(original.image);
 			const verifiedQr = serverResult?.slip || null;
 			const serverRead = serverResult?.read || {};
-			const sender = serverRead.parties?.sender || null;
 			const receiver = serverRead.parties?.receiver || null;
 			const readAmount = Number(serverRead.amountSatang);
 			const normalizedReadAmount = Number.isSafeInteger(readAmount) && readAmount > 0 ? readAmount : null;
 			const readWhen = stampWhen(serverRead.when);
-			const evidenceImage = serverResult?.evidenceImage || null;
 
 			const result = await activities.attachSlip(payment.id, {
 				image: serverResult?.normalizedImage || original.image,
 				mime: serverResult?.normalizedMime || original.mime,
-				evidenceImage,
-				evidenceMime: 'image/png',
-				evidenceHash: evidenceImage ? crypto.createHash('sha256').update(evidenceImage).digest('hex') : null,
 				ref: verifiedQr?.ref || null,
 				bank: verifiedQr?.bank?.code || null,
 				amountSatang: normalizedReadAmount,
 				when: readWhen,
-				senderName: sender?.name ? String(sender.name).slice(0, 160) : null,
 				receiverName: receiver?.name ? String(receiver.name).slice(0, 160) : null,
-				senderAccountTail: sender?.accountTail || null,
 				receiverAccountTail: receiver?.accountTail || null,
 				expectedReceiverName: payment.paymentDestination?.accountName || activity.payee?.promptpayName || null,
 			});
@@ -2514,9 +2555,23 @@ function router(deps = {}) {
 			const storedSlip = await activities.getSlip(payment.id);
 			if (!storedSlip) return fail(res, 404, 'no_slip');
 
-			res.setHeader('Content-Type', storedSlip.mime);
+			// A confirmed payment shows its virtual slip, drawn now from what
+			// was kept; a waiting one shows the original for the receiver.
+			let image = storedSlip.image;
+			let mime = storedSlip.mime;
+			if (storedSlip.evidence) {
+				const card = storedSlip.evidence;
+				image = await renderEvidenceCard(
+					{ bank: card.bank ? bankFor(card.bank) : null, transRef: card.ref },
+					{ amountSatang: card.amountSatang, when: card.when, parties: { receiver: card.receiverName ? { name: card.receiverName } : null } },
+					card.confirmedAt ? new Date(card.confirmedAt) : new Date(),
+					{ payerName: card.payerName },
+				);
+				mime = 'image/png';
+			}
+			res.setHeader('Content-Type', mime);
 			res.setHeader('Cache-Control', 'private, no-store');
-			res.send(storedSlip.image);
+			res.send(image);
 		}
 		catch (error) {
 			next(error);
@@ -2531,6 +2586,12 @@ function router(deps = {}) {
 			if (!activity) return;
 
 			await activities.setPayee(activity.id, req.body?.participantId || null);
+			// The card in Discord names the payee; it is redrawn so it does not
+			// keep pointing people at the old one. Not waited for: the change is
+			// saved either way, and a closed thread is not the web's problem.
+			if (deps.refreshBillCard) {
+				deps.refreshBillCard(activity.code).catch(error => log('Megu', `Could not ask the bot to redraw ${activity.code}: ${error.message}`));
+			}
 			const full = await activities.getActivity(activity.id);
 			res.json({ activity: serializeActivity(full, req.actor) });
 		}
@@ -2573,7 +2634,9 @@ function router(deps = {}) {
 			const period = activity.kind === 'recurring'
 				? (activity.periods.find(p => p.id === req.body?.periodId) || activities.currentPeriod(activity))
 				: null;
-			const lang = req.body?.lang === 'en' ? 'en' : 'th';
+			// The channel reads it, so the server's language wins over the
+			// organiser's own screen.
+			const lang = await billServerLang(activity) || (req.body?.lang === 'en' ? 'en' : 'th');
 			const { message, ctaLabel } = billSummary.billSummaryMessage({
 				title: activity.title,
 				settlement: activities.settlement(activity, period ? period.id : null),
@@ -2587,9 +2650,15 @@ function router(deps = {}) {
 				channelId: activity.channelId,
 				message,
 				cta: origin ? { label: ctaLabel, url: `${origin}/a/${encodeURIComponent(activity.code)}` } : null,
+				// The summary names who owes whom and how much. It goes only
+				// into a private thread of the people on the bill; a bill tied
+				// to an ordinary channel would show everyone's debts to the
+				// whole server.
+				privateOnly: true,
 			});
 			if (!result?.delivered) {
 				summaryPostedAt.delete(activity.id);
+				if (result?.notPrivate) return fail(res, 409, 'summary_not_private');
 				return fail(res, 502, 'summary_not_delivered');
 			}
 			res.json({ posted: true });
@@ -2598,6 +2667,17 @@ function router(deps = {}) {
 			next(error);
 		}
 	});
+
+	/** The bill's server language, or null for a bill with no server. Never throws. */
+	async function billServerLang(activity) {
+		if (!activity?.guildId || !deps.serverLang) return null;
+		try {
+			return await deps.serverLang(activity.guildId);
+		}
+		catch {
+			return null;
+		}
+	}
 
 	async function ownerOnly(req, res, nextFn) {
 		const activity = await activities.getActivityByCode(req.params.code);

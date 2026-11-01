@@ -65,7 +65,7 @@ export default function PayScreen() {
 		t.screens.payFor(activity.title),
 		recurring && period ? fmt.period(period.key) : null,
 		activity.paymentDueAt ? t.activity.payBy(fmt.when(activity.paymentDueAt, { time: false })) : null,
-	].filter(Boolean).join(' · ');
+	].filter(Boolean).join(', ');
 
 	return (
 		<Stagger className="focus-screen">

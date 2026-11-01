@@ -10,7 +10,7 @@ import {
 	Repeat2,
 	Users,
 } from 'lucide-react';
-import AuthGate from '../components/AuthGate';
+import BillsLanding from '../components/landing/BillsLanding';
 import { useCopy } from '../copy';
 import styles from './bills.module.css';
 
@@ -51,9 +51,9 @@ export default function BillsPage() {
 
 	if (loading) return <BillsSkeleton title={t.bills.title} />;
 
-	if (!me?.loggedIn) {
-		return <AuthGate title={t.bills.signedOutTitle} lede={t.bills.signedOutLede} />;
-	}
+	// Signed out, this is the page that explains bills to someone deciding
+	// whether to add Megu, not a sign-in box.
+	if (!me?.loggedIn) return <BillsLanding />;
 
 	if (failed) {
 		return (
@@ -133,7 +133,7 @@ export default function BillsPage() {
 					<Users size={22} aria-hidden="true" />
 					<div><strong>{t.bills.guestTitle}</strong><p>{t.bills.guestBody}</p></div>
 				</div>
-				<Link href="/activities" className={styles.createLink}>
+				<Link href="/activities?new=1" className={styles.createLink}>
 					<CircleDollarSign size={19} aria-hidden="true" />
 					{t.bills.newBill}
 					<ArrowRight size={18} aria-hidden="true" />
@@ -166,7 +166,7 @@ function BillCard({ activity, recurring = false, t, fmt }) {
 
 	const detail = recurring
 		? fmt.dueDay(activity.dueDay)
-		: [fmt.when(activity.startsAt, { time: false }), activity.location].filter(Boolean).join(' · ');
+		: [fmt.when(activity.startsAt, { time: false }), activity.location].filter(Boolean).join(', ');
 
 	return (
 		<Link href={`/a/${activity.code}`} className={`${styles.billCard} ${recurring ? styles.recurringCard : ''}`}>

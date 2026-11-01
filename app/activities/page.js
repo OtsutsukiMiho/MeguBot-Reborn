@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthGate from '../components/AuthGate';
 import MeguMark from '../components/MeguMark';
@@ -35,13 +36,27 @@ function Icon({ children, size = 17 }) {
 
 const PlusIcon = () => <Icon><path d="M12 5v14" /><path d="M5 12h14" /></Icon>;
 
+// The list, read inside Suspense because it looks at ?new=1: the navbar's
+// New bill link lands here with the create form already open.
 export default function ActivitiesPage() {
+	return (
+		<Suspense fallback={null}>
+			<ActivitiesList />
+		</Suspense>
+	);
+}
+
+function ActivitiesList() {
+	const params = useSearchParams();
 	const { t, fmt } = useCopy();
 	const [me, setMe] = useState(null);
 	const [activities, setActivities] = useState([]);
 	const [guilds, setGuilds] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
+	useEffect(() => {
+		if (params.get('new') === '1') setCreating(true);
+	}, [params]);
 
 	useEffect(() => {
 		Promise.all([
@@ -90,7 +105,11 @@ export default function ActivitiesPage() {
 				<CreateActivity
 					guilds={guilds}
 					user={me.user}
-					onCancel={() => setCreating(false)}
+					onCancel={() => {
+						setCreating(false);
+						// So a reload does not open the form again.
+						if (params.get('new')) window.history.replaceState(null, '', '/activities');
+					}}
 					onCreated={a => (window.location.href = `/a/${a.code}`)}
 				/>
 			) : (
@@ -119,7 +138,7 @@ export default function ActivitiesPage() {
 						</div>
 						{live.length === 0
 							? <p className="quiet-note">{t.activities.empty.says}</p>
-							: live.map(a => <ActivityRow key={a.id} a={a} t={t} fmt={fmt} />)}
+							: live.map(a => <ActivityRow key={a.id} a={a} t={t} fmt={fmt} twin={sameTitle(activities, a)} />)}
 					</section>
 
 					{past.length > 0 && (
@@ -128,7 +147,7 @@ export default function ActivitiesPage() {
 								<span className="panel-title">{t.activities.pastTitle}</span>
 								<span className="panel-count">{past.length}</span>
 							</div>
-							{past.map(a => <ActivityRow key={a.id} a={a} t={t} fmt={fmt} quiet />)}
+							{past.map(a => <ActivityRow key={a.id} a={a} t={t} fmt={fmt} twin={sameTitle(activities, a)} quiet />)}
 						</section>
 					)}
 				</div>
@@ -184,15 +203,28 @@ function ActivitiesSkeleton({ title }) {
 	);
 }
 
-function ActivityRow({ a, t, fmt, quiet }) {
+// Two bills called "Youtube" read as one on a list. When a title repeats, the
+// row also says when it was made, which is enough to tell them apart.
+function sameTitle(list, a) {
+	return list.filter(other => other.title.trim() === a.title.trim()).length > 1;
+}
+
+function ActivityRow({ a, t, fmt, quiet, twin = false }) {
 	const recurring = a.kind === 'recurring';
 	const summary = a.summary;
+	// Made in Discord with no time set: a bill, not a plan.
+	const billOnly = !recurring && Boolean(a.guildId) && !a.startsAt;
 
 	// Two axes, two different sub-lines. A one-off is placed in time and space;
 	// a monthly agreement has neither and is described by when it collects.
-	const sub = recurring
-		? fmt.dueDay(a.dueDay)
-		: [fmt.when(a.startsAt, { time: false }) || t.activity.notScheduled, a.location].filter(Boolean).join(' · ');
+	// A bill made with /event has no time, so "not scheduled" says nothing about it.
+	const made = twin ? t.activities.madeOn(fmt.when(a.createdAt, { time: false })) : null;
+	const sub = [
+		...(recurring
+			? [fmt.dueDay(a.dueDay)]
+			: [fmt.when(a.startsAt, { time: false }) || (a.guildId ? null : t.activity.notScheduled), a.location]),
+		made,
+	].filter(Boolean).join(', ');
 
 	const tone = recurring ? 'chip-live'
 		: a.planState === 'done' ? 'chip-clear'
@@ -220,7 +252,8 @@ function ActivityRow({ a, t, fmt, quiet }) {
 	else if (summary?.moneyState === 'settled') {
 		standing = { text: t.activities.standing.settled, tone: 'fig-clear' };
 	}
-	else if (!recurring && a.planState === 'open' && summary?.people > 0) {
+	// A /event bill has no time and nothing to answer; only plans get this line.
+	else if (!recurring && !billOnly && a.planState === 'open' && summary?.people > 0) {
 		standing = summary.awaitingAnswer > 0
 			? { text: t.activities.standing.answered(summary.answered, summary.people), tone: '' }
 			: { text: t.activities.standing.allAnswered(summary.people), tone: 'fig-clear' };
@@ -234,7 +267,7 @@ function ActivityRow({ a, t, fmt, quiet }) {
 			</span>
 			<span className="row-tools activity-row-tools">
 				{standing && <span className={`row-figure ${standing.tone}`}>{standing.text}</span>}
-				<span className={`chip ${tone}`}>{recurring ? t.activities.monthly : t.plan[a.planState]}</span>
+				<span className={`chip ${tone}`}>{recurring ? t.activities.monthly : billOnly ? t.activities.oneOff : t.plan[a.planState]}</span>
 			</span>
 		</Link>
 	);
@@ -425,14 +458,14 @@ function CreateActivity({ guilds, user, onCreated, onCancel }) {
 						    without a label the box just reads as a bare "1". */}
 						<div className="field">
 							<label className="field-label" htmlFor="megu-due-day">{c.dueDayField}</label>
-							<input id="megu-due-day" className="form-control" type="number" inputMode="numeric" min="1" max="28" value={dueDay} onChange={e => setDueDay(e.target.value)} />
+							<input id="megu-due-day" className="form-control" type="number" inputMode="numeric" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} />
 							<p className="field-hint">{c.dueDayHint}</p>
 						</div>
 					</div>
 				) : (
 					<>
 						{/* Not knowing yet is the ordinary case and the reason
-						    Megu exists — she asks everyone and then calls it. A
+						    Megu exists: Megu asks everyone and then calls it. A
 						    bare datetime input asked for an answer the organizer
 						    usually does not have, and hid the poll entirely. */}
 						<fieldset className="field">

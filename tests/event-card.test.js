@@ -103,10 +103,14 @@ function ok(name) {
 	assert.equal(card.parseDueDay('5'), 5);
 	assert.equal(card.parseDueDay('วันที่ 25'), 25);
 	assert.equal(card.parseDueDay('1st'), 1);
-	assert.equal(card.parseDueDay('31'), null, 'not every month has a 31st');
+	assert.equal(card.parseDueDay('31'), 31, 'short months fall due on their last day instead');
+	assert.equal(card.parseDueDay('๓๐'), 30);
+	assert.equal(card.parseDueDay('สิ้นเดือน'), 31);
+	assert.equal(card.parseDueDay('end of month'), 31);
+	assert.equal(card.parseDueDay('32'), null);
 	assert.equal(card.parseDueDay('0'), null);
 	assert.equal(card.parseDueDay('soon'), null);
-	ok('the due day is 1–28, however it is written');
+	ok('the due day is 1 to 31 or the end of the month, however it is written');
 
 	const activity = {
 		title: 'Netflix', kind: 'recurring', dueDay: 5, currency: 'THB', ownerUserId: 'u1',

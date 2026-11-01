@@ -19,7 +19,7 @@ let roleSyncWorker = null;
 if (fs.existsSync('.env')) {
 	require('dotenv').config();
 }
-const { Client, ActivityType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, ActivityType, ChannelType, Collection, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, Partials, EmbedBuilder, Routes, AuditLogEvent, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const { getOrCreateVoiceConnection, getReadyVoiceConnection, getActiveVoiceSession, isSameVoiceSession } = require('./voice_connection.js');
 const {
@@ -145,7 +145,9 @@ client.customReadyTimestamp = customReadyTimestamp;
 
 const { BotLogs, COLOR: COLOR, parseReactionRolesMap } = require('./bot_functions.js');
 const database = require('../database/database.js');
+const { SERVER_LANG_KEY } = require('../../core/server-lang.js');
 const healthLog = require('../../adapters/health/health-log.js');
+const { handleThreadPayment } = require('../../adapters/discord/thread-pay.js');
 
 // The web process has had this guard since the outage. The bot never did, and
 // the bot is the process that talks to Discord constantly — so while the site
@@ -527,7 +529,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 			const core = require('../../core/index.js');
 			core.setLogger((scope, message) => BotLogs(scope, message));
 			await core.initCoreSchema();
-			BotLogs('Megu', `${COLOR.yellow}Discord test mode: only /จ่าย in ${DISCORD_TEST_GUILD_ID}/${DISCORD_TEST_CHANNEL_ID}`);
+			BotLogs('Megu', `${COLOR.yellow}Discord test mode: only /pay in ${DISCORD_TEST_GUILD_ID}/${DISCORD_TEST_CHANNEL_ID}`);
 		}
 		catch (error) {
 			BotLogs('Megu', `${COLOR.red}Test-mode core init failed: ${error.message}`);
@@ -672,6 +674,8 @@ for (const folder of commandFolders) {
 			client.commands.set(command.data.name, command);
 			// /event sends DMs from its buttons; they go through the same guard.
 			command.useDiscordCall?.(discordCall);
+			// And reads the language a server chose for its bill cards.
+			command.useServerLangReader?.(guildId => database.getGuildVar(guildId, SERVER_LANG_KEY));
 		}
 		else {
 			BotLogs('SYSTEM', `${COLOR.yellow}Warning: The command at ${COLOR.white}${filePath}${COLOR.yellow} is missing a required "data" or "execute" property.`);
@@ -838,7 +842,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 	if (DISCORD_TEST_MODE) {
 		if (String(interaction.guildId || '') !== DISCORD_TEST_GUILD_ID) return;
 		if (String(interaction.channelId || '') !== DISCORD_TEST_CHANNEL_ID) return;
-		if (interaction.commandName !== 'จ่าย') return;
+		if (interaction.commandName !== 'pay') return;
 	}
 
 	if (interaction.isChatInputCommand()) {
@@ -1084,7 +1088,7 @@ const DEFAULT_TTS_VOLUME = 0.5;
 
 /**
  * Loudness for one clip, as a fraction. A server sets this because Megu talking
- * over a match is the complaint that gets her muted, and the queue's own default
+ * over a match is the complaint that gets the bot muted, and the queue's own default
  * is a guess that suits nobody in particular.
  *
  * Clamped rather than trusted: `setVolume` above 1 clips the audio and a
@@ -1476,6 +1480,15 @@ client.on(Events.MessageCreate, async (message) => {
 	}
 
 	if (await processAutoMod(message)) return;
+
+	// "จ่าย ต.ค. 2569" with a slip, in a bill's own private thread. Every
+	// other message passes straight through after two cheap checks.
+	try {
+		if (await handleThreadPayment(message, { discordCall })) return;
+	}
+	catch (error) {
+		BotLogs('Megu', `${COLOR.red}Thread payment failed: ${error.message}`);
+	}
 
 	const ttsChannelId = client.ttsChannels?.get(message.guild.id);
 	if (ttsChannelId && message.channel.id === ttsChannelId) {
@@ -2646,6 +2659,20 @@ process.on('message', async (msg) => {
 			process.send({ target: 'web', type: 'payment_notice_response', reqId: msg.reqId, ...result });
 		}
 	}
+	else if (msg.type === 'bill_card_refresh') {
+		// The web changed a bill (its payee); the card in the bill's thread is
+		// redrawn so it does not keep naming the old one.
+		let refreshed = false;
+		try {
+			if (!discordBlock.blocked()) {
+				refreshed = await require('../../commands/utility/event.js').redrawBillCard(client, require('../../core/index.js'), String(msg.code || ''));
+			}
+		}
+		catch (error) {
+			BotLogs('Megu', `${COLOR.red}Could not redraw the card of ${msg.code}: ${error.message}`);
+		}
+		if (process.send) process.send({ target: 'web', type: 'bill_card_refresh_response', reqId: msg.reqId, refreshed });
+	}
 	else if (msg.type === 'validate_project_channel' || msg.type === 'project_channel_notice') {
 		const guild = client.guilds.cache.get(String(msg.guildId || ''));
 		let channel = guild?.channels.cache.get(String(msg.channelId || '')) || null;
@@ -2659,14 +2686,20 @@ process.on('message', async (msg) => {
 		else {
 			let delivered = false;
 			let error = null;
-			if (valid && !discordBlock.blocked()) {
+			// A bill's own messages name who owes what. They go into the private
+			// thread of the people on the bill, never a channel the whole server
+			// reads. Checked here, after the lookup, because only the bot can
+			// tell a thread from a channel.
+			const notPrivate = Boolean(msg.privateOnly && valid && channel.type !== ChannelType.PrivateThread);
+			if (valid && !notPrivate && !discordBlock.blocked()) {
 				const content = String(msg.message || '').slice(0, 1900);
 				delivered = Boolean(content && await discordCall('sending a project channel notice', () => channel.send({ content, components: noticeComponents(msg.cta, msg.defer?.code ? { code: msg.defer.code, payLabel: msg.defer.payLabel } : null), allowedMentions: { parse: [] } }).then(() => true), false));
 			}
 			if (!valid) error = 'The configured channel is unavailable or Megu cannot send there';
+			else if (notPrivate) error = 'The channel is not a private thread, so amounts are not posted there';
 			else if (discordBlock.blocked()) error = 'Discord is temporarily blocking this server';
 			else if (!delivered) error = 'Discord did not accept the channel message';
-			if (process.send) process.send({ target: 'web', type: 'project_channel_notice_response', reqId: msg.reqId, delivered, error });
+			if (process.send) process.send({ target: 'web', type: 'project_channel_notice_response', reqId: msg.reqId, delivered, error, notPrivate });
 		}
 	}
 	else if (msg.type === 'get_guild_details') {
@@ -2743,8 +2776,15 @@ process.on('message', async (msg) => {
 				roles,
 				members,
 				icon: guild.iconURL(),
+				preferredLocale: guild.preferredLocale || null,
 			});
 		}
+	}
+	else if (msg.type === 'get_guild_locale') {
+		// From the gateway cache only. The web process asks this for a link
+		// preview, and a preview must never cost a Discord request.
+		const guild = client.guilds.cache.get(String(msg.guildId || ''));
+		if (process.send) process.send({ target: 'web', type: 'guild_locale_response', reqId: msg.reqId, preferredLocale: guild?.preferredLocale || null });
 	}
 	else if (msg.type === 'create_guild_role') {
 		try {

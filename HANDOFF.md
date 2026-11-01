@@ -598,8 +598,9 @@ Frozen out of V0, per the scope we agreed:
 - Bank-verified payments — strict slip matches are optimistic and reversible;
   `bank_verified` is reserved for a future provider/API
 - A `Group` entity — activities are the root; groups emerge later from repeats
-- Passive Discord channel scanning — payment intake is explicit `/จ่าย` with a
-  required attachment; ordinary messages are never treated as financial input
+- Passive Discord channel scanning. Payment intake is `/pay` with a required
+  attachment, or a message in a bill's own private thread that starts with a
+  payment keyword and carries an image. Nothing else is read as financial input
 - Automatic month rollover — a new period opens when the owner asks for it,
   not on a schedule
 
@@ -614,7 +615,7 @@ core/                    knows nothing about Discord, HTTP or React
   format.js              months, dates and money, per language, from keys only
   auth/access.js         the two permission domains
   megu/voice.js          every line Megu says, in one place
-  reminders.js           who is late, and the statement she sends them
+  reminders.js           who is late, and the statement Megu sends them
 adapters/
   discord/oauth.js       token exchange and profile reads
   http/megu-api.js       REST over core, mounted at /api/megu

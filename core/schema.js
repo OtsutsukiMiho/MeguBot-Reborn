@@ -95,7 +95,7 @@ const STATEMENTS = [
 
 	// Where money sent to this person ends up. It is their own bank account,
 	// reached by PromptPay, and Megu never stands between the two ends of that
-	// transfer — she only knows the address to print on the QR.
+	// transfer. Megu only knows the address to print on the QR.
 	//
 	// `promptpay_name` is shown beside the number so whoever is about to send
 	// ฿60 can check the name their banking app offers back matches the person
@@ -233,6 +233,20 @@ const STATEMENTS = [
 		END IF;
 	END $$;`,
 
+	// The row above is written at sign-in with locale 'en', so 'en' alone cannot
+	// tell "chose English" from "never opened the settings". A private reply in
+	// Discord follows the person's choice when there is one and their Discord
+	// client otherwise, which needs the difference. A row that already says
+	// something other than the default was plainly chosen, so it starts true.
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'notification_preferences' AND column_name = 'locale_set'
+			AND table_schema = current_schema()) THEN
+			ALTER TABLE notification_preferences ADD COLUMN locale_set BOOLEAN NOT NULL DEFAULT false;
+			UPDATE notification_preferences SET locale_set = true WHERE locale <> 'en';
+		END IF;
+	END $$;`,
+
 	// Discord refresh credentials are needed when somebody signs in through a
 	// linked Google identity and then opens the server dashboard. Tokens are
 	// sealed before they reach this table; plaintext OAuth credentials never do.
@@ -307,6 +321,13 @@ const STATEMENTS = [
 	// { from, amountSatang, join, leave } and applied when month `from` opens,
 	// so nobody's transfer for this month stops matching what they owed.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurring_change JSONB;',
+	// The receiver's name as their bank prints it, taken from the first slip
+	// they confirmed by hand. Slips are checked against it as well as against
+	// the PromptPay name, and it is cleared when the payee changes.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS learned_receiver_name TEXT;',
+	// The message that holds the bill's card in its channel, so a change made
+	// on the web can redraw it instead of leaving it showing the old payer.
+	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS card_message_id TEXT;',
 	// Portable settlement instructions live on the activity. PromptPay stays a
 	// profile default on `users`; these options cover the rest of the world.
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_options JSONB NOT NULL DEFAULT \'[]\'::jsonb;',
@@ -321,6 +342,15 @@ const STATEMENTS = [
 	'ALTER TABLE activities ADD COLUMN IF NOT EXISTS payment_due_at TIMESTAMPTZ;',
 	'CREATE INDEX IF NOT EXISTS activities_owner_idx ON activities (owner_user_id);',
 	'CREATE INDEX IF NOT EXISTS activities_guild_idx ON activities (guild_id);',
+
+	// The one channel per server that holds every bill's private thread, so
+	// bills do not pile up under whichever channel they were started in. Kept
+	// by id, so an admin can rename or move it and Megu still finds it.
+	`CREATE TABLE IF NOT EXISTS bill_channels (
+		guild_id    TEXT PRIMARY KEY,
+		channel_id  TEXT NOT NULL,
+		updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
 
 	// One row per month of a recurring agreement. Expenses and payments point
 	// at a period when there is one, and at nothing when the activity is a
@@ -501,6 +531,10 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_sender_account_tail TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_receiver_account_tail TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS slip_transferred_at TIMESTAMPTZ;',
+	// The sender's bank name and account digits are no longer kept; the payer
+	// is known from the bill. Rows written before that rule are cleared here.
+	`UPDATE payments SET slip_sender_name = NULL, slip_sender_account_tail = NULL
+	 WHERE slip_sender_name IS NOT NULL OR slip_sender_account_tail IS NOT NULL;`,
 
 	// A derived evidence card contains only the fields needed for a dispute.
 	// The original upload is temporary and is discarded as soon as a decision
@@ -508,6 +542,11 @@ const STATEMENTS = [
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_image BYTEA;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_mime TEXT;',
 	'ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_hash TEXT;',
+	// The card is no longer stored: it is drawn from the slip fields when a
+	// confirmed payment is looked at. Cards stored before that printed the
+	// sender's bank name and digits, so they are cleared.
+	`UPDATE payments SET evidence_image = NULL, evidence_mime = NULL, evidence_hash = NULL
+	 WHERE evidence_image IS NOT NULL;`,
 
 	// Confirmation is intentionally two-dimensional. `status` says what the
 	// ledger currently counts, while these columns say why it was allowed to

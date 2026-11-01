@@ -78,7 +78,9 @@ async function main() {
 	try {
 		const create = createSubmit({ user: fig, title: 'Netflix', people: [om], amount: '300' });
 		await event.handleComponent(create, { core });
-		code = create.log.edits[0].components[0].components[0].data.custom_id.split(':')[2];
+		// No channel to open a thread in, so the code comes from the link in
+		// the organiser's note.
+		code = create.log.edits[0].content.match(/\/a\/([A-Z0-9]+)/)[1];
 		let activity = await core.activities.getActivityByCode(code);
 		const omRow = activity.participants.find(p => p.displayName === 'โอม');
 		const pending = () => core.activities.recordPayment(activity.id, omRow.id, { amountSatang: 15000, method: 'bank_transfer' });

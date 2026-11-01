@@ -41,7 +41,7 @@ export default function ActivitySummary() {
 	const recurring = kind === 'recurring';
 	const going = participants.filter(p => p.rsvp === 'yes').length;
 	const totalOutstanding = participants.reduce((sum, p) => sum + Math.max(0, p.outstanding || 0), 0);
-	const nameOf = id => participants.find(p => p.id === id)?.displayName || '—';
+	const nameOf = id => participants.find(p => p.id === id)?.displayName || '-';
 	const roster = rosterOrder(participants, { payeeParticipantId: payTo?.participantId, totalOutstanding });
 	const disputedMine = me
 		? payments.filter(p => p.participantId === me.id && ['rejected', 'reversed'].includes(p.status))
@@ -97,19 +97,20 @@ export default function ActivitySummary() {
 				    "Activities" would send them to a sign-in wall they did not
 				    ask for. */}
 				{isOwner && (
-					<Link className="back-link" href="/activities">
+					<Link className="back-link" href="/bills">
 						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
 							<path d="M15 18l-6-6 6-6" />
 						</svg>
-						{t.nav.activities}
+						{t.nav.myBills}
 					</Link>
 				)}
 				<h1>{activity.title}</h1>
 				<div className="page-meta">
 					{recurring
-						? <span>{period ? fmt.period(period.key) : t.activity.noPeriodYet}{activity.dueDay ? ` · ${t.activity.dueOn(activity.dueDay)}` : ''}</span>
+						? <span>{period ? fmt.period(period.key) : t.activity.noPeriodYet}{activity.dueDay ? `, ${t.activity.dueOn(activity.dueDay)}` : ''}</span>
 						: <>
-							<span>{fmt.when(activity.startsAt, { long: true }) || t.activity.notScheduled}</span>
+							{/* A bill made with /event has no time to be missing. */}
+							{!activity.billOnly && <span>{fmt.when(activity.startsAt, { long: true }) || t.activity.notScheduled}</span>}
 							{activity.location && <span>{activity.location}</span>}
 							{/* The day the money is due, which is rarely the day
 							    the thing happens. Only shown to people who can
@@ -118,7 +119,7 @@ export default function ActivitySummary() {
 								<span>{t.activity.payBy(fmt.when(activity.paymentDueAt, { time: false }))}</span>
 							)}
 						</>}
-					<span>{recurring ? t.activity.members(participants.length) : t.activity.peopleGoing(going, participants.length)}</span>
+					<span>{recurring || activity.billOnly ? t.activity.members(participants.length) : t.activity.peopleGoing(going, participants.length)}</span>
 					<span className="code">{activity.code}</span>
 				</div>
 			</Rise>
@@ -148,13 +149,13 @@ export default function ActivitySummary() {
 			{disputedMine.map(payment => (
 				<div className="error-note" key={payment.id} role="status">
 					{payment.status === 'rejected'
-						? t.pending.rejectedNotice(payment.reversalReason || '—')
-						: t.pending.reversedNotice(payment.reversalReason || '—')}
+						? t.pending.rejectedNotice(payment.reversalReason || '-')
+						: t.pending.reversedNotice(payment.reversalReason || '-')}
 				</div>
 			))}
 
 			<Rise className="chips">
-				{!recurring && (
+				{!recurring && !activity.billOnly && (
 					<span className={`chip ${activity.planState === 'done' ? '' : 'chip-live'}`}>
 						{t.plan[activity.planState]}
 					</span>
@@ -187,8 +188,8 @@ export default function ActivitySummary() {
 					    reason a receipt has ever been laid out this way. */}
 					<Rise as="section" className="ledger">
 						<div className="ledger-head">
-							<h2>{recurring ? t.roster.titleRecurring : t.roster.titleEvent}</h2>
-							<span className="panel-count">{recurring ? participants.length : `${going}/${participants.length}`}</span>
+							<h2>{recurring || activity.billOnly ? t.roster.titleRecurring : t.roster.titleEvent}</h2>
+							<span className="panel-count">{recurring || activity.billOnly ? participants.length : `${going}/${participants.length}`}</span>
 						</div>
 						<div>
 							{/* Not expandable: the summary is orientation, and one
@@ -291,17 +292,28 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 				<h2 id="next-step-title">{t.next.claim}</h2>
 				<p className="quiet-note">{t.claim.hint}</p>
 				<div className="names">
-					{participants.map(p => (
-						<button
-							key={p.id}
-							type="button"
-							className="name-btn"
-							disabled={busy || p.claimed}
-							onClick={() => call('POST', '/claim', { participantId: p.id })}
-						>
-							{p.displayName}
-						</button>
-					))}
+					{participants.map(p => (p.discordLinked && !p.claimed
+						// A Discord name is claimed by signing in with that account,
+						// never by a tap: the link may be in many hands.
+						? (
+							<a key={p.id} className="name-btn name-btn-discord" href={`/api/auth/login?returnTo=${encodeURIComponent(`/a/${code}`)}`}>
+								{p.displayName}
+								<small>{t.claim.discordSignIn}</small>
+							</a>
+						)
+						: (
+							<button
+								key={p.id}
+								type="button"
+								className="name-btn"
+								disabled={busy || p.claimed}
+								title={p.claimed ? t.claim.taken : undefined}
+								onClick={() => call('POST', '/claim', { participantId: p.id })}
+							>
+								{p.displayName}
+								{p.claimed && <small>{t.claim.taken}</small>}
+							</button>
+						)))}
 				</div>
 			</Rise>
 		);
@@ -332,6 +344,19 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 	if (isOwner && pending.length > 0) {
 		return <Statement line={t.next.review(pending.length)} action={{ href: `/a/${code}/manage`, label: t.next.reviewAction }} />;
 	}
+	// The organiser with money still out. "Nothing to do" was true of their
+	// hands but not of the bill, and their tools sat at the bottom of the page.
+	if (isOwner && activity.moneyState === 'open' && activity.totals?.outstanding > 0) {
+		return (
+			<Statement
+				label={t.next.ownerLabel}
+				satang={activity.totals.outstanding}
+				currency={activity.currency}
+				note={t.next.ownerNote(activity.totals.unpaidCount)}
+				action={{ href: `/a/${code}/manage`, label: t.next.ownerAction }}
+			/>
+		);
+	}
 
 	// An event with no time and no poll. Every branch above needs one or the
 	// other — the RSVP branch cannot ask "are you coming?" about a date that
@@ -340,7 +365,7 @@ function NextStep({ code, activity, myRow, pending, busy, call }) {
 	// time itself. The organizer is sent to set it; everyone else is told what
 	// is being waited on, which is the difference between a quiet page and a
 	// broken one.
-	if (!recurring && !activity.startsAt && !poll && planState === 'open') {
+	if (!recurring && !activity.billOnly && !activity.startsAt && !poll && planState === 'open') {
 		return isOwner
 			? <Statement line={t.next.setTime} action={{ href: `/a/${code}/rsvp`, label: t.next.setTimeAction }} />
 			: <Statement line={t.next.waitingForTime} quiet />;

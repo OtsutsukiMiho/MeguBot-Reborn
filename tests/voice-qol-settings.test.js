@@ -24,7 +24,7 @@ async function main() {
 	vm.runInNewContext(source.slice(start, end), {
 		app: { post: (_path, ...args) => { handlers = args; } },
 		requireAdminGuild: async (req, res, next) => req.authorized ? next() : res.status(403).json({ error: 'Forbidden' }),
-		validBatchWindow, resolveBatchWindow, validVoiceTemplate,
+		validBatchWindow, resolveBatchWindow, validVoiceTemplate, ...require('../core/server-lang.js'),
 		sendIpcRequest: async ({ guildId }) => ({ channels: guildId === guild ? [{ id: voice, type: 2 }, { id: text, type: 0 }] : [] }),
 		database: {
 			getAllGuildVars: async id => ({ ...(stored.get(id) || {}) }),
@@ -46,7 +46,7 @@ async function main() {
 		app: { get: (_path, _guard, handler) => { readSettings = handler; } }, requireGuildAccess: () => {},
 		sendIpcRequest: async () => ({ exists: true, channels: [] }),
 		database: { getAllGuildVars: async id => ({ ...(stored.get(id) || {}) }) },
-		resolveBatchWindow, toBooleanSetting: (value, fallback = true) => value == null ? fallback : Boolean(value),
+		resolveBatchWindow, ...require('../core/server-lang.js'), toBooleanSetting: (value, fallback = true) => value == null ? fallback : Boolean(value),
 		parseReactionRolesMap: () => ({}), parseAutomodConfig: () => ({}),
 	});
 	async function reloadSettings(guildId = guild, isAdmin = true) {

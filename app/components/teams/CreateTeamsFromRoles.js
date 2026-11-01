@@ -33,7 +33,7 @@ export default function CreateTeamsFromRoles({ guildId }) {
 	const frozen = busy || Boolean(preview) || discard;
 	const dirty = rows.length > 0 && !result;
 	const guild = owners.data?.guild;
-	useEffect(() => { document.title = `${guild?.name ? `${guild.name} · ` : ''}${c.title} · Megu`; }, [guild?.name, c.title]);
+	useEffect(() => { document.title = `${guild?.name ? `${guild.name} | ` : ''}${c.title} | Megu`; }, [guild?.name, c.title]);
 	useEffect(() => {
 		if (!discard) return;
 		const trigger = document.activeElement, dialog = discardDialog.current;

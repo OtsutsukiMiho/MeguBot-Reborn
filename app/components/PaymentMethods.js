@@ -158,8 +158,8 @@ export default function PaymentMethods() {
 								</div>
 								<div className="method-row-detail">
 									{copy.types[method.type]}
-									{method.destination && ` · ${method.destination}`}
-									{method.url && ` · ${method.url}`}
+									{method.destination && `, ${method.destination}`}
+									{method.url && `, ${method.url}`}
 								</div>
 							</div>
 							<div className="method-row-actions">

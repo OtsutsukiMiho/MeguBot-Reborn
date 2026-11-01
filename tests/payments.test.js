@@ -12,7 +12,6 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const core = require('../core/index.js');
 const meguApi = require('../adapters/http/megu-api.js');
-const { renderEvidenceCard } = require('../adapters/payment-evidence-card.js');
 
 const created = { users: [], activities: [] };
 let ok = 0;
@@ -73,7 +72,9 @@ function bankSlip(bank, ref) {
 
 // This suite expects an ordinary recent upload. Keep the fixed-clock late-upload
 // boundary in payment-evidence.test.js; this fixture must not age into that case.
-const testSlipDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+// Yesterday in Bangkok, where slips are dated. A UTC date run between midnight
+// and 7am Bangkok time lands two days back, before the bill could exist.
+const testSlipDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date(Date.now() - 24 * 60 * 60 * 1000));
 const [testSlipYear, testSlipMonth, testSlipDay] = testSlipDate.split('-').map(Number);
 
 function exactSlipBody(ref, amountSatang, { qr = true } = {}) {
@@ -114,7 +115,6 @@ async function readTestPaymentSlip(image) {
 		qrPayload,
 		slip,
 		read,
-		evidenceImage: slip ? await renderEvidenceCard(slip, read) : null,
 	};
 }
 
@@ -468,7 +468,7 @@ async function main() {
 	assert.strictEqual(rolled.expenses.filter(item => item.periodId === rolledPeriod.id).length, 1);
 	pass('authorized page opens this month with its bill once; anonymous previews do not mutate it');
 
-	// ── Megu answers in the language she was asked in ──────────────────────
+	// ── Megu answers in the language of the question ──────────────────────
 
 	r = await owner('GET', `/api/megu/a/${code}?lang=en`);
 	const english = r.body.activity.megu;
@@ -477,7 +477,7 @@ async function main() {
 
 	assert.notStrictEqual(english, thai);
 
-	// Her sentence is checked with the names taken out. People are called what
+	// Megu's sentence is checked with the names taken out. People are called what
 	// they are called: "โอม is ฿130.00 short" is correct English about someone
 	// named โอม, and a plain Thai-character test would read it as a translation
 	// that leaked.

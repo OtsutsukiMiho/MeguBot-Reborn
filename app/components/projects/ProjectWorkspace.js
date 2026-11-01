@@ -189,7 +189,7 @@ export default function ProjectWorkspace({ code }) {
 	}, []);
 	useEffect(() => {
 		if (!data?.project?.title) return undefined;
-		document.title = `${data.project.title} · Megu`;
+		document.title = `${data.project.title} | Megu`;
 		return undefined;
 	}, [data?.project?.title]);
 

@@ -1,0 +1,91 @@
+/* `/` signed in. An Operate surface: it follows the theme like every other
+   working screen, with the organisation pane on the indigo band so the two
+   sides keep the colours they have on the signed-out page. */
+
+.home { padding-block: clamp(2.5rem, 6vw, 4rem) 1rem; }
+
+.hello h1 {
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: clamp(2.1rem, 4vw, 3.2rem);
+	letter-spacing: -.04em;
+	line-height: 1.1;
+}
+
+.hello p { font-size: 1.08rem; color: var(--ink-2); margin-top: .5rem; }
+
+.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2.25rem; }
+
+.pane { border-radius: 22px; border: 1px solid var(--line); background: var(--surface); padding: 1.5rem; display: flex; flex-direction: column; }
+
+.org {
+	--line: color-mix(in srgb, var(--band-plate) 60%, var(--band));
+	background: var(--band);
+	color: var(--band-ink);
+	border-color: var(--line);
+}
+
+.paneTop { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+.paneTop h2 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+.org .paneTop h2 { color: var(--band-ink); }
+.paneTop span { font-size: .85rem; color: var(--muted); }
+.org .paneTop span { color: var(--band-dim); }
+.paneTop a { margin-left: auto; font-size: .9rem; color: var(--accent); }
+.org .paneTop a { color: var(--band-accent); }
+
+.todo { list-style: none; margin: 1.1rem 0 0; padding: 0; display: grid; gap: .6rem; }
+
+.todo li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: .9rem;
+	align-items: center;
+	border-radius: 14px;
+	background: var(--surface-2);
+	padding: .85rem 1rem;
+}
+
+.org .todo li { background: color-mix(in srgb, var(--band-plate) 25%, var(--band)); }
+.todo b { display: block; font-weight: 500; font-size: 1rem; overflow-wrap: anywhere; }
+.todo small { display: block; font-size: .82rem; color: var(--muted); margin-top: .1rem; }
+.org .todo small { color: var(--band-dim); }
+
+.act {
+	font-size: .85rem;
+	font-weight: 600;
+	border-radius: 9px;
+	padding: .55rem .8rem;
+	background: var(--brand);
+	color: var(--on-brand);
+	white-space: nowrap;
+	text-decoration: none;
+}
+
+.soft { background: transparent; border: 1px solid var(--line-2); color: var(--ink); }
+.org .soft { border-color: var(--band-plate); color: var(--band-ink); }
+
+.skeleton { min-height: 58px; background: var(--surface-2) !important; animation: shimmer 1.4s ease-in-out infinite; }
+
+@keyframes shimmer {
+	0%, 100% { opacity: .55; }
+	50% { opacity: 1; }
+}
+
+.quiet { margin: 1.1rem 0 0; font-size: .92rem; color: var(--muted); }
+.org .quiet { color: var(--band-dim); }
+.quiet a { color: var(--accent); }
+.org .quiet a { color: var(--band-accent); }
+
+@media (max-width: 900px) {
+	.panes { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+	.pane { padding: 1.2rem; }
+	.todo li { grid-template-columns: 1fr; }
+	.act { justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.skeleton { animation: none; }
+}

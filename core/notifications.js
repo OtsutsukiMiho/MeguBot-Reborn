@@ -1,5 +1,6 @@
 const { query, transaction } = require('./db.js');
 const { newId } = require('./ids.js');
+const { isSupported } = require('./locales.js');
 
 function channelsFor(mode, { hasDiscord, hasEmail }) {
 	const channels = [];
@@ -25,9 +26,16 @@ async function enqueueWithClient(client, { userId, eventType, payload, dedupeKey
 		);
 		const discord = identities.rows.find(row => row.provider === 'discord');
 		const email = identities.rows.find(row => row.provider === 'google' && row.email_verified && row.email);
-		const preference = await client.query('SELECT mode, locale FROM notification_preferences WHERE user_id = $1', [userId]);
+		const preference = await client.query('SELECT mode, locale, locale_set FROM notification_preferences WHERE user_id = $1', [userId]);
 		const mode = preference.rows[0]?.mode || (discord ? 'discord' : email ? 'email' : 'off');
-		const locale = preference.rows[0]?.locale || 'en';
+		// The person's own choice first. Someone who never chose gets the
+		// language of where the event came from (a bill's server, passed as
+		// `contextLocale`) before the English default, so a Thai server's due
+		// date does not reach its members in English just because nobody
+		// opened their account settings.
+		const locale = preference.rows[0]?.locale_set
+			? preference.rows[0].locale
+			: (isSupported(payload?.contextLocale) ? payload.contextLocale : null) || preference.rows[0]?.locale || 'en';
 		// `xmax = 0` is true only on a genuine insert: on the conflict path the
 		// row carries the updating transaction's id. Callers need to tell the
 		// two apart — a sweep that runs every five minutes would otherwise

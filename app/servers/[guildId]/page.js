@@ -12,6 +12,7 @@ import {
 	Hash,
 	History,
 	FolderKanban,
+	Languages,
 	MessageSquareQuote,
 	Mic2,
 	MousePointer2,
@@ -35,6 +36,7 @@ import MemberManagerTab from '../../components/Tabs/MemberManagerTab';
 import NicknameManagerTab from '../../components/Tabs/NicknameManagerTab';
 import VoiceTtsTab from '../../components/Tabs/VoiceTtsTab';
 import HoneypotTab from '../../components/Tabs/HoneypotTab';
+import LanguageTab from '../../components/Tabs/LanguageTab';
 import AutomodTab from '../../components/Tabs/AutomodTab';
 import ReactionRolesTab from '../../components/Tabs/ReactionRolesTab';
 import AuditLogsTab from '../../components/Tabs/AuditLogsTab';
@@ -64,6 +66,7 @@ const TAB_DEFINITIONS = [
 	{ id: 'tts', group: 'voice', icon: Mic2 },
 	{ id: 'audioqueue', group: 'voice', icon: Volume2 },
 	{ id: 'embeds', group: 'tools', icon: MessageSquareQuote },
+	{ id: 'language', group: 'tools', icon: Languages },
 	{ id: 'audit', group: 'tools', icon: History },
 	{ id: 'personal', group: 'you', icon: UserRound },
 ];
@@ -77,6 +80,7 @@ const CONFIG_TOOL_KEYS = {
 	autorole: ['autorole_id', 'autorole_ids', 'bot_autorole_ids'],
 	tts: ['tts_waiting_room_template', 'tts_channel_template', 'tts_vc_batch_window_ms', 'tts_waiting_room_channel_id', 'tts_channel_id', 'tts_engine', 'tts_lang', 'tts_voice', 'tts_ignore_prefix', 'tts_max_length', 'tts_antispam_enabled', 'tts_antispam_max_messages', 'tts_antispam_cooldown_seconds', 'tts_afk_bringback_enabled', 'tts_join_greeting_enabled', 'tts_join_greeting_text', 'tts_vc_welcome_enabled', 'tts_vc_welcome_template', 'tts_vc_leave_enabled', 'tts_vc_leave_template'],
 	honeypot: ['honeypot_channel_id'],
+	language: ['megu_lang'],
 };
 
 function sameValue(left, right) {
@@ -495,6 +499,7 @@ export default function ServerConfigPage({ params }) {
 			{activeTab === 'tts' && <VoiceTtsTab config={config} channels={channels} onChange={handleConfigChange} />}
 			{activeTab === 'audioqueue' && <AudioQueueTab guildId={guildId} showToast={showToast} draft={toolDrafts.audioqueue} onDraftChange={draft => setToolDrafts(current => ({ ...current, audioqueue: draft }))} />}
 			{activeTab === 'honeypot' && <HoneypotTab config={config} channels={channels} onChange={handleConfigChange} />}
+			{activeTab === 'language' && <LanguageTab config={config} onChange={handleConfigChange} />}
 			{activeTab === 'automod' && <AutomodTab automod={automod} onChange={handleAutomodChange} />}
 			{activeTab === 'reactionroles' && <ReactionRolesTab guildId={guildId} reactionRoles={config.reaction_roles} roles={roles} channels={channels} onRefresh={() => fetchServerData({ quiet: true })} showToast={showToast} draft={toolDrafts.reactionroles} onDraftChange={draft => setToolDrafts(current => ({ ...current, reactionroles: draft }))} />}
 			{activeTab === 'audit' && <AuditLogsTab guildId={guildId} />}
