@@ -32,8 +32,22 @@ const T = {
 		title: 'ชื่อกิจกรรม', titleHint: 'เช่น ตีแบดเสาร์นี้',
 		people: 'ใครไปบ้าง (คนในดิส)', peopleHint: 'ไม่ต้องเลือกตัวเอง Megu ใส่ให้',
 		guests: 'คนที่ไม่ได้ใช้ Discord', guestsHint: 'ชื่อละบรรทัด หรือคั่นด้วยจุลภาค',
-		amount: 'ยอดรวม (บาท)', amountHint: 'เว้นไว้ได้ถ้ายังไม่รู้ยอด',
+		amount: 'ยอดรวม หรือคนละเท่าไหร่ (บาท)', amountHint: 'เช่น 300 หรือ คนละ 65 เว้นไว้ได้ถ้ายังไม่รู้ยอด',
 		split: 'หารยังไง', withMe: 'หารเท่ากัน รวมฉันด้วย', withoutMe: 'หารเท่ากัน ไม่รวมฉัน (ฉันออกให้)',
+		custom: 'แต่ละคนจ่ายไม่เท่ากัน (ใส่ยอดรายคนหลังสร้างบิล)',
+		perPersonTotal: (each, count, total) => `คนละ ${each} จาก ${count} คน รวมเป็น ${total}`,
+		customNext: 'กด **ใส่ยอดรายคน** ด้านล่าง แล้วใส่ว่าแต่ละคนจ่ายเท่าไหร่ Megu จะรวมยอดให้',
+		customIgnored: 'ยอดที่พิมพ์ไว้ยังไม่ได้ใช้ เพราะเลือกใส่ยอดรายคน ยอดรวมจะมาจากยอดของแต่ละคน',
+		amountsButton: 'ใส่ยอดรายคน', amountsTitle: 'ยอดของแต่ละคน (บาท)',
+		amountsLines: 'ยอดของแต่ละคน บรรทัดละคน',
+		amountsLinesHint: 'แก้แค่ตัวเลขหลังเครื่องหมาย : ใส่ 0 ได้ถ้าคนนั้นไม่ต้องจ่าย',
+		amountsBad: 'อ่านยอดบางคนไม่ออก ใส่เป็นตัวเลข เช่น 65 (ใส่ 0 ได้) แล้วลองใหม่นะ',
+		amountsZero: 'ยอดรวมเป็น 0 ใส่ยอดอย่างน้อยหนึ่งคนนะ',
+		amountsLocked: 'มีคนจ่ายเข้ามาแล้ว เลยแก้ยอดรายคนในนี้ไม่ได้ เดี๋ยวยอดที่โอนไปแล้วจะไม่ตรง แก้ได้ที่เว็บ',
+		amountsSaved: total => `บันทึกแล้ว รวม ${total}`,
+		amountsOwnerOnly: 'เฉพาะเจ้าของบิลเท่านั้นที่ใส่ยอดรายคนได้',
+		splitCustom: 'บิลนี้ใส่ยอดแยกรายคน เลยเปลี่ยนแบบหารเท่าไม่ได้ เจ้าของบิลแก้ได้ที่ **จัดการ** แล้วกด **ใส่ยอดรายคน**',
+		joinedCustom: 'เพิ่มคุณเข้าบิลแล้ว บิลนี้ใส่ยอดแยกรายคน เจ้าของบิลจะใส่ยอดของคุณให้',
 		badAmount: raw => `อ่านยอด "${raw}" ไม่ออก เลยสร้างบิลไว้ก่อนโดยยังไม่ใส่ยอด ใส่ยอดได้ที่ลิงก์`,
 		nobody: 'ยังไม่มีใครในบิลนอกจากคุณ เลือกคนหรือพิมพ์ชื่ออย่างน้อยหนึ่งคนนะ',
 		dropped: count => `เกิน 25 คน ตัด ${count} ชื่อสุดท้ายออก`,
@@ -61,7 +75,7 @@ const T = {
 		failed: 'ทำรายการไม่สำเร็จ ลองใหม่อีกทีนะ',
 		subModalTitle: 'บิลรายเดือนใหม่',
 		service: 'ชื่อบริการ', serviceHint: 'เช่น Netflix, Spotify Family',
-		monthlyAmount: 'ยอดต่อเดือน (บาท)', monthlyAmountHint: 'เช่น 419',
+		monthlyAmount: 'ยอดต่อเดือน หรือคนละเท่าไหร่ (บาท)', monthlyAmountHint: 'เช่น 419 หรือ คนละ 65 ถ้าแต่ละคนจ่ายไม่เท่ากัน เว้นไว้',
 		dueDay: 'ครบกำหนดทุกวันที่', dueDayHint: '1–28',
 		peopleSub: 'ใครหารด้วย (คนในดิส)',
 		needAmount: raw => `อ่านยอด "${raw}" ไม่ออก ใส่เป็นตัวเลข เช่น 419 แล้วลองใหม่นะ`,
@@ -107,8 +121,22 @@ const T = {
 		title: 'What is it', titleHint: 'e.g. Badminton on Saturday',
 		people: 'Who is in (on Discord)', peopleHint: 'No need to pick yourself',
 		guests: 'People not on Discord', guestsHint: 'One name per line, or comma separated',
-		amount: 'Total (THB)', amountHint: 'Leave empty if you do not know yet',
+		amount: 'Total, or each person\'s part (THB)', amountHint: 'e.g. 300, or 65 each. Leave empty if you do not know yet',
 		split: 'How to split', withMe: 'Evenly, including me', withoutMe: 'Evenly, not me (my treat)',
+		custom: 'Different amounts (set each person after creating)',
+		perPersonTotal: (each, count, total) => `${each} each for ${count} people, ${total} in total`,
+		customNext: 'Press **Set amounts** below and enter what each person pays. Megu adds up the total.',
+		customIgnored: 'The amount you typed was not used, because you chose different amounts. The total comes from each person\'s amount.',
+		amountsButton: 'Set amounts', amountsTitle: 'What each person pays (THB)',
+		amountsLines: 'Each person\'s amount, one per line',
+		amountsLinesHint: 'Change only the number after the colon. 0 is fine for someone who pays nothing',
+		amountsBad: 'Some amounts could not be read. Enter numbers such as 65 (0 is fine) and try again.',
+		amountsZero: 'That adds up to 0. Enter an amount for at least one person.',
+		amountsLocked: 'Someone has already paid, so the amounts cannot change here without breaking what they sent. Change them on the web.',
+		amountsSaved: total => `Saved. Total ${total}`,
+		amountsOwnerOnly: 'Only the owner of this bill can set each person\'s amount.',
+		splitCustom: 'Each person on this bill has their own amount, so it cannot be re-split evenly. The owner can change it from **Manage** and **Set amounts**.',
+		joinedCustom: 'You are on the bill. Each person here has their own amount, so the owner will set yours.',
 		badAmount: raw => `Could not read "${raw}" as an amount, so the bill has no amount yet. Add it at the link.`,
 		nobody: 'Nobody else is on this bill. Pick someone or type at least one name.',
 		dropped: count => `Over 25 people, so the last ${count} were left out.`,
@@ -136,7 +164,7 @@ const T = {
 		failed: 'That did not work. Please try again.',
 		subModalTitle: 'New monthly bill',
 		service: 'Service', serviceHint: 'e.g. Netflix, Spotify Family',
-		monthlyAmount: 'Amount per month (THB)', monthlyAmountHint: 'e.g. 419',
+		monthlyAmount: 'Per month, or each person\'s part (THB)', monthlyAmountHint: 'e.g. 419, or 65 each. Leave empty if people pay different amounts',
 		dueDay: 'Due every month on day', dueDayHint: '1–28',
 		peopleSub: 'Who shares it (on Discord)',
 		needAmount: raw => `Could not read "${raw}" as an amount. Enter a number such as 419 and try again.`,
@@ -257,6 +285,7 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 		}
 		catch (error) {
 			if (error.code === 'change_needs_web') return 'skipped';
+			if (error.code === 'split_custom') return 'custom';
 			throw error;
 		}
 	}
@@ -267,7 +296,7 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 	const hasMoney = standing.rows.some(row => row.settled > 0 || row.pending > 0);
 	if (expenses.length !== 1 || hasMoney) return 'skipped';
 	const expense = expenses[0];
-	if ((expense.splitMode || 'even') !== 'even') return 'skipped';
+	if ((expense.splitMode || 'even') !== 'even') return 'custom';
 	const sharers = activity.shares.filter(s => s.expenseId === expense.id).map(s => s.participantId);
 	await core.activities.updateExpense(expense.id, { shareParticipantIds: [...new Set([...sharers, newcomerId])] });
 	return 'resplit';
@@ -313,13 +342,14 @@ function createModal(t, title) {
 				.setCustomId('guests').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false)
 				.setPlaceholder(t.guestsHint)),
 			new LabelBuilder().setLabel(t.amount).setTextInputComponent(new TextInputBuilder()
-				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(false)
+				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(20).setRequired(false)
 				.setPlaceholder(t.amountHint)),
 			new LabelBuilder().setLabel(t.split).setStringSelectMenuComponent(new StringSelectMenuBuilder()
 				.setCustomId('split').setRequired(true).setMinValues(1).setMaxValues(1)
 				.addOptions(
 					{ label: t.withMe, value: 'with_me', default: true },
 					{ label: t.withoutMe, value: 'without_me' },
+					{ label: t.custom, value: 'custom' },
 				)),
 		);
 }
@@ -338,7 +368,7 @@ function subModal(t, title) {
 				.setCustomId('guests').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false)
 				.setPlaceholder(t.guestsHint)),
 			new LabelBuilder().setLabel(t.monthlyAmount).setTextInputComponent(new TextInputBuilder()
-				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true)
+				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(20).setRequired(false)
 				.setPlaceholder(t.monthlyAmountHint)),
 			new LabelBuilder().setLabel(t.dueDay).setTextInputComponent(new TextInputBuilder()
 				.setCustomId('dueDay').setStyle(TextInputStyle.Short).setMaxLength(8).setRequired(true)
@@ -353,18 +383,27 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	const members = interaction.fields.getSelectedMembers('people') || new Map();
 	const guests = card.parseGuestNames(interaction.fields.getTextInputValue('guests'));
 	const rawAmount = interaction.fields.getTextInputValue('amount').trim();
-	// A subscription is shared by everyone on it; an uneven one is set on the web.
-	const splitMode = monthly ? 'with_me' : (interaction.fields.getStringSelectValues('split')[0] || 'with_me');
+	// A subscription has no room in its modal for the split menu, so leaving its
+	// amount empty is how it says "everyone pays something different". Either
+	// way the amounts are typed after the bill exists, because a modal cannot
+	// open another modal.
+	const choice = monthly
+		? (rawAmount ? 'with_me' : 'custom')
+		: (interaction.fields.getStringSelectValues('split')[0] || 'with_me');
+	const custom = choice === 'custom';
+	const splitMode = custom ? 'with_me' : choice;
+	const parsedAmount = card.parseAmountInput(rawAmount);
 	const rawDueDay = monthly ? interaction.fields.getTextInputValue('dueDay').trim() : '';
 
 	const picked = [...users.values()].filter(u => !u.bot && u.id !== interaction.user.id);
 	if (picked.length === 0 && guests.length === 0) {
 		return interaction.reply({ content: t.nobody, flags: EPHEMERAL });
 	}
-	// A monthly bill without an amount or a day bills nobody, ever — refuse it
-	// here rather than create something that silently does nothing.
+	// A monthly bill with an amount nobody can read, or without a day, bills
+	// nobody, ever. Refuse it here rather than create something that silently
+	// does nothing. An empty amount is the per-person route, asked for next.
 	const dueDay = monthly ? card.parseDueDay(rawDueDay) : null;
-	if (monthly && !parseBaht(rawAmount)) return interaction.reply({ content: t.needAmount(rawAmount), flags: EPHEMERAL });
+	if (monthly && rawAmount && !parsedAmount) return interaction.reply({ content: t.needAmount(rawAmount), flags: EPHEMERAL });
 	if (monthly && !dueDay) return interaction.reply({ content: t.badDueDay(rawDueDay), flags: EPHEMERAL });
 
 	// Public: the card is the reply. Everything after this is an edit.
@@ -405,9 +444,23 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	if (!monthly) for (const p of activity.participants) await core.activities.setRsvp(p.id, 'yes');
 
 	const notes = [];
-	const amountSatang = rawAmount ? parseBaht(rawAmount) : null;
-	if (rawAmount && !amountSatang) notes.push(t.badAmount(rawAmount));
+	const sharerCount = plan.sharerIndexes.length;
+	let amountSatang = null;
+	if (custom) {
+		if (rawAmount) notes.push(t.customIgnored);
+	}
+	else if (parsedAmount?.perPerson) {
+		amountSatang = parsedAmount.satang * sharerCount;
+		notes.push(t.perPersonTotal(money(parsedAmount.satang), sharerCount, money(amountSatang)));
+	}
+	else if (parsedAmount) {
+		amountSatang = parsedAmount.satang;
+	}
+	else if (rawAmount) {
+		notes.push(t.badAmount(rawAmount));
+	}
 	if (plan.dropped > 0) notes.push(t.dropped(plan.dropped));
+	if (custom) notes.push(t.customNext);
 	if (amountSatang && monthly) {
 		// This month opens with its bill in one transaction; every later month
 		// copies the one before it (the rollover in core/activities.js).
@@ -433,7 +486,7 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	});
 
 	await interaction.followUp({
-		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly }),
+		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly, custom }),
 		content: [organizerNoteFor(activity, rendered.period, interaction.locale), ...notes].join('\n'),
 		flags: EPHEMERAL,
 		allowedMentions: NO_PINGS,
@@ -456,8 +509,13 @@ function organizerNoteFor(activity, period, locale) {
  * is on. The card's message id rides in the menu so the card can be redrawn
  * after a pick; without it the menu would edit this private message instead.
  */
-function organizerFollowUp(t, activity, period, interaction, { cardMessageId, monthly }) {
+function organizerFollowUp(t, activity, period, interaction, { cardMessageId, monthly, custom = false }) {
 	const rows = [];
+	if (custom) {
+		rows.push(new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:amts:${activity.code}:${cardMessageId || ''}`).setStyle(ButtonStyle.Primary).setLabel(t.amountsButton),
+		));
+	}
 	const payeeIsMe = !activity.payee?.userId || activity.payee.userId === activity.ownerUserId;
 	if (payeeIsMe && !activity.payee?.promptpayId) {
 		rows.push(new ActionRowBuilder().addComponents(
@@ -605,6 +663,7 @@ function joiningSoon(activity, participantId) {
 
 function joinReply(t, core, activity, outcome) {
 	if (outcome === 'skipped') return `${t.joined}\n${t.paidAlready}`;
+	if (outcome === 'custom') return t.joinedCustom;
 	if (outcome === 'next') {
 		const period = core.activities.currentPeriod(activity);
 		return t.joinedNext(formatPeriod(period ? core.activities.nextPeriodKey(period.key) : null, t.lang));
@@ -755,6 +814,7 @@ function changeRefusal(t, error) {
 		payer_cannot_leave: t.payerCannotLeave,
 		nobody_left: t.lastPerson,
 		change_needs_web: t.changeNeedsWeb,
+		split_custom: t.splitCustom,
 		amount_invalid: t.needAmount(''),
 	}[error.code] || null;
 }
@@ -827,6 +887,7 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 	const rows = [
 		new ActionRowBuilder().addComponents(
 			new ButtonBuilder().setCustomId(`${PREFIX}:price:${ids}`).setStyle(ButtonStyle.Secondary).setLabel(t.priceButton),
+			new ButtonBuilder().setCustomId(`${PREFIX}:amts:${ids}`).setStyle(ButtonStyle.Secondary).setLabel(t.amountsButton),
 			new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(`${shareUrl(activity.code)}/months`).setLabel(t.monthsLink),
 		),
 		new ActionRowBuilder().addComponents(new UserSelectMenuBuilder()
@@ -852,12 +913,12 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 }
 
 /** The bill, its current month, and whether the person pressing owns it. */
-async function ownerView(core, interaction, code) {
+async function ownerView(core, interaction, code, ownerOnly = null) {
 	const t = copyFor(interaction);
 	const rendered = await renderCard(core, code, interaction.guildLocale || interaction.locale);
 	if (!rendered) return { error: t.gone };
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
-	if (!account || account.id !== rendered.activity.ownerUserId) return { error: t.ownerOnly };
+	if (!account || account.id !== rendered.activity.ownerUserId) return { error: ownerOnly || t.ownerOnly };
 	return { activity: rendered.activity, period: rendered.period };
 }
 
@@ -949,6 +1010,125 @@ async function onAddPeople(interaction, core, code, cardMessageId) {
 
 function onRemovePeople(interaction, core, code, cardMessageId) {
 	return applyFromPanel(interaction, core, code, cardMessageId, { leave: [...interaction.values] });
+}
+
+// ── each person's own amount ───────────────────────────────────────────────
+
+// A modal holds five boxes. Up to that, one box per person with their name on
+// it; beyond it, one paragraph with a line per person.
+const AMOUNT_BOXES = 5;
+
+/**
+ * What a per-person amount applies to: this month's one cost on a monthly
+ * bill, the one cost of a one-off, or nothing yet. It is divided between
+ * whoever shares that cost now plus anyone on the roster who has never had a
+ * share (somebody who pressed join on a bill like this), or the whole roster
+ * when there is no amount yet. Somebody who left a monthly bill keeps their
+ * old rows and is not brought back.
+ */
+function amountsTarget(core, activity, period) {
+	const monthly = activity.kind === 'recurring';
+	const expenses = activity.expenses.filter(e => !monthly || e.periodId === period?.id);
+	if (expenses.length > 1) return { error: 'change_needs_web' };
+	// A monthly bill with no month open yet has nothing paid against it; asking
+	// the whole history instead would count old months' money.
+	const standing = monthly && !period ? { rows: [] } : core.activities.settlement(activity, monthly ? period.id : null);
+	// The same line the even re-split draws: money already sent was sent
+	// against the old amounts.
+	if (standing.rows.some(row => row.settled > 0 || row.pending > 0)) return { error: 'locked' };
+	const expense = expenses[0] || null;
+	const shares = expense ? activity.shares.filter(s => s.expenseId === expense.id) : [];
+	const current = new Map(shares.map(s => [s.participantId, s.amountSatang]));
+	const everShared = new Set(activity.shares.map(s => s.participantId));
+	const sharers = activity.participants.filter(p => !expense || current.has(p.id) || !everShared.has(p.id));
+	return { expense, sharers, current };
+}
+
+function amountsModal(t, target, code, cardMessageId) {
+	const shown = satang => (satang == null ? '' : String(satang / 100));
+	const modal = new ModalBuilder()
+		.setCustomId(`${PREFIX}:amtssave:${code}:${cardMessageId || ''}`)
+		.setTitle(t.amountsTitle);
+	if (target.sharers.length <= AMOUNT_BOXES) {
+		target.sharers.forEach((p, index) => {
+			const input = new TextInputBuilder()
+				.setCustomId(`p${index}`).setStyle(TextInputStyle.Short).setMaxLength(20).setRequired(true).setPlaceholder('0');
+			const value = shown(target.current.get(p.id));
+			if (value) input.setValue(value);
+			modal.addLabelComponents(new LabelBuilder().setLabel(p.displayName.slice(0, 45)).setTextInputComponent(input));
+		});
+		return modal;
+	}
+	const value = target.sharers.map(p => `${p.displayName}: ${shown(target.current.get(p.id))}`).join('\n');
+	return modal.addLabelComponents(new LabelBuilder().setLabel(t.amountsLines).setDescription(t.amountsLinesHint)
+		.setTextInputComponent(new TextInputBuilder()
+			.setCustomId('lines').setStyle(TextInputStyle.Paragraph).setMaxLength(4000).setRequired(true)
+			.setValue(value.slice(0, 4000))));
+}
+
+function amountsRefusal(t, error) {
+	return error === 'locked' ? t.amountsLocked : t.changeNeedsWeb;
+}
+
+async function onAmountsButton(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	const view = await ownerView(core, interaction, code, t.amountsOwnerOnly);
+	if (view.error) return interaction.reply({ content: view.error, flags: EPHEMERAL });
+	const target = amountsTarget(core, view.activity, view.period);
+	if (target.error) return interaction.reply({ content: amountsRefusal(t, target.error), flags: EPHEMERAL });
+	return interaction.showModal(amountsModal(t, target, code, cardMessageId));
+}
+
+function readAmounts(interaction, count) {
+	try {
+		if (count > AMOUNT_BOXES) return card.parsePerPersonLines(interaction.fields.getTextInputValue('lines'), count);
+		return Array.from({ length: count }, (_, index) => card.parseShareAmount(interaction.fields.getTextInputValue(`p${index}`)));
+	}
+	catch {
+		// The roster changed while the modal was open, so its boxes no longer
+		// line up with the people. Asking again beats guessing who is who.
+		return null;
+	}
+}
+
+async function onAmountsSave(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	await interaction.deferReply({ flags: EPHEMERAL });
+	// Read again: somebody may have paid while the modal was open.
+	const view = await ownerView(core, interaction, code, t.amountsOwnerOnly);
+	if (view.error) return interaction.editReply(view.error);
+	const { activity, period } = view;
+	const target = amountsTarget(core, activity, period);
+	if (target.error) return interaction.editReply(amountsRefusal(t, target.error));
+
+	const amounts = readAmounts(interaction, target.sharers.length);
+	if (!amounts || amounts.some(amount => amount === null)) return interaction.editReply(t.amountsBad);
+	const total = amounts.reduce((sum, amount) => sum + amount, 0);
+	if (total <= 0) return interaction.editReply(t.amountsZero);
+
+	const ids = target.sharers.map(p => p.id);
+	const split = { mode: 'exact', values: Object.fromEntries(ids.map((id, index) => [id, amounts[index]])) };
+	if (target.expense) {
+		await core.activities.updateExpense(target.expense.id, { amountSatang: total, shareParticipantIds: ids, split });
+	}
+	else {
+		const expense = {
+			label: activity.title,
+			amountSatang: total,
+			paidBy: activity.payee?.participantId || activity.participants[0].id,
+			shareParticipantIds: ids,
+			split,
+		};
+		if (activity.kind !== 'recurring') await core.activities.addExpense(activity.id, expense);
+		else if (period) await core.activities.addExpense(activity.id, { ...expense, periodId: period.id });
+		else await core.activities.ensurePeriod(activity.id, new Date(), { expense });
+	}
+
+	// Without the card's id there is nothing safe to redraw: the message this
+	// came from is the private one, not the card.
+	if (cardMessageId) await refreshCard(core, interaction, code, cardMessageId);
+	const lines = [t.amountsSaved(money(total)), ...target.sharers.map((p, index) => `${card.inert(p.displayName)} ${money(amounts[index])}`)];
+	return interaction.editReply({ content: lines.join('\n'), allowedMentions: NO_PINGS });
 }
 
 // ── the organiser's answer to a slip, from the DM that asked ───────────────
@@ -1101,6 +1281,7 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 			if (action === 'pnosave') return await onDecisionReason(interaction, core, 'pno', code, extra);
 			if (action === 'pundosave') return await onDecisionReason(interaction, core, 'pundo', code, extra);
 			if (action === 'pricesave') return await onPriceSave(interaction, core, code, extra);
+			if (action === 'amtssave') return await onAmountsSave(interaction, core, code, extra);
 		}
 		else if (interaction.isButton()) {
 			if (action === 'join') return await onJoin(interaction, core, code);
@@ -1110,6 +1291,7 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 			if (action === 'leaveok') return await onLeaveConfirm(interaction, core, code, extra);
 			if (action === 'manage') return await onManage(interaction, core, code);
 			if (action === 'price') return await onPriceButton(interaction, core, code, extra);
+			if (action === 'amts') return await onAmountsButton(interaction, core, code, extra);
 			if (DECISIONS[action]) return await onDecisionButton(interaction, core, action, code, extra);
 		}
 		else if (interaction.isStringSelectMenu()) {

@@ -18,8 +18,8 @@ const SPLIT_MODES = ['with_me', 'without_me'];
 
 const COPY = {
 	th: {
-		heading: (title, total, count) => (total
-			? `**${title}** ${total} หารเท่า ${count} คน`
+		heading: (title, total, count, uneven) => (total
+			? `**${title}** ${total} ${uneven ? 'แยกยอดรายคน' : 'หารเท่า'} ${count} คน`
 			: `**${title}** ${count} คน ยังไม่ใส่ยอด`),
 		payee: name => `โอนให้ ${name}`,
 		receives: 'รับเงิน',
@@ -30,7 +30,7 @@ const COPY = {
 		noAmount: 'คนจัดใส่ยอดได้ที่ลิงก์ เมื่อรู้ยอดแล้ว',
 		settled: 'ทุกคนจ่ายครบแล้ว',
 		more: count => `…และอีก ${count} คน`,
-		monthly: (title, total, count, period, due) => `**${title}** ${total}/เดือน หารเท่า ${count} คน\nรอบ${period} ครบกำหนด${due}`,
+		monthly: (title, total, count, period, due, uneven) => `**${title}** ${total}/เดือน ${uneven ? 'แยกยอดรายคน' : 'หารเท่า'} ${count} คน\nรอบ${period} ครบกำหนด${due}`,
 		monthlyHowTo: 'โอนแล้วกด **แนบสลิป** ได้เลย แล้ว Megu จะเตือนทุกเดือนเมื่อถึงกำหนด',
 		dueHeading: (title, period) => `**${title}** รอบ${period} ครบกำหนดวันนี้`,
 		dueLine: (name, amount) => `• ${name} ยังค้าง ${amount}`,
@@ -41,8 +41,8 @@ const COPY = {
 		upcoming: (period, total, count) => `ตั้งแต่${period}: ${total}/เดือน หาร ${count} คน`,
 	},
 	en: {
-		heading: (title, total, count) => (total
-			? `**${title}** ${total} split evenly by ${count}`
+		heading: (title, total, count, uneven) => (total
+			? `**${title}** ${total} split ${uneven ? 'unevenly' : 'evenly'} by ${count}`
 			: `**${title}** ${count} people, no amount yet`),
 		payee: name => `Pay ${name}`,
 		receives: 'collecting',
@@ -53,7 +53,7 @@ const COPY = {
 		noAmount: 'The organiser can add the amount at the link once it is known',
 		settled: 'Everyone has paid',
 		more: count => `…and ${count} more`,
-		monthly: (title, total, count, period, due) => `**${title}** ${total}/month split evenly by ${count}\n${period}, due ${due}`,
+		monthly: (title, total, count, period, due, uneven) => `**${title}** ${total}/month split ${uneven ? 'unevenly' : 'evenly'} by ${count}\n${period}, due ${due}`,
 		monthlyHowTo: 'Paid? Press **Send slip**. Megu reminds everyone each month when it is due',
 		dueHeading: (title, period) => `**${title}** for ${period} is due today`,
 		dueLine: (name, amount) => `• ${name} still owes ${amount}`,
@@ -168,11 +168,15 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, u
 	const sharers = activity.participants.filter(p => (rowsById.get(p.id)?.owes || 0) > 0);
 	const payeeId = payee?.participantId || null;
 	const monthly = activity.kind === 'recurring' && total > 0;
+	// An even split can differ by one satang where the total does not divide;
+	// anything wider is somebody's own amount, and "split evenly" would be wrong.
+	const owed = sharers.map(p => rowsById.get(p.id).owes);
+	const uneven = owed.length > 1 && Math.max(...owed) - Math.min(...owed) > 1;
 
 	const label = p => (p.discordUid ? `<@${p.discordUid}>` : inert(p.displayName));
 	const lines = [monthly
-		? copy.monthly(inert(activity.title), money(total), sharers.length, formatPeriod(period?.key, lang), formatDueDay(activity.dueDay, lang))
-		: copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.length)];
+		? copy.monthly(inert(activity.title), money(total), sharers.length, formatPeriod(period?.key, lang), formatDueDay(activity.dueDay, lang), uneven)
+		: copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.length, uneven)];
 
 	// A monthly card is about this month and the next. Somebody who left an
 	// earlier month has no share in either and is not listed.
@@ -296,4 +300,67 @@ function dueChannelMessage({ title, periodKey, lines, currency = 'THB', locale =
 	return out.join('\n').slice(0, 1900);
 }
 
-module.exports = { parseGuestNames, planRoster, eventCardMessage, organizerNote, parseDueDay, dueChannelMessage, langOf, inert, MAX_PEOPLE, SPLIT_MODES };
+// The amount box takes either the bill or one person's part of it, the way
+// people say it: "419", "คนละ 65", "65/คน", "65 ต่อคน", "65 each". Somebody who
+// knows only what each of them pays should not have to multiply first.
+const PER_PERSON_PREFIX = /^(คนละ|each)\s*/;
+const PER_PERSON_SUFFIX = /\s*(\/\s*คน|ต่อ\s*คน|\/\s*person|per\s*person|\/\s*head|each|pp)$/;
+const BAHT_WORD = /\s*(บาท|baht|thb)$/;
+
+function satangOf(text, { allowZero = false } = {}) {
+	const plain = String(text ?? '').replace(/[฿,\s]/g, '');
+	if (!/^\d+(\.\d{1,2})?$/.test(plain)) return null;
+	const satang = Math.round(Number(plain) * 100);
+	if (!Number.isSafeInteger(satang)) return null;
+	return satang > 0 || (allowZero && satang === 0) ? satang : null;
+}
+
+/** "419" gives { satang: 41900, perPerson: false }; "คนละ 65" gives { satang: 6500, perPerson: true }. */
+function parseAmountInput(value) {
+	let text = String(value ?? '').trim().toLowerCase();
+	if (!text) return null;
+	let perPerson = false;
+	if (PER_PERSON_PREFIX.test(text)) {
+		perPerson = true;
+		text = text.replace(PER_PERSON_PREFIX, '');
+	}
+	// Twice, because "65 บาท ต่อคน" puts the unit before the per-person word.
+	for (let pass = 0; pass < 2; pass++) {
+		if (PER_PERSON_SUFFIX.test(text)) {
+			perPerson = true;
+			text = text.replace(PER_PERSON_SUFFIX, '');
+		}
+		text = text.replace(BAHT_WORD, '');
+	}
+	const satang = satangOf(text);
+	return satang ? { satang, perPerson } : null;
+}
+
+/** One person's own amount. Zero is allowed: on the bill, paying nothing. */
+function parseShareAmount(value) {
+	return satangOf(String(value ?? '').trim().toLowerCase().replace(BAHT_WORD, ''), { allowZero: true });
+}
+
+/**
+ * The paragraph form of "each person's amount", for a bill with more people
+ * than one modal has boxes: one line per person in the order given, amount
+ * after the last colon ("มาลี: 65"). Read by position, not by name, because a
+ * name is free text. Null unless every line reads.
+ */
+function parsePerPersonLines(text, count) {
+	const lines = String(text ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+	if (lines.length !== count) return null;
+	const amounts = [];
+	for (const line of lines) {
+		const match = line.match(/[:：]([^:：]*)$/);
+		const amount = parseShareAmount(match ? match[1] : '');
+		if (amount === null) return null;
+		amounts.push(amount);
+	}
+	return amounts;
+}
+
+module.exports = {
+	parseGuestNames, planRoster, eventCardMessage, organizerNote, parseDueDay, dueChannelMessage, langOf, inert,
+	parseAmountInput, parseShareAmount, parsePerPersonLines, MAX_PEOPLE, SPLIT_MODES,
+};
