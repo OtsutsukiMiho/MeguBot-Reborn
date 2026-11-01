@@ -119,9 +119,10 @@ async function outstandingByPerson({ now = new Date() } = {}) {
 
 async function lastRemindedAt(participantIds) {
 	if (participantIds.length === 0) return new Map();
+	// A nudge about the plan said nothing about money, so it does not count.
 	const res = await query(
 		`SELECT participant_id, MAX(sent_at) AS last FROM payment_reminders
-		 WHERE participant_id = ANY($1::text[]) GROUP BY participant_id`,
+		 WHERE participant_id = ANY($1::text[]) AND channel <> 'manual-nudge-plan' GROUP BY participant_id`,
 		[participantIds],
 	);
 	return new Map(res.rows.map(r => [r.participant_id, new Date(r.last)]));

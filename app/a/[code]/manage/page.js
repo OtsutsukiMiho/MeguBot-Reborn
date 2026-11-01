@@ -191,6 +191,8 @@ export default function ManageScreen() {
 			<Rise as="div" className="console-body" key={tab}>
 				{tab === 'people' && (
 					<>
+						<Link className="btn btn-secondary btn-block" href={`/a/${code}/remind`}>{t.nudge.open}</Link>
+
 						<section className="panel">
 							<div className="panel-head">
 								<span className="panel-title">{recurring ? t.roster.titleRecurring : t.roster.titleEvent}</span>

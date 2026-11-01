@@ -32,14 +32,45 @@ const T = {
 		guildOnly: 'ใช้ /event ในเซิร์ฟเวอร์ที่กลุ่มคุยกันนะ',
 		modalTitle: 'บิลใหม่',
 		title: 'ชื่อกิจกรรม', titleHint: 'เช่น ตีแบดเสาร์นี้',
-		people: 'ใครไปบ้าง (คนในดิส)', peopleHint: 'ไม่ต้องเลือกตัวเอง Megu ใส่ให้',
+		people: 'ใครเข้าร่วมบ้าง (คนในดิส)', peopleHint: 'ไม่ต้องเลือกตัวเอง Megu ใส่ให้',
 		guests: 'คนที่ไม่ได้ใช้ Discord', guestsHint: 'ชื่อละบรรทัด หรือคั่นด้วยจุลภาค',
-		amount: 'ยอดรวม (บาท)', amountHint: 'เว้นไว้ได้ถ้ายังไม่รู้ยอด',
+		amount: 'ยอดรวม หรือคนละเท่าไหร่ (บาท)', amountHint: 'เช่น 300 หรือ คนละ 65 เว้นไว้ได้ถ้ายังไม่รู้ยอด',
 		split: 'หารยังไง', withMe: 'หารเท่ากัน รวมฉันด้วย', withoutMe: 'หารเท่ากัน ไม่รวมฉัน (ฉันออกให้)',
+		custom: 'แต่ละคนจ่ายไม่เท่ากัน (ใส่ยอดรายคนหลังสร้างบิล)',
+		perPersonTotal: (each, count, total) => `คนละ ${each} จาก ${count} คน รวมเป็น ${total}`,
+		customNext: 'กด **ใส่ยอดรายคน** ด้านล่าง แล้วใส่ว่าแต่ละคนจ่ายเท่าไหร่ Megu จะรวมยอดให้',
+		customIgnored: 'ยอดที่พิมพ์ไว้ยังไม่ได้ใช้ เพราะเลือกใส่ยอดรายคน ยอดรวมจะมาจากยอดของแต่ละคน',
+		amountsButton: 'ใส่ยอดรายคน', amountsTitle: 'ยอดของแต่ละคน (บาท)',
+		amountsLines: 'ยอดของแต่ละคน บรรทัดละคน',
+		amountsLinesHint: 'แก้แค่ตัวเลขหลังเครื่องหมาย : ใส่ 0 ได้ถ้าคนนั้นไม่ต้องจ่าย',
+		amountsBad: 'อ่านยอดบางคนไม่ออก ใส่เป็นตัวเลข เช่น 65 (ใส่ 0 ได้) แล้วลองใหม่นะ',
+		amountsZero: 'ยอดรวมเป็น 0 ใส่ยอดอย่างน้อยหนึ่งคนนะ',
+		amountsLocked: 'มีคนจ่ายเข้ามาแล้ว เลยแก้ยอดรายคนในนี้ไม่ได้ เดี๋ยวยอดที่โอนไปแล้วจะไม่ตรง แก้ได้ที่เว็บ',
+		amountsSaved: total => `บันทึกแล้ว รวม ${total}`,
+		amountsOwnerOnly: 'เฉพาะเจ้าของบิลเท่านั้นที่ใส่ยอดรายคนได้',
+		splitCustom: 'บิลนี้ใส่ยอดแยกรายคน เลยเปลี่ยนแบบหารเท่าไม่ได้ เจ้าของบิลแก้ได้ที่ **จัดการ** แล้วกด **ใส่ยอดรายคน**',
+		joinedCustom: 'เพิ่มคุณเข้าบิลแล้ว บิลนี้ใส่ยอดแยกรายคน เจ้าของบิลจะใส่ยอดของคุณให้',
 		badAmount: raw => `อ่านยอด "${raw}" ไม่ออก เลยสร้างบิลไว้ก่อนโดยยังไม่ใส่ยอด ใส่ยอดได้ที่ลิงก์`,
 		nobody: 'ยังไม่มีใครในบิลนอกจากคุณ เลือกคนหรือพิมพ์ชื่ออย่างน้อยหนึ่งคนนะ',
 		dropped: count => `เกิน 25 คน ตัด ${count} ชื่อสุดท้ายออก`,
-		pay: 'แนบสลิป', join: 'ฉันไปด้วย', open: 'เปิดบิล', setPromptPay: 'ตั้งพร้อมเพย์',
+		decline: 'ไม่เข้าร่วม', nudge: 'เตือน',
+		declined: 'บันทึกแล้วว่าคุณไม่เข้าร่วม',
+		declinedResplit: 'บันทึกแล้วว่าคุณไม่เข้าร่วม ส่วนของคุณถูกหารให้คนที่เหลือแล้ว',
+		declinedKept: 'บันทึกแล้วว่าคุณไม่เข้าร่วม แต่ยอดของคุณยังอยู่จนกว่าเจ้าของบิลจะปรับ เพราะมีคนจ่ายแล้วหรือบิลนี้ใส่ยอดแยกรายคน Megu บอกเจ้าของบิลให้แล้ว',
+		alreadyOut: 'คุณบอกไว้แล้วว่าไม่เข้าร่วม ถ้าเปลี่ยนใจ กด **เข้าร่วม**',
+		declinePayee: 'คุณเป็นคนรับเงินของบิลนี้ เลยกดไม่เข้าร่วมไม่ได้ ถ้าไม่ได้ร่วมจ่าย ตั้งแบบหารไม่รวมตัวเองได้ที่เว็บ',
+		declineMonthly: 'บิลรายเดือนใช้ปุ่ม **ออกจากบิล** แทน',
+		answered: 'บันทึกคำตอบแล้ว',
+		declinedOwnerSubject: (name, title) => `${name} ไม่เข้าร่วม ${title}`,
+		declinedOwnerBody: (name, title) => `${name} กดไม่เข้าร่วม "${title}" แต่ยอดของเขายังอยู่ เพราะมีคนจ่ายแล้วหรือบิลนี้ใส่ยอดแยกรายคน ถ้าต้องการให้หารใหม่ ปรับได้ที่หน้าจัดการ`,
+		nudgeTitle: 'ให้ Megu ช่วยเตือน', nudgeTopic: 'เตือนเรื่องอะไร', nudgeWho: 'เลือกเฉพาะบางคน', nudgeWhoHint: 'ถ้าไม่เลือก จะเตือนทุกคนที่เข้าข่าย',
+		nudgeNote: 'ข้อความเพิ่มเติม (ไม่บังคับ)', nudgeNoteHint: 'เช่น โอนก่อนศุกร์นี้นะ จะแนบไปกับข้อความเตือน',
+		nudgeTopics: { unpaid: count => `คนที่ยังไม่จ่าย (${count} คน)`, unanswered: count => `คนที่ยังไม่ตอบ (${count} คน)`, attending: count => `คนที่เข้าร่วม (${count} คน)` },
+		nudgeOwnerOnly: 'เฉพาะเจ้าของบิลหรือคนรับเงินเท่านั้นที่ให้ Megu เตือนได้',
+		nudgeEmpty: 'ตอนนี้ไม่มีใครต้องเตือน',
+		nudgePickedNone: 'คนที่เลือกไม่เข้าข่ายเรื่องที่เลือก กดเตือนใหม่แล้วเลือกอีกครั้งนะ หรือเว้นว่างไว้เพื่อเตือนทุกคนที่เข้าข่าย',
+		nudgeNoteRequired: 'กิจกรรมนี้ยังไม่มีเวลา พิมพ์ข้อความเพิ่มเติมด้วยนะ ว่าอยากเตือนเรื่องอะไร',
+		pay: 'แนบสลิป', join: 'เข้าร่วม', open: 'เปิดบิล', setPromptPay: 'ตั้งพร้อมเพย์',
 		gone: 'ไม่พบบิลนี้แล้ว',
 		wrongServer: 'บิลนี้อยู่คนละเซิร์ฟเวอร์',
 		alreadyIn: 'คุณอยู่ในบิลนี้แล้ว',
@@ -50,7 +81,7 @@ const T = {
 		claimed: name => `ผูกชื่อ **${name}** กับ Discord ของคุณแล้ว Megu จะทักเตือนให้เมื่อถึงกำหนด`,
 		claimTaken: 'ชื่อนี้มีคนเลือกไปแล้ว',
 		paidAlready: 'มีคนจ่ายเข้ามาแล้ว เลยไม่หารใหม่อัตโนมัติ ให้คนจัดปรับยอดที่เว็บ',
-		notInBill: 'คุณยังไม่อยู่ในบิลนี้ กด **ฉันไปด้วย** ก่อนนะ',
+		notInBill: 'คุณยังไม่อยู่ในบิลนี้ กด **เข้าร่วม** ก่อนนะ',
 		nothingOwed: 'คุณไม่มียอดค้างในบิลนี้',
 		slipTitle: 'แนบสลิป',
 		slipTo: (name, masked, amount) => `โอน **${amount}** ให้ **${name}**${masked ? ` (พร้อมเพย์ ${masked})` : ''}`,
@@ -70,7 +101,7 @@ const T = {
 		dmFailed: 'ส่ง DM หาคุณไม่ได้ เก็บลิงก์ด้านบนไว้นะ ข้อความนี้จะหายไปเมื่อรีเฟรช',
 		subModalTitle: 'บิลรายเดือนใหม่',
 		service: 'ชื่อบริการ', serviceHint: 'เช่น Netflix, Spotify Family',
-		monthlyAmount: 'ยอดต่อเดือน (บาท)', monthlyAmountHint: 'เช่น 419',
+		monthlyAmount: 'ยอดต่อเดือน หรือคนละเท่าไหร่ (บาท)', monthlyAmountHint: 'เช่น 419 หรือ คนละ 65 ถ้าแต่ละคนจ่ายไม่เท่ากัน เว้นไว้',
 		dueDay: 'ครบกำหนดทุกวันที่', dueDayHint: '1 ถึง 31 หรือพิมพ์ว่า สิ้นเดือน',
 		peopleSub: 'ใครหารด้วย (คนในดิส)',
 		needAmount: raw => `อ่านยอด "${raw}" ไม่ออก ใส่เป็นตัวเลข เช่น 419 แล้วลองใหม่นะ`,
@@ -119,12 +150,43 @@ const T = {
 		title: 'What is it', titleHint: 'e.g. Badminton on Saturday',
 		people: 'Who is in (on Discord)', peopleHint: 'No need to pick yourself',
 		guests: 'People not on Discord', guestsHint: 'One name per line, or comma separated',
-		amount: 'Total (THB)', amountHint: 'Leave empty if you do not know yet',
+		amount: 'Total, or each person\'s part (THB)', amountHint: 'e.g. 300, or 65 each. Leave empty if you do not know yet',
 		split: 'How to split', withMe: 'Evenly, including me', withoutMe: 'Evenly, not me (my treat)',
+		custom: 'Different amounts (set each person after creating)',
+		perPersonTotal: (each, count, total) => `${each} each for ${count} people, ${total} in total`,
+		customNext: 'Press **Set amounts** below and enter what each person pays. Megu adds up the total.',
+		customIgnored: 'The amount you typed was not used, because you chose different amounts. The total comes from each person\'s amount.',
+		amountsButton: 'Set amounts', amountsTitle: 'What each person pays (THB)',
+		amountsLines: 'Each person\'s amount, one per line',
+		amountsLinesHint: 'Change only the number after the colon. 0 is fine for someone who pays nothing',
+		amountsBad: 'Some amounts could not be read. Enter numbers such as 65 (0 is fine) and try again.',
+		amountsZero: 'That adds up to 0. Enter an amount for at least one person.',
+		amountsLocked: 'Someone has already paid, so the amounts cannot change here without breaking what they sent. Change them on the web.',
+		amountsSaved: total => `Saved. Total ${total}`,
+		amountsOwnerOnly: 'Only the owner of this bill can set each person\'s amount.',
+		splitCustom: 'Each person on this bill has their own amount, so it cannot be re-split evenly. The owner can change it from **Manage** and **Set amounts**.',
+		joinedCustom: 'You are on the bill. Each person here has their own amount, so the owner will set yours.',
 		badAmount: raw => `Could not read "${raw}" as an amount, so the bill has no amount yet. Add it at the link.`,
 		nobody: 'Nobody else is on this bill. Pick someone or type at least one name.',
 		dropped: count => `Over 25 people, so the last ${count} were left out.`,
-		pay: 'Send slip', join: 'I\'m in', open: 'Open bill', setPromptPay: 'Set PromptPay',
+		decline: 'Can\'t join', nudge: 'Remind',
+		declined: 'Noted: you are not joining.',
+		declinedResplit: 'Noted: you are not joining. Your share was split among the others.',
+		declinedKept: 'Noted: you are not joining, but your share stays until the owner changes it, because someone has already paid or each person has their own amount. Megu told the owner.',
+		alreadyOut: 'You already said you are not joining. Changed your mind? Press **Join**.',
+		declinePayee: 'You are receiving the money on this bill, so you cannot decline it. If you are not sharing the cost, change the split on the web.',
+		declineMonthly: 'On a monthly bill, use **Leave** instead.',
+		answered: 'Your answer is saved.',
+		declinedOwnerSubject: (name, title) => `${name} is not joining ${title}`,
+		declinedOwnerBody: (name, title) => `${name} pressed Can't join on "${title}", but their share stays, because someone has already paid or each person has their own amount. To split it again, use the manage page.`,
+		nudgeTitle: 'Ask Megu to remind people', nudgeTopic: 'Remind about', nudgeWho: 'Only these people', nudgeWhoHint: 'Leave empty to remind everyone it applies to',
+		nudgeNote: 'Add a message (optional)', nudgeNoteHint: 'e.g. Please pay by Friday. It goes with the reminder',
+		nudgeTopics: { unpaid: count => `People who have not paid (${count})`, unanswered: count => `People who have not answered (${count})`, attending: count => `People who are joining (${count})` },
+		nudgeOwnerOnly: 'Only the owner of this bill or the person receiving the money can ask Megu to remind people.',
+		nudgeEmpty: 'Nobody needs a reminder right now.',
+		nudgePickedNone: 'The people you picked do not fit that reminder. Press Remind and choose again, or leave it empty to remind everyone it applies to.',
+		nudgeNoteRequired: 'This activity has no time yet, so please type what the reminder is about.',
+		pay: 'Send slip', join: 'Join', open: 'Open bill', setPromptPay: 'Set PromptPay',
 		gone: 'This bill no longer exists.',
 		wrongServer: 'This bill belongs to another server.',
 		alreadyIn: 'You are already on this bill.',
@@ -135,7 +197,7 @@ const T = {
 		claimed: name => `**${name}** is now linked to your Discord. Megu will remind you when it is due.`,
 		claimTaken: 'Somebody already picked that name.',
 		paidAlready: 'Someone has already paid, so the split was not redone automatically. The organiser can adjust it on the web.',
-		notInBill: 'You are not on this bill yet. Press **I\'m in** first.',
+		notInBill: 'You are not on this bill yet. Press **Join** first.',
 		nothingOwed: 'You have nothing outstanding on this bill.',
 		slipTitle: 'Send slip',
 		slipTo: (name, masked, amount) => `Send **${amount}** to **${name}**${masked ? ` (PromptPay ${masked})` : ''}`,
@@ -155,7 +217,7 @@ const T = {
 		dmFailed: 'Megu could not DM you. Keep the link above; this message goes away when you refresh.',
 		subModalTitle: 'New monthly bill',
 		service: 'Service', serviceHint: 'e.g. Netflix, Spotify Family',
-		monthlyAmount: 'Amount per month (THB)', monthlyAmountHint: 'e.g. 419',
+		monthlyAmount: 'Per month, or each person\'s part (THB)', monthlyAmountHint: 'e.g. 419, or 65 each. Leave empty if people pay different amounts',
 		dueDay: 'Due every month on day', dueDayHint: '1 to 31, or type: end of month',
 		peopleSub: 'Who shares it (on Discord)',
 		needAmount: raw => `Could not read "${raw}" as an amount. Enter a number such as 419 and try again.`,
@@ -340,6 +402,13 @@ function cardButtons(code, t, monthly = false) {
 			new ButtonBuilder().setCustomId(`${PREFIX}:manage:${code}`).setStyle(ButtonStyle.Secondary).setLabel(t.manage),
 		);
 	}
+	else {
+		// A monthly card has five buttons already, so its reminder is under Manage.
+		row.addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:decline:${code}`).setStyle(ButtonStyle.Secondary).setLabel(t.decline),
+			new ButtonBuilder().setCustomId(`${PREFIX}:nudge:${code}`).setStyle(ButtonStyle.Secondary).setLabel(t.nudge),
+		);
+	}
 	row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(shareUrl(code)).setLabel(t.open));
 	return [row];
 }
@@ -395,6 +464,7 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 		}
 		catch (error) {
 			if (error.code === 'change_needs_web') return 'skipped';
+			if (error.code === 'split_custom') return 'custom';
 			throw error;
 		}
 	}
@@ -405,7 +475,7 @@ async function resplitForNewcomer(core, activity, newcomerId) {
 	const hasMoney = standing.rows.some(row => row.settled > 0 || row.pending > 0);
 	if (expenses.length !== 1 || hasMoney) return 'skipped';
 	const expense = expenses[0];
-	if ((expense.splitMode || 'even') !== 'even') return 'skipped';
+	if ((expense.splitMode || 'even') !== 'even') return 'custom';
 	const sharers = activity.shares.filter(s => s.expenseId === expense.id).map(s => s.participantId);
 	await core.activities.updateExpense(expense.id, { shareParticipantIds: [...new Set([...sharers, newcomerId])] });
 	return 'resplit';
@@ -490,13 +560,14 @@ function createModal(t) {
 				.setCustomId('guests').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false)
 				.setPlaceholder(t.guestsHint)),
 			new LabelBuilder().setLabel(t.amount).setTextInputComponent(new TextInputBuilder()
-				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(false)
+				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(20).setRequired(false)
 				.setPlaceholder(t.amountHint)),
 			new LabelBuilder().setLabel(t.split).setStringSelectMenuComponent(new StringSelectMenuBuilder()
 				.setCustomId('split').setRequired(true).setMinValues(1).setMaxValues(1)
 				.addOptions(
 					{ label: t.withMe, value: 'with_me', default: true },
 					{ label: t.withoutMe, value: 'without_me' },
+					{ label: t.custom, value: 'custom' },
 				)),
 		);
 }
@@ -515,7 +586,7 @@ function subModal(t) {
 				.setCustomId('guests').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false)
 				.setPlaceholder(t.guestsHint)),
 			new LabelBuilder().setLabel(t.monthlyAmount).setTextInputComponent(new TextInputBuilder()
-				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true)
+				.setCustomId('amount').setStyle(TextInputStyle.Short).setMaxLength(20).setRequired(false)
 				.setPlaceholder(t.monthlyAmountHint)),
 			new LabelBuilder().setLabel(t.dueDay).setTextInputComponent(new TextInputBuilder()
 				.setCustomId('dueDay').setStyle(TextInputStyle.Short).setMaxLength(8).setRequired(true)
@@ -530,18 +601,27 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	const members = interaction.fields.getSelectedMembers('people') || new Map();
 	const guests = card.parseGuestNames(interaction.fields.getTextInputValue('guests'));
 	const rawAmount = interaction.fields.getTextInputValue('amount').trim();
-	// A subscription is shared by everyone on it; an uneven one is set on the web.
-	const splitMode = monthly ? 'with_me' : (interaction.fields.getStringSelectValues('split')[0] || 'with_me');
+	// A subscription has no room in its modal for the split menu, so leaving its
+	// amount empty is how it says "everyone pays something different". Either
+	// way the amounts are typed after the bill exists, because a modal cannot
+	// open another modal.
+	const choice = monthly
+		? (rawAmount ? 'with_me' : 'custom')
+		: (interaction.fields.getStringSelectValues('split')[0] || 'with_me');
+	const custom = choice === 'custom';
+	const splitMode = custom ? 'with_me' : choice;
+	const parsedAmount = card.parseAmountInput(rawAmount);
 	const rawDueDay = monthly ? interaction.fields.getTextInputValue('dueDay').trim() : '';
 
 	const picked = [...users.values()].filter(u => !u.bot && u.id !== interaction.user.id);
 	if (picked.length === 0 && guests.length === 0) {
 		return interaction.reply({ content: t.nobody, flags: EPHEMERAL });
 	}
-	// A monthly bill without an amount or a day bills nobody, ever — refuse it
-	// here rather than create something that silently does nothing.
+	// A monthly bill with an amount nobody can read, or without a day, bills
+	// nobody, ever. Refuse it here rather than create something that silently
+	// does nothing. An empty amount is the per-person route, asked for next.
 	const dueDay = monthly ? card.parseDueDay(rawDueDay) : null;
-	if (monthly && !parseBaht(rawAmount)) return interaction.reply({ content: t.needAmount(rawAmount), flags: EPHEMERAL });
+	if (monthly && rawAmount && !parsedAmount) return interaction.reply({ content: t.needAmount(rawAmount), flags: EPHEMERAL });
 	if (monthly && !dueDay) return interaction.reply({ content: t.badDueDay(rawDueDay), flags: EPHEMERAL });
 
 	// Private: the reply is the organiser's note. The card goes where only the
@@ -588,9 +668,23 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	if (!monthly) for (const p of activity.participants) await core.activities.setRsvp(p.id, 'yes');
 
 	const notes = [];
-	const amountSatang = rawAmount ? parseBaht(rawAmount) : null;
-	if (rawAmount && !amountSatang) notes.push(t.badAmount(rawAmount));
+	const sharerCount = plan.sharerIndexes.length;
+	let amountSatang = null;
+	if (custom) {
+		if (rawAmount) notes.push(t.customIgnored);
+	}
+	else if (parsedAmount?.perPerson) {
+		amountSatang = parsedAmount.satang * sharerCount;
+		notes.push(t.perPersonTotal(money(parsedAmount.satang), sharerCount, money(amountSatang)));
+	}
+	else if (parsedAmount) {
+		amountSatang = parsedAmount.satang;
+	}
+	else if (rawAmount) {
+		notes.push(t.badAmount(rawAmount));
+	}
 	if (plan.dropped > 0) notes.push(t.dropped(plan.dropped));
+	if (custom) notes.push(t.customNext);
 	if (amountSatang && monthly) {
 		// This month opens with its bill in one transaction; every later month
 		// copies the one before it (the rollover in core/activities.js).
@@ -656,7 +750,7 @@ async function onCreate(interaction, core, { monthly = false } = {}) {
 	}
 
 	await interaction.editReply({
-		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly }),
+		...organizerFollowUp(t, activity, rendered.period, interaction, { cardMessageId: posted?.id || null, monthly, custom }),
 		content: [organizerNoteFor(activity, rendered.period, t.lang), ...notes, ...where].join('\n').slice(0, 2000),
 		allowedMentions: NO_PINGS,
 	});
@@ -758,8 +852,13 @@ function organizerNoteFor(activity, period, locale) {
  * is on. The card's message id rides in the menu so the card can be redrawn
  * after a pick; without it the menu would edit this private message instead.
  */
-function organizerFollowUp(t, activity, period, interaction, { cardMessageId, monthly }) {
+function organizerFollowUp(t, activity, period, interaction, { cardMessageId, monthly, custom = false }) {
 	const rows = [];
+	if (custom) {
+		rows.push(new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`${PREFIX}:amts:${activity.code}:${cardMessageId || ''}`).setStyle(ButtonStyle.Primary).setLabel(t.amountsButton),
+		));
+	}
 	const payeeIsMe = !activity.payee?.userId || activity.payee.userId === activity.ownerUserId;
 	if (payeeIsMe && !activity.payee?.promptpayId) {
 		rows.push(new ActionRowBuilder().addComponents(
@@ -858,7 +957,7 @@ async function askPayerForPromptPay(client, payer, activity, lang = 'th') {
 	}, false);
 }
 
-// ── "I'm in" ───────────────────────────────────────────────────────────────
+// ── joining and declining ─────────────────────────────────────────────────
 
 async function onJoin(interaction, core, code) {
 	const t = copyFor(interaction);
@@ -871,6 +970,12 @@ async function onJoin(interaction, core, code) {
 	if (mine) {
 		// On a monthly bill "already in" depends on the month: someone who left,
 		// or is about to, presses this to come back.
+		if (activity.kind !== 'recurring' && mine.rsvp !== 'yes') {
+			await interaction.deferReply({ flags: EPHEMERAL });
+			const outcome = await answerYes(core, activity, mine);
+			await refreshCard(core, interaction, code);
+			return interaction.editReply(joinReply(t, core, activity, outcome));
+		}
 		if (activity.kind !== 'recurring' || sharesThisMonth(core, activity, mine.id) && !leavingSoon(activity, mine.id)) {
 			return interaction.reply({ content: t.alreadyIn, flags: EPHEMERAL });
 		}
@@ -900,6 +1005,102 @@ async function onJoin(interaction, core, code) {
 	return interaction.editReply(joinReply(t, core, activity, outcome));
 }
 
+/** Yes to a bill: someone coming back from a no gets their share again. */
+async function answerYes(core, activity, mine) {
+	const wasOut = mine.rsvp === 'no';
+	await core.activities.setRsvp(mine.id, 'yes');
+	return wasOut ? resplitForNewcomer(core, activity, mine.id) : 'answered';
+}
+
+/**
+ * No to a bill. Their share goes back to the others under the same rule a
+ * newcomer's re-split follows: not once money has moved, and not on anything
+ * more elaborate than one even cost. In those cases the answer is still written
+ * down and the owner hears about it, since only they can decide what it means.
+ */
+async function answerNo(core, activity, mine, t) {
+	if (mine.id === activity.payee?.participantId) return { refusal: t.declinePayee };
+	if (mine.rsvp === 'no') return { refusal: t.alreadyOut };
+	const expenses = activity.expenses;
+	let outcome = 'none';
+	if (expenses.length > 0) {
+		const standing = core.activities.settlement(activity, null);
+		const hasMoney = standing.rows.some(row => row.settled > 0 || row.pending > 0);
+		const shared = activity.shares.some(s => s.participantId === mine.id && s.amountSatang > 0);
+		if (shared && (hasMoney || expenses.length !== 1 || (expenses[0].splitMode || 'even') !== 'even')) {outcome = 'kept';}
+		else if (shared) {
+			const rest = activity.shares.filter(s => s.expenseId === expenses[0].id && s.participantId !== mine.id).map(s => s.participantId);
+			if (rest.length === 0) return { refusal: t.lastPerson };
+			await core.activities.updateExpense(expenses[0].id, { shareParticipantIds: rest });
+			outcome = 'resplit';
+		}
+	}
+	await core.activities.setRsvp(mine.id, 'no');
+	if (outcome === 'kept' && activity.ownerUserId && mine.userId !== activity.ownerUserId) {
+		const name = card.inert(mine.displayName);
+		// The answer is already saved; a full outbox must not undo that.
+		await core.notifications.enqueue({
+			userId: activity.ownerUserId,
+			eventType: 'participant_declined',
+			dedupeKey: `participant-declined:${mine.id}:${Date.now()}`,
+			payload: {
+				activityTitle: activity.title,
+				subjectTh: T.th.declinedOwnerSubject(name, activity.title),
+				subjectEn: T.en.declinedOwnerSubject(name, activity.title),
+				bodyTh: T.th.declinedOwnerBody(name, activity.title),
+				bodyEn: T.en.declinedOwnerBody(name, activity.title),
+				ctaUrl: `${shareUrl(activity.code)}/manage`,
+			},
+		}).catch(error => console.warn(`[Megu] Could not tell the owner of ${activity.code} about a decline: ${error.message}`));
+	}
+	return { outcome };
+}
+
+function declineReply(t, outcome) {
+	if (outcome === 'resplit') return t.declinedResplit;
+	if (outcome === 'kept') return t.declinedKept;
+	return t.declined;
+}
+
+async function onDecline(interaction, core, code) {
+	const t = copyFor(interaction);
+	const activity = await core.activities.getActivityByCode(code);
+	if (!activity) return interaction.reply({ content: t.gone, flags: EPHEMERAL });
+	if (activity.guildId && activity.guildId !== interaction.guildId) return interaction.reply({ content: t.wrongServer, flags: EPHEMERAL });
+	if (activity.kind === 'recurring') return interaction.reply({ content: t.declineMonthly, flags: EPHEMERAL });
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	const mine = isMine(activity, interaction.user.id, account?.id);
+	if (!mine) return interaction.reply({ content: t.notInBill, flags: EPHEMERAL });
+	await interaction.deferReply({ flags: EPHEMERAL });
+	const { refusal, outcome } = await answerNo(core, activity, mine, t);
+	if (refusal) return interaction.editReply(refusal);
+	await refreshCard(core, interaction, code);
+	return interaction.editReply(declineReply(t, outcome));
+}
+
+/** The two buttons on a "are you joining" DM. A DM has no card to edit, so the card is found. */
+async function onRsvpButton(interaction, core, code, answer) {
+	const t = copyFor(interaction);
+	await interaction.deferReply({ flags: EPHEMERAL });
+	const activity = await core.activities.getActivityByCode(code);
+	if (!activity) return interaction.editReply(t.gone);
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	const mine = isMine(activity, interaction.user.id, account?.id);
+	if (!mine) return interaction.editReply(t.notInBill);
+	let reply = t.answered;
+	if (answer === 'yes') {
+		const outcome = await answerYes(core, activity, mine);
+		if (outcome !== 'answered') reply = joinReply(t, core, activity, outcome);
+	}
+	else {
+		const { refusal, outcome } = await answerNo(core, activity, mine, t);
+		if (refusal) return interaction.editReply(refusal);
+		reply = declineReply(t, outcome);
+	}
+	await redrawBillCard(interaction.client, core, code);
+	return interaction.editReply(reply);
+}
+
 function sharesThisMonth(core, activity, participantId) {
 	const period = core.activities.currentPeriod(activity);
 	return activity.shares.some(s => s.participantId === participantId && s.amountSatang > 0 && (!period || s.periodId === period.id));
@@ -914,7 +1115,9 @@ function joiningSoon(activity, participantId) {
 }
 
 function joinReply(t, core, activity, outcome) {
+	if (outcome === 'answered') return t.answered;
 	if (outcome === 'skipped') return `${t.joined}\n${t.paidAlready}`;
+	if (outcome === 'custom') return t.joinedCustom;
 	if (outcome === 'next') {
 		const period = core.activities.currentPeriod(activity);
 		return t.joinedNext(formatPeriod(period ? core.activities.nextPeriodKey(period.key) : null, t.lang));
@@ -1067,6 +1270,7 @@ function changeRefusal(t, error) {
 		payer_cannot_leave: t.payerCannotLeave,
 		nobody_left: t.lastPerson,
 		change_needs_web: t.changeNeedsWeb,
+		split_custom: t.splitCustom,
 		amount_invalid: t.needAmount(''),
 	}[error.code] || null;
 }
@@ -1139,6 +1343,8 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 	const rows = [
 		new ActionRowBuilder().addComponents(
 			new ButtonBuilder().setCustomId(`${PREFIX}:price:${ids}`).setStyle(ButtonStyle.Secondary).setLabel(t.priceButton),
+			new ButtonBuilder().setCustomId(`${PREFIX}:amts:${ids}`).setStyle(ButtonStyle.Secondary).setLabel(t.amountsButton),
+			new ButtonBuilder().setCustomId(`${PREFIX}:nudge:${activity.code}`).setStyle(ButtonStyle.Secondary).setLabel(t.nudge),
 			new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(`${shareUrl(activity.code)}/months`).setLabel(t.monthsLink),
 		),
 		new ActionRowBuilder().addComponents(new UserSelectMenuBuilder()
@@ -1164,12 +1370,12 @@ function managePanel(t, core, activity, period, interaction, cardMessageId, extr
 }
 
 /** The bill, its current month, and whether the person pressing owns it. */
-async function ownerView(core, interaction, code) {
+async function ownerView(core, interaction, code, ownerOnly = null) {
 	const t = copyFor(interaction);
 	const rendered = await renderCard(core, code, t.lang);
 	if (!rendered) return { error: t.gone };
 	const account = await core.users.findByIdentity('discord', interaction.user.id);
-	if (!account || account.id !== rendered.activity.ownerUserId) return { error: t.ownerOnly };
+	if (!account || account.id !== rendered.activity.ownerUserId) return { error: ownerOnly || t.ownerOnly };
 	return { activity: rendered.activity, period: rendered.period };
 }
 
@@ -1261,6 +1467,246 @@ async function onAddPeople(interaction, core, code, cardMessageId) {
 
 function onRemovePeople(interaction, core, code, cardMessageId) {
 	return applyFromPanel(interaction, core, code, cardMessageId, { leave: [...interaction.values] });
+}
+
+// ── each person's own amount ───────────────────────────────────────────────
+
+// A modal holds five boxes. Up to that, one box per person with their name on
+// it; beyond it, one paragraph with a line per person.
+const AMOUNT_BOXES = 5;
+
+/**
+ * What a per-person amount applies to: this month's one cost on a monthly
+ * bill, the one cost of a one-off, or nothing yet. It is divided between
+ * whoever shares that cost now plus anyone on the roster who has never had a
+ * share (somebody who pressed join on a bill like this), or the whole roster
+ * when there is no amount yet. Somebody who left a monthly bill keeps their
+ * old rows and is not brought back.
+ */
+function amountsTarget(core, activity, period) {
+	const monthly = activity.kind === 'recurring';
+	const expenses = activity.expenses.filter(e => !monthly || e.periodId === period?.id);
+	if (expenses.length > 1) return { error: 'change_needs_web' };
+	// A monthly bill with no month open yet has nothing paid against it; asking
+	// the whole history instead would count old months' money.
+	const standing = monthly && !period ? { rows: [] } : core.activities.settlement(activity, monthly ? period.id : null);
+	// The same line the even re-split draws: money already sent was sent
+	// against the old amounts.
+	if (standing.rows.some(row => row.settled > 0 || row.pending > 0)) return { error: 'locked' };
+	const expense = expenses[0] || null;
+	const shares = expense ? activity.shares.filter(s => s.expenseId === expense.id) : [];
+	const current = new Map(shares.map(s => [s.participantId, s.amountSatang]));
+	const everShared = new Set(activity.shares.map(s => s.participantId));
+	const sharers = activity.participants.filter(p => !expense || current.has(p.id) || !everShared.has(p.id));
+	return { expense, sharers, current };
+}
+
+function amountsModal(t, target, code, cardMessageId) {
+	const shown = satang => (satang == null ? '' : String(satang / 100));
+	const modal = new ModalBuilder()
+		.setCustomId(`${PREFIX}:amtssave:${code}:${cardMessageId || ''}`)
+		.setTitle(t.amountsTitle);
+	if (target.sharers.length <= AMOUNT_BOXES) {
+		target.sharers.forEach((p, index) => {
+			const input = new TextInputBuilder()
+				.setCustomId(`p${index}`).setStyle(TextInputStyle.Short).setMaxLength(20).setRequired(true).setPlaceholder('0');
+			const value = shown(target.current.get(p.id));
+			if (value) input.setValue(value);
+			modal.addLabelComponents(new LabelBuilder().setLabel(p.displayName.slice(0, 45)).setTextInputComponent(input));
+		});
+		return modal;
+	}
+	const value = target.sharers.map(p => `${p.displayName}: ${shown(target.current.get(p.id))}`).join('\n');
+	return modal.addLabelComponents(new LabelBuilder().setLabel(t.amountsLines).setDescription(t.amountsLinesHint)
+		.setTextInputComponent(new TextInputBuilder()
+			.setCustomId('lines').setStyle(TextInputStyle.Paragraph).setMaxLength(4000).setRequired(true)
+			.setValue(value.slice(0, 4000))));
+}
+
+function amountsRefusal(t, error) {
+	return error === 'locked' ? t.amountsLocked : t.changeNeedsWeb;
+}
+
+async function onAmountsButton(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	const view = await ownerView(core, interaction, code, t.amountsOwnerOnly);
+	if (view.error) return interaction.reply({ content: view.error, flags: EPHEMERAL });
+	const target = amountsTarget(core, view.activity, view.period);
+	if (target.error) return interaction.reply({ content: amountsRefusal(t, target.error), flags: EPHEMERAL });
+	return interaction.showModal(amountsModal(t, target, code, cardMessageId));
+}
+
+function readAmounts(interaction, count) {
+	try {
+		if (count > AMOUNT_BOXES) return card.parsePerPersonLines(interaction.fields.getTextInputValue('lines'), count);
+		return Array.from({ length: count }, (_, index) => card.parseShareAmount(interaction.fields.getTextInputValue(`p${index}`)));
+	}
+	catch {
+		// The roster changed while the modal was open, so its boxes no longer
+		// line up with the people. Asking again beats guessing who is who.
+		return null;
+	}
+}
+
+async function onAmountsSave(interaction, core, code, cardMessageId) {
+	const t = copyFor(interaction);
+	await interaction.deferReply({ flags: EPHEMERAL });
+	// Read again: somebody may have paid while the modal was open.
+	const view = await ownerView(core, interaction, code, t.amountsOwnerOnly);
+	if (view.error) return interaction.editReply(view.error);
+	const { activity, period } = view;
+	const target = amountsTarget(core, activity, period);
+	if (target.error) return interaction.editReply(amountsRefusal(t, target.error));
+
+	const amounts = readAmounts(interaction, target.sharers.length);
+	if (!amounts || amounts.some(amount => amount === null)) return interaction.editReply(t.amountsBad);
+	const total = amounts.reduce((sum, amount) => sum + amount, 0);
+	if (total <= 0) return interaction.editReply(t.amountsZero);
+
+	const ids = target.sharers.map(p => p.id);
+	const split = { mode: 'exact', values: Object.fromEntries(ids.map((id, index) => [id, amounts[index]])) };
+	if (target.expense) {
+		await core.activities.updateExpense(target.expense.id, { amountSatang: total, shareParticipantIds: ids, split });
+	}
+	else {
+		const expense = {
+			label: activity.title,
+			amountSatang: total,
+			paidBy: activity.payee?.participantId || activity.participants[0].id,
+			shareParticipantIds: ids,
+			split,
+		};
+		if (activity.kind !== 'recurring') await core.activities.addExpense(activity.id, expense);
+		else if (period) await core.activities.addExpense(activity.id, { ...expense, periodId: period.id });
+		else await core.activities.ensurePeriod(activity.id, new Date(), { expense });
+	}
+
+	// Without the card's id there is nothing safe to redraw: the message this
+	// came from is the private one, not the card.
+	if (cardMessageId) await refreshCard(core, interaction, code, cardMessageId);
+	const lines = [t.amountsSaved(money(total)), ...target.sharers.map((p, index) => `${card.inert(p.displayName)} ${money(amounts[index])}`)];
+	return interaction.editReply({ content: lines.join('\n'), allowedMentions: NO_PINGS });
+}
+
+// ── the organiser asks Megu to remind people ───────────────────────────────
+
+/** The owner or the person receiving the money, and whoever is pressing. */
+async function nudgeView(core, interaction, code) {
+	const t = copyFor(interaction);
+	let activity = await core.activities.getActivityByCode(code);
+	if (!activity) return { error: t.gone };
+	const account = await core.users.findByIdentity('discord', interaction.user.id);
+	if (!core.nudges.mayNudge(activity, account)) return { error: t.nudgeOwnerOnly };
+	let period = null;
+	if (activity.kind === 'recurring') {
+		await core.activities.ensurePeriod(activity.id, new Date(), { rollover: true });
+		activity = await core.activities.getActivityByCode(code);
+		period = core.activities.currentPeriod(activity);
+	}
+	const mine = isMine(activity, interaction.user.id, account.id);
+	const sender = {
+		userId: account.id,
+		discordUid: interaction.user.id,
+		displayName: mine?.displayName || interaction.member?.displayName || interaction.user.globalName || interaction.user.username,
+	};
+	return { activity, period, sender };
+}
+
+async function onNudgeButton(interaction, core, code) {
+	const t = copyFor(interaction);
+	const view = await nudgeView(core, interaction, code);
+	if (view.error) return interaction.reply({ content: view.error, flags: EPHEMERAL });
+	const { topics } = await core.nudges.preview(view.activity, { sender: view.sender, period: view.period });
+	if (topics.length === 0) return interaction.reply({ content: t.nudgeEmpty, flags: EPHEMERAL });
+
+	// One topic needs no question, so the modal is shorter and the id carries it.
+	const sole = topics.length === 1 ? topics[0].key : '';
+	const modal = new ModalBuilder().setCustomId(`${PREFIX}:nudgesave:${code}:${sole}`).setTitle(t.nudgeTitle);
+	if (!sole) {
+		modal.addLabelComponents(new LabelBuilder().setLabel(t.nudgeTopic).setStringSelectMenuComponent(new StringSelectMenuBuilder()
+			.setCustomId('topic').setRequired(true).setMinValues(1).setMaxValues(1)
+			.addOptions(topics.map((topic, index) => ({ label: t.nudgeTopics[topic.key](topic.people.length), value: topic.key, default: index === 0 })))));
+	}
+	const reachable = new Map();
+	for (const topic of topics) {
+		for (const person of topic.people) if (person.state !== 'unreachable') reachable.set(person.id, person.displayName);
+	}
+	if (reachable.size > 1) {
+		const people = [...reachable].slice(0, 25);
+		modal.addLabelComponents(new LabelBuilder().setLabel(t.nudgeWho).setDescription(t.nudgeWhoHint).setStringSelectMenuComponent(new StringSelectMenuBuilder()
+			.setCustomId('who').setRequired(false).setMinValues(0).setMaxValues(people.length)
+			.addOptions(people.map(([value, name]) => ({ label: name.slice(0, 100), value })))));
+	}
+	modal.addLabelComponents(new LabelBuilder().setLabel(t.nudgeNote).setTextInputComponent(new TextInputBuilder()
+		.setCustomId('note').setStyle(TextInputStyle.Paragraph).setMaxLength(core.nudges.MAX_NOTE).setRequired(sole === 'attending' && !view.activity.startsAt)
+		.setPlaceholder(t.nudgeNoteHint)));
+	return interaction.showModal(modal);
+}
+
+/** A select that the modal did not carry reads as nothing chosen. */
+function selectValues(interaction, id) {
+	try {
+		return interaction.fields.getStringSelectValues(id) || [];
+	}
+	catch {
+		return [];
+	}
+}
+
+async function onNudgeSave(interaction, core, code, soleTopic) {
+	const t = copyFor(interaction);
+	await interaction.deferReply({ flags: EPHEMERAL });
+	const view = await nudgeView(core, interaction, code);
+	if (view.error) return interaction.editReply(view.error);
+	const topic = soleTopic || selectValues(interaction, 'topic')[0];
+	// A DM goes to someone who may never have chosen a language: the server's.
+	const lang = await cardLang(interaction, view.activity.guildId);
+	try {
+		const results = await core.nudges.send({
+			activity: view.activity,
+			topic,
+			participantIds: selectValues(interaction, 'who'),
+			note: interaction.fields.getTextInputValue('note'),
+			sender: view.sender,
+			period: view.period,
+			baseUrl: siteUrl(),
+			lang,
+			deliver: notice => deliverNudge(interaction, notice),
+		});
+		return interaction.editReply({
+			content: core.nudges.composeNudgeReport(results, { locale: t.lang, shareUrl: shareUrl(code) }),
+			allowedMentions: NO_PINGS,
+		});
+	}
+	catch (error) {
+		if (error.code === 'nudge_note_required') return interaction.editReply(t.nudgeNoteRequired);
+		if (error.code === 'nudge_nobody') return interaction.editReply(t.nudgeEmpty);
+		if (error.code === 'nudge_picked_none') return interaction.editReply(t.nudgePickedNone);
+		throw error;
+	}
+}
+
+/**
+ * bot.js hands over its guarded notice delivery. Without it (tests, a process
+ * with no bot) the same DM goes through discordCall with no buttons.
+ */
+let noticeDelivery = null;
+
+function useNoticeDelivery(fn) {
+	if (typeof fn === 'function') noticeDelivery = fn;
+}
+
+async function deliverNudge(interaction, { discordUid, message, cta, defer, rsvp }) {
+	if (noticeDelivery) {
+		const reply = await noticeDelivery({ recipients: [discordUid], message, cta, defer, rsvp });
+		return { delivered: reply.delivered > 0, blocked: Boolean(reply.blocked), closed: reply.outcome === 'permanent_refusal' };
+	}
+	const sent = await discordCall(`nudging ${discordUid}`, async () => {
+		const user = await interaction.client.users.fetch(discordUid);
+		await user.send({ content: message, allowedMentions: NO_PINGS });
+		return true;
+	}, false);
+	return { delivered: sent === true, blocked: false, closed: sent !== true };
 }
 
 // ── the organiser's answer to a slip, from the DM that asked ───────────────
@@ -1424,19 +1870,26 @@ async function handleComponent(interaction, { core = defaultCore } = {}) {
 			if (action === 'create') return await onCreate(interaction, core);
 			if (action === 'subcreate') return await onCreate(interaction, core, { monthly: true });
 			if (action === 'slip') return await onSlip(interaction, core, code);
+			if (action === 'nudgesave') return await onNudgeSave(interaction, core, code, extra);
 			if (action === 'ppsave') return await onPromptPaySave(interaction, core);
 			if (action === 'pnosave') return await onDecisionReason(interaction, core, 'pno', code, extra);
 			if (action === 'pundosave') return await onDecisionReason(interaction, core, 'pundo', code, extra);
 			if (action === 'pricesave') return await onPriceSave(interaction, core, code, extra);
+			if (action === 'amtssave') return await onAmountsSave(interaction, core, code, extra);
 		}
 		else if (interaction.isButton()) {
 			if (action === 'join') return await onJoin(interaction, core, code);
+			if (action === 'decline') return await onDecline(interaction, core, code);
+			if (action === 'rsvpyes') return await onRsvpButton(interaction, core, code, 'yes');
+			if (action === 'rsvpno') return await onRsvpButton(interaction, core, code, 'no');
+			if (action === 'nudge') return await onNudgeButton(interaction, core, code);
 			if (action === 'pay') return await onPay(interaction, core, code);
 			if (action === 'pp') return await onPromptPayButton(interaction);
 			if (action === 'leave') return await onLeave(interaction, core, code);
 			if (action === 'leaveok') return await onLeaveConfirm(interaction, core, code, extra);
 			if (action === 'manage') return await onManage(interaction, core, code);
 			if (action === 'price') return await onPriceButton(interaction, core, code, extra);
+			if (action === 'amts') return await onAmountsButton(interaction, core, code, extra);
 			if (DECISIONS[action]) return await onDecisionButton(interaction, core, action, code, extra);
 		}
 		else if (interaction.isStringSelectMenu()) {
@@ -1461,7 +1914,7 @@ module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('event')
 		.setDescription('Start a shared bill: who is in, what it cost, how to split')
-		.setDescriptionLocalizations({ th: 'เปิดบิลกิจกรรม: ใครไปบ้าง ค่าใช้จ่ายเท่าไหร่ หารยังไง' }),
+		.setDescriptionLocalizations({ th: 'เปิดบิลกิจกรรม: ใครเข้าร่วมบ้าง ค่าใช้จ่ายเท่าไหร่ หารยังไง' }),
 	PREFIX,
 	copyFor,
 	cardLang,
@@ -1470,6 +1923,7 @@ module.exports = {
 	subModal,
 	handleComponent,
 	useDiscordCall,
+	useNoticeDelivery,
 	resplitForNewcomer,
 	redrawBillCard,
 

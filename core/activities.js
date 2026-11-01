@@ -1523,6 +1523,9 @@ async function changeSubscription(activityId, change, { now = new Date() } = {})
 		const expenses = await client.query('SELECT * FROM expenses WHERE period_id = $1 FOR UPDATE', [periodId]);
 		if (expenses.rows.length !== 1) throw codedError('change_needs_web');
 		const [expense] = expenses.rows;
+		// Everything below re-divides evenly. On a bill where each person's
+		// amount was typed in, that would quietly overwrite what they agreed to.
+		if ((expense.split_mode || 'even') !== 'even') throw codedError('split_custom');
 		const payer = locked.rows[0].payee_participant_id || expense.paid_by;
 		if ((change.leave || []).includes(payer) || (change.leave || []).includes(expense.paid_by)) throw codedError('payer_cannot_leave');
 

@@ -2668,6 +2668,67 @@ function router(deps = {}) {
 		}
 	});
 
+	// The organiser's reminder panel. Everything about who may hear what lives
+	// in core/nudges.js, so the Discord button and this one cannot disagree.
+	async function nudgeContext(req, res) {
+		let activity = await ownerOnly(req, res);
+		if (!activity) return null;
+		let period = null;
+		if (activity.kind === 'recurring') {
+			await activities.ensurePeriod(activity.id, new Date(), { rollover: true });
+			activity = await activities.getActivityByCode(req.params.code);
+			period = activities.currentPeriod(activity);
+		}
+		const mine = activity.participants.find(p => p.userId === req.actor.userId);
+		return {
+			activity,
+			period,
+			sender: { userId: req.actor.userId, discordUid: req.actor.discordUid || null, displayName: mine?.displayName || req.actor.displayName || 'Megu' },
+		};
+	}
+
+	api.get('/a/:code/nudge', requireAccount, async (req, res, next) => {
+		try {
+			const context = await nudgeContext(req, res);
+			if (!context) return;
+			res.json(await core.nudges.preview(context.activity, context));
+		}
+		catch (error) {
+			next(error);
+		}
+	});
+
+	api.post('/a/:code/nudge', requireAccount, async (req, res, next) => {
+		try {
+			const context = await nudgeContext(req, res);
+			if (!context) return;
+			const { activity, period, sender } = context;
+			const origin = req.actor.shareOrigin || String(process.env.FRONTEND_URL || '').replace(/\/$/, '');
+			const pageLang = req.query.lang === 'en' ? 'en' : 'th';
+			const dmLang = activity.guildId && deps.serverLang ? await deps.serverLang(activity.guildId).catch(() => 'th') : 'th';
+			const results = await core.nudges.send({
+				activity,
+				period,
+				sender,
+				topic: req.body?.topic,
+				participantIds: Array.isArray(req.body?.participantIds) ? req.body.participantIds.map(String) : null,
+				note: typeof req.body?.note === 'string' ? req.body.note : '',
+				baseUrl: origin,
+				lang: dmLang,
+				deliver: deps.sendDiscordDm || null,
+			});
+			res.json({
+				results,
+				report: core.nudges.composeNudgeReport(results, { locale: pageLang, shareUrl: origin ? `${origin}/a/${encodeURIComponent(activity.code)}` : '' }),
+				...(await core.nudges.preview(activity, { sender, period })),
+			});
+		}
+		catch (error) {
+			if (['nudge_topic_invalid', 'nudge_note_required', 'nudge_nobody', 'nudge_picked_none'].includes(error.code)) return fail(res, 400, error.code);
+			next(error);
+		}
+	});
+
 	/** The bill's server language, or null for a bill with no server. Never throws. */
 	async function billServerLang(activity) {
 		if (!activity?.guildId || !deps.serverLang) return null;

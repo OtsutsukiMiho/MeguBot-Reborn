@@ -455,6 +455,12 @@ app.use('/api/megu', meguApi.router({
 		const response = await sendIpcRequest({ type: 'bill_card_refresh', code }, 10_000);
 		return response?.refreshed === true;
 	},
+	// One DM from the organiser's reminder panel, for a roster row with no account.
+	sendDiscordDm: async ({ discordUid, message, cta, defer, rsvp }) => {
+		const reply = await sendIpcRequest({ type: 'payment_notice', recipients: [discordUid], message, cta, defer, rsvp }, 10_000);
+		if (!reply) return { delivered: false, blocked: true, closed: false };
+		return { delivered: reply.delivered > 0, blocked: Boolean(reply.blocked), closed: reply.outcome === 'permanent_refusal' };
+	},
 	postChannelNotice: async ({ guildId, channelId, message, cta, privateOnly = false }) => {
 		const response = await sendIpcRequest({ type: 'project_channel_notice', guildId, channelId, message, cta, privateOnly }, 10_000);
 		return { delivered: response?.delivered === true, notPrivate: response?.notPrivate === true };
@@ -487,11 +493,11 @@ if (process.env.MEGU_PROJECTS_ENABLED !== '0') {
 	projectChannelTimer.unref();
 }
 
-async function sendDiscordNotice({ recipients, message, cta = null, defer = null, workflowDelivery = null }) {
+async function sendDiscordNotice({ recipients, message, cta = null, defer = null, rsvp = null, workflowDelivery = null }) {
 	// Longer than the default: opening a DM and sending it is two round
 	// trips to Discord, and timing out at three seconds would report a
 	// delivery as failed while it was still on its way.
-	const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message, cta, defer,
+	const reply = await sendIpcRequest({ type: 'payment_notice', recipients, message, cta, defer, rsvp,
 		...(workflowDelivery ? { workflowDelivery } : {}) }, 10_000);
 	return require('../../adapters/notifications/discord-delivery').assertDelivered(reply);
 }

@@ -31,6 +31,7 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 							defer: content.defer
 								? { ...content.defer, label: content.secondaryLabel, payLabel: content.payLabel }
 								: null,
+							rsvp: content.rsvp,
 							...(workflowDelivery ? { workflowDelivery } : {}),
 						}));
 					}
@@ -40,7 +41,7 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 							content = await core.notifications.prepareWorkflowDelivery(workflowDelivery, delivery.email);
 							if (!content) continue;
 						}
-						await sendEmail({ to: delivery.email, ...content });
+						await sendEmail({ to: delivery.email, ...content, body: content.emailBody || content.body });
 					}
 					await core.notifications.markSent(delivery.id, workflowDelivery?.attempt ?? null);
 				}
