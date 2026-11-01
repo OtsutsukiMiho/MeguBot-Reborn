@@ -114,6 +114,7 @@ async function main() {
 	assert.match(unpaid, /ยอดของคุณ ฿100\.00/, 'the facts stay');
 	assert.match(unpaid, /ข้อความจาก ฟิก: โอนก่อนศุกร์นะ/, 'the note says whose words it is');
 	assert.match(words({ topic: 'unanswered', locale: 'en' }), /ฟิก is asking whether you are joining "ค่าเกม"/);
+	assert.equal(nudges.plainText(nudges.cleanText('mew_99 @everyone <b>')), 'mew_99 @everyone <b>', 'an email shows it as typed');
 	ok('a typed message cannot ping or dress up a link, and is added to the facts');
 
 	await core.initCoreSchema();
@@ -301,6 +302,7 @@ async function main() {
 		assert.equal(queued.rows[0].channel, 'discord');
 		const rendered = core.notifications.render({ payload: { ...queued.rows[0].payload, locale: 'th' } });
 		assert.match(rendered.body, /ฝากเตือนเรื่อง/);
+		assert.ok(rendered.emailBody, 'the email has its own unescaped copy');
 		assert.equal(rendered.payLabel, 'แนบสลิป');
 
 		const muted = await createBill(fig, { people: [mew], amount: '100' });
@@ -397,6 +399,7 @@ async function main() {
 
 			assert.equal((await post({ topic: 'nonsense' })).body.code, 'nudge_topic_invalid');
 			assert.equal((await post({ topic: 'attending' })).body.code, 'nudge_note_required');
+			assert.equal((await post({ topic: 'unpaid', participantIds: ['nobody'] })).body.code, 'nudge_picked_none');
 
 			const only = activity.participants.find(p => p.displayName === 'โอม').id;
 			const answer = await post({ topic: 'unpaid', participantIds: [only], note: 'โอนด้วยนะ' });

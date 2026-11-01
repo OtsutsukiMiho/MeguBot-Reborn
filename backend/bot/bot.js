@@ -704,7 +704,8 @@ const DEFER_MODAL = 'megu_defer_modal';
 
 function noticeComponents(cta, defer, rsvp = null) {
 	const buttons = [];
-	if (cta?.url && /^https?:\/\//i.test(String(cta.url))) {
+	// With answer buttons drawn below, a link beside them would be a third way to say the same thing.
+	if (!rsvp?.code && cta?.url && /^https?:\/\//i.test(String(cta.url))) {
 		buttons.push(new ButtonBuilder()
 			.setStyle(ButtonStyle.Link)
 			.setURL(String(cta.url))

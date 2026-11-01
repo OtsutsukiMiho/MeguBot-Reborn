@@ -3887,6 +3887,20 @@ a.name-btn { display: inline-block; text-decoration: none; text-align: center; }
 	accent-color: var(--accent);
 }
 
+.nudge-person {
+	gap: .7rem;
+	cursor: pointer;
+}
+
+.nudge-person input {
+	accent-color: var(--accent);
+	flex-shrink: 0;
+}
+
+.nudge-person:has(input:disabled) {
+	cursor: default;
+}
+
 .schedule-needed > div:last-child {
 	display: grid;
 	gap: .8rem;

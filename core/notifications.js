@@ -258,6 +258,8 @@ function render(delivery) {
 		secondaryLabel,
 		secondaryUrl,
 		defer: p.defer || null,
+		// When the Discord text carries escaping that an email should not show.
+		emailBody: (th ? p.emailBodyTh : p.emailBodyEn) || null,
 		// Discord only: answering from inside the DM. Email has the link instead.
 		rsvp: p.rsvp ? { ...p.rsvp, yesLabel: th ? 'เข้าร่วม' : 'Join', noLabel: th ? 'ไม่เข้าร่วม' : 'Can\'t join' } : null,
 		// Discord only: the button that opens the slip upload inside the DM.

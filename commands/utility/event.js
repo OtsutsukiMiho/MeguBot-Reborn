@@ -68,6 +68,7 @@ const T = {
 		nudgeTopics: { unpaid: count => `คนที่ยังไม่จ่าย (${count} คน)`, unanswered: count => `คนที่ยังไม่ตอบ (${count} คน)`, attending: count => `คนที่เข้าร่วม (${count} คน)` },
 		nudgeOwnerOnly: 'เฉพาะเจ้าของบิลหรือคนรับเงินเท่านั้นที่ให้ Megu เตือนได้',
 		nudgeEmpty: 'ตอนนี้ไม่มีใครต้องเตือน',
+		nudgePickedNone: 'คนที่เลือกไม่เข้าข่ายเรื่องที่เลือก กดเตือนใหม่แล้วเลือกอีกครั้งนะ หรือเว้นว่างไว้เพื่อเตือนทุกคนที่เข้าข่าย',
 		nudgeNoteRequired: 'กิจกรรมนี้ยังไม่มีเวลา พิมพ์ข้อความเพิ่มเติมด้วยนะ ว่าอยากเตือนเรื่องอะไร',
 		pay: 'แนบสลิป', join: 'เข้าร่วม', open: 'เปิดบิล', setPromptPay: 'ตั้งพร้อมเพย์',
 		gone: 'ไม่พบบิลนี้แล้ว',
@@ -183,6 +184,7 @@ const T = {
 		nudgeTopics: { unpaid: count => `People who have not paid (${count})`, unanswered: count => `People who have not answered (${count})`, attending: count => `People who are joining (${count})` },
 		nudgeOwnerOnly: 'Only the owner of this bill or the person receiving the money can ask Megu to remind people.',
 		nudgeEmpty: 'Nobody needs a reminder right now.',
+		nudgePickedNone: 'The people you picked do not fit that reminder. Press Remind and choose again, or leave it empty to remind everyone it applies to.',
 		nudgeNoteRequired: 'This activity has no time yet, so please type what the reminder is about.',
 		pay: 'Send slip', join: 'Join', open: 'Open bill', setPromptPay: 'Set PromptPay',
 		gone: 'This bill no longer exists.',
@@ -1636,7 +1638,7 @@ async function onNudgeButton(interaction, core, code) {
 			.addOptions(people.map(([value, name]) => ({ label: name.slice(0, 100), value })))));
 	}
 	modal.addLabelComponents(new LabelBuilder().setLabel(t.nudgeNote).setTextInputComponent(new TextInputBuilder()
-		.setCustomId('note').setStyle(TextInputStyle.Paragraph).setMaxLength(core.nudges.MAX_NOTE).setRequired(false)
+		.setCustomId('note').setStyle(TextInputStyle.Paragraph).setMaxLength(core.nudges.MAX_NOTE).setRequired(sole === 'attending' && !view.activity.startsAt)
 		.setPlaceholder(t.nudgeNoteHint)));
 	return interaction.showModal(modal);
 }
@@ -1679,6 +1681,7 @@ async function onNudgeSave(interaction, core, code, soleTopic) {
 	catch (error) {
 		if (error.code === 'nudge_note_required') return interaction.editReply(t.nudgeNoteRequired);
 		if (error.code === 'nudge_nobody') return interaction.editReply(t.nudgeEmpty);
+		if (error.code === 'nudge_picked_none') return interaction.editReply(t.nudgePickedNone);
 		throw error;
 	}
 }

@@ -41,7 +41,7 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 							content = await core.notifications.prepareWorkflowDelivery(workflowDelivery, delivery.email);
 							if (!content) continue;
 						}
-						await sendEmail({ to: delivery.email, ...content });
+						await sendEmail({ to: delivery.email, ...content, body: content.emailBody || content.body });
 					}
 					await core.notifications.markSent(delivery.id, workflowDelivery?.attempt ?? null);
 				}

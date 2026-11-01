@@ -2724,7 +2724,7 @@ function router(deps = {}) {
 			});
 		}
 		catch (error) {
-			if (['nudge_topic_invalid', 'nudge_note_required', 'nudge_nobody'].includes(error.code)) return fail(res, 400, error.code);
+			if (['nudge_topic_invalid', 'nudge_note_required', 'nudge_nobody', 'nudge_picked_none'].includes(error.code)) return fail(res, 400, error.code);
 			next(error);
 		}
 	});

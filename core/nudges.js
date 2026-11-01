@@ -52,6 +52,11 @@ function cleanText(value, max = MAX_TEXT) {
 		.replace(/@/g, '@​');
 }
 
+/** The same words for somewhere Discord's escaping would show as stray marks. */
+function plainText(value) {
+	return String(value ?? '').replace(/\\([\\`*_~|>[\]#<])/g, '$1').replace(/\u200b/g, '');
+}
+
 function mayNudge(activity, account) {
 	return Boolean(account && (account.id === activity.ownerUserId || account.id === activity.payee?.userId));
 }
@@ -172,13 +177,13 @@ function composeNudge({ topic, activity, period = null, amountSatang = 0, sender
 	if (note) lines.push('', th ? `ข้อความจาก ${who}: ${note}` : `From ${who}: ${note}`);
 	if (topic === 'unpaid') {
 		lines.push('', th
-			? 'โอนแล้วกด "แนบสลิป" ได้เลย ถ้ายังไม่พร้อม กด "ยังไม่จ่ายตอนนี้" แล้วบอกเหตุผลไว้'
-			: 'Paid? Press "Send slip". Not ready? Press "Not now" and say why.');
+			? 'โอนแล้วแนบสลิปจากปุ่มด้านล่างได้เลย ถ้ายังไม่พร้อม กด "ยังไม่จ่ายตอนนี้" แล้วบอกเหตุผลไว้'
+			: 'Paid? Send your slip with the button below. Not ready? Press "Not now" and say why.');
 	}
 	else if (topic === 'unanswered') {
 		lines.push('', activity.slots.length > 0
-			? (th ? 'กดลิงก์เพื่อเลือกเวลาที่ว่างได้เลย' : 'Open the link to choose the times that work for you.')
-			: (th ? 'กดตอบได้เลย' : 'Press a button to answer.'));
+			? (th ? 'เลือกเวลาที่ว่างจากปุ่มด้านล่างได้เลย' : 'Choose the times that work for you with the button below.')
+			: (th ? 'ตอบจากปุ่มด้านล่างได้เลย' : 'Answer with the button below.'));
 	}
 	return lines.join('\n');
 }
@@ -243,7 +248,7 @@ async function send({ activity, topic, participantIds = null, note = '', sender,
 	const picked = participantIds?.length ? new Set(participantIds) : null;
 	const groups = candidates(activity, period);
 	const targets = groups[topic].filter(({ participant }) => !isPresser(participant, sender) && (!picked || picked.has(participant.id)));
-	if (targets.length === 0) throw codedError('nudge_nobody');
+	if (targets.length === 0) throw codedError(picked ? 'nudge_picked_none' : 'nudge_nobody');
 
 	const deferred = topic === 'unpaid'
 		? await activities.activeDeferrals(targets.map(item => item.participant.id), { now })
@@ -268,7 +273,7 @@ async function send({ activity, topic, participantIds = null, note = '', sender,
 	const rsvp = topic === 'unanswered' && activity.slots.length === 0 ? { code: activity.code } : null;
 	const labels = {
 		unpaid: { th: 'จ่ายเงิน', en: 'Pay now' },
-		unanswered: { th: 'เปิดกิจกรรม', en: 'Open activity' },
+		unanswered: activity.slots.length > 0 ? { th: 'เลือกเวลา', en: 'Choose times' } : { th: 'ตอบเลย', en: 'Answer' },
 		attending: { th: 'เปิดกิจกรรม', en: 'Open activity' },
 	}[topic];
 
@@ -293,10 +298,12 @@ async function send({ activity, topic, participantIds = null, note = '', sender,
 					payload: {
 						activityTitle: activity.title,
 						activityCode: activity.code,
-						subjectTh: `${cleanText(sender.displayName, 60)} ฝากเตือนเรื่อง ${activity.title}`,
-						subjectEn: `${cleanText(sender.displayName, 60)} sent a reminder about ${activity.title}`,
+						subjectTh: `${plainText(cleanText(sender.displayName, 60))} ฝากเตือนเรื่อง ${activity.title}`,
+						subjectEn: `${plainText(cleanText(sender.displayName, 60))} sent a reminder about ${activity.title}`,
 						bodyTh: composeNudge({ ...words, locale: 'th' }),
 						bodyEn: composeNudge({ ...words, locale: 'en' }),
+						emailBodyTh: plainText(composeNudge({ ...words, locale: 'th' })),
+						emailBodyEn: plainText(composeNudge({ ...words, locale: 'en' })),
 						ctaUrl,
 						ctaLabelTh: labels.th,
 						ctaLabelEn: labels.en,
@@ -381,4 +388,4 @@ function composeNudgeReport(results, { locale = 'th', shareUrl = '' } = {}) {
 	return lines.join('\n').slice(0, 1900);
 }
 
-module.exports = { NUDGE_COOLDOWN_HOURS, MAX_NOTE, MONEY_CHANNEL, PLAN_CHANNEL, TOPICS, cleanText, mayNudge, preview, send, composeNudge, composeNudgeReport };
+module.exports = { NUDGE_COOLDOWN_HOURS, MAX_NOTE, MONEY_CHANNEL, PLAN_CHANNEL, TOPICS, cleanText, plainText, mayNudge, preview, send, composeNudge, composeNudgeReport };
