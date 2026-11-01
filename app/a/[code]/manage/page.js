@@ -6,7 +6,7 @@ import PromptPaySetup from '../../../components/PromptPaySetup';
 import PaymentOptionsSetup from '../../../components/PaymentOptionsSetup';
 import { AddPerson, AttendancePanel, ExpenseRow, PaymentHistory, PendingRow } from '../../../components/activity/Rows';
 import { PersonAccount, rosterOrder } from '../../../components/activity/Ledger';
-import { AddExpense, CancelActivity, CashPaymentForm, PaymentDeadline, PlanControls, cashRecipients } from '../../../components/activity/OwnerTools';
+import { AddExpense, CancelActivity, CashPaymentForm, NudgePanel, PaymentDeadline, PlanControls, cashRecipients } from '../../../components/activity/OwnerTools';
 import { ScreenHead, useActivity } from '../../../components/activity/ActivityShell';
 import { Rise, Stagger } from '../../../components/activity/Motion';
 import { useCopy } from '../../../copy';
@@ -214,6 +214,8 @@ export default function ManageScreen() {
 								{editingPeople && <AddPerson busy={busy} call={call} />}
 							</div>
 						</section>
+
+						<NudgePanel busy={busy} call={call} />
 
 						{!recurring && activity.planState === 'done' && (
 							<AttendancePanel participants={participants} busy={busy} call={call} />

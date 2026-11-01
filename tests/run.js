@@ -141,6 +141,7 @@ const SUITES = [
 	['thread-pay.test.js', 'paying by typing in a bill thread: month and amount read in either calendar, slip message removed'],
 	['sub-command.test.js', '/sub — a monthly bill from one modal, rolled into next month, announced once on its due day'],
 	['per-person-amounts.test.js', 'per-person amounts: "คนละ 65" adds up the total, different amounts typed in after the bill exists'],
+	['event-nudges.test.js', 'declining a bill and asking Megu to remind people: cooldown, deferrals, blocks and the outbox'],
 	['payments.test.js', 'PromptPay QR and slips — who may see a number, and a slip spent twice'],
 ];
 

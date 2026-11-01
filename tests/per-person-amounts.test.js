@@ -9,6 +9,7 @@ require('dotenv').config();
 const assert = require('node:assert/strict');
 const core = require('../core/index.js');
 const card = require('../core/event-card.js');
+const { ChannelType } = require('discord.js');
 const event = require('../commands/utility/event.js');
 
 let n = 0;
@@ -19,8 +20,36 @@ function ok(name) {
 
 const snowflake = () => `1${Date.now()}${String(Math.floor(Math.random() * 1e5)).padStart(5, '0')}`;
 
+// The channel /event is used in, and the private thread each bill's card lives
+// in. Edits land in the log of whichever call is running.
+const threads = new Map();
+let active = null;
+const room = {
+	id: '223456789012345678',
+	type: ChannelType.GuildText,
+	threads: {
+		async create() {
+			const thread = {
+				id: snowflake(),
+				type: ChannelType.PrivateThread,
+				members: { add: async () => undefined },
+				send: async (value) => {
+					active.posted.push(value);
+					return { id: 'card1' };
+				},
+				messages: { edit: async (id, value) => active.cardEdits.push({ id, ...value }) },
+				delete: async () => threads.delete(thread.id),
+			};
+			threads.set(thread.id, thread);
+			return thread;
+		},
+	},
+	messages: { edit: async (id, value) => active.cardEdits.push({ id, ...value }) },
+};
+
 function base({ customId, user, kind }) {
-	const log = { replies: [], edits: [], followUps: [], cardEdits: [], modal: null };
+	const log = { replies: [], edits: [], followUps: [], posted: [], cardEdits: [], dms: [], modal: null };
+	active = log;
 	return {
 		log,
 		customId,
@@ -28,7 +57,7 @@ function base({ customId, user, kind }) {
 		guildLocale: 'th',
 		guildId: '123456789012345678',
 		channelId: '223456789012345678',
-		user: { id: user.id, username: user.name, globalName: user.name, displayAvatarURL: () => null },
+		user: { id: user.id, username: user.name, globalName: user.name, displayAvatarURL: () => null, send: async value => log.dms.push(value) },
 		member: { displayName: user.name },
 		isModalSubmit: () => kind === 'modal',
 		isButton: () => kind === 'button',
@@ -36,16 +65,12 @@ function base({ customId, user, kind }) {
 		async reply(value) { this.replied = true; log.replies.push(value); },
 		async deferReply() { this.deferred = true; },
 		async deferUpdate() { this.deferred = true; },
-		// The posted card comes back with an id, which the follow-up's buttons carry.
-		async editReply(value) {
-			log.edits.push(value);
-			return { id: 'card1' };
-		},
+		async editReply(value) { log.edits.push(value); },
 		async followUp(value) { log.followUps.push(value); },
 		async showModal(modal) { log.modal = modal; },
 		message: { id: 'panel1', editable: true, edit: async value => log.cardEdits.push(value) },
-		channel: { messages: { edit: async (id, value) => log.cardEdits.push({ id, ...value }) } },
-		client: { users: { fetch: async () => ({ send: async () => undefined }) } },
+		channel: room,
+		client: { user: { id: 'megu' }, users: { fetch: async () => ({ send: async () => undefined }) }, channels: { cache: threads } },
 	};
 }
 
@@ -68,7 +93,8 @@ const createEvent = (user, { people = [], guests = '', amount = '', split = 'wit
 const createSub = (user, { people = [], guests = '', amount = '', dueDay = '5' }) => withFields(
 	base({ customId: 'evt:subcreate', user, kind: 'modal' }), { title: 'Netflix', guests, amount, dueDay }, { people });
 
-const codeOf = call => call.log.edits[0].components[0].components[0].data.custom_id.split(':')[2];
+// The organiser's private note always carries the bill's link.
+const codeOf = call => call.log.edits[0].content.match(/\/a\/([A-Za-z0-9_-]+)/)[1];
 const cardMessage = call => call.log.cardEdits.filter(e => e.id === 'card1').at(-1);
 
 async function main() {
@@ -100,8 +126,8 @@ async function main() {
 		let activity = await core.activities.getActivityByCode(code);
 		assert.equal(activity.expenses[0].amountSatang, 19500);
 		assert.deepEqual(activity.shares.map(s => s.amountSatang), [6500, 6500, 6500]);
-		assert.match(call.log.followUps[0].content, /คนละ ฿65\.00 จาก 3 คน รวมเป็น ฿195\.00/);
-		assert.match(call.log.edits[0].content, /฿195\.00 หารเท่า 3 คน/);
+		assert.match(call.log.edits[0].content, /คนละ ฿65\.00 จาก 3 คน รวมเป็น ฿195\.00/);
+		assert.match(call.log.posted[0].content, /฿195\.00 หารเท่า 3 คน/);
 		ok('/event "คนละ 65" for three people makes a ฿195 bill split evenly');
 
 		// Not counting the organiser: two people at 65.
@@ -120,7 +146,7 @@ async function main() {
 		codes.push(code);
 		activity = await core.activities.getActivityByCode(code);
 		assert.equal(activity.expenses.length, 0, 'nothing is billed until the amounts are in');
-		const followUp = call.log.followUps[0];
+		const followUp = call.log.edits[0];
 		assert.match(followUp.content, /ยอดที่พิมพ์ไว้ยังไม่ได้ใช้/);
 		assert.match(followUp.content, /กด \*\*ใส่ยอดรายคน\*\*/);
 		const amountsId = followUp.components[0].components[0].data.custom_id;
@@ -177,7 +203,7 @@ async function main() {
 		await event.handleComponent(call, { core });
 		code = codeOf(call);
 		codes.push(code);
-		const bigId = call.log.followUps[0].components[0].components[0].data.custom_id;
+		const bigId = call.log.edits[0].components[0].components[0].data.custom_id;
 		press = base({ customId: bigId, user: fig, kind: 'button' });
 		await event.handleComponent(press, { core });
 		const big = press.log.modal.toJSON();
@@ -196,7 +222,7 @@ async function main() {
 		codes.push(code);
 		activity = await core.activities.getActivityByCode(code);
 		assert.deepEqual(activity.shares.map(s => s.amountSatang), [6500, 6500, 6500]);
-		assert.match(call.log.edits[0].content, /฿195\.00\/เดือน หารเท่า 3 คน/);
+		assert.match(call.log.posted[0].content, /฿195\.00\/เดือน หารเท่า 3 คน/);
 		ok('/sub "คนละ 65" for three people is ฿195 a month split evenly');
 
 		// ── /sub, different amounts ───────────────────────────────────────────
@@ -205,7 +231,7 @@ async function main() {
 		assert.equal(call.log.replies.length, 0, 'an empty amount is not refused any more');
 		code = codeOf(call);
 		codes.push(code);
-		const subAmountsId = call.log.followUps[0].components[0].components[0].data.custom_id;
+		const subAmountsId = call.log.edits[0].components[0].components[0].data.custom_id;
 		press = base({ customId: subAmountsId, user: fig, kind: 'button' });
 		await event.handleComponent(press, { core });
 		save = withFields(base({ customId: press.log.modal.toJSON().custom_id, user: fig, kind: 'modal' }), { p0: '199', p1: '110', p2: '110' });

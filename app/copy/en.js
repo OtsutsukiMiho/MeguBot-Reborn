@@ -649,6 +649,9 @@ const en = {
 		owner_only: 'Only the organizer can change this.',
 		summary_no_channel: 'This activity is not linked to a Discord channel.',
 		summary_unavailable: 'Posting to Discord is unavailable right now.',
+		nudge_topic_invalid: 'Choose what the reminder is about first.',
+		nudge_note_required: 'This activity has no time yet, so please type what the reminder is about.',
+		nudge_nobody: 'Nobody needs a reminder right now.',
 		summary_too_soon: 'A summary was just posted. Wait a minute before posting again.',
 		summary_not_delivered: 'Discord did not accept the message. Check Megu can still post in that channel.',
 		summary_not_private: 'This bill is linked to a channel the whole server can read, so Megu will not post amounts there. Send each person the bill link instead.',
@@ -740,7 +743,7 @@ const en = {
 		},
 		payBy: when => `Pay by ${when}`,
 		payByNone: 'No payment deadline set',
-		peopleGoing: (going, total) => `${going}/${total} going`,
+		peopleGoing: (going, total) => `${going}/${total} joining`,
 		members: total => `${total} ${total === 1 ? 'member' : 'members'}`,
 		membersPaid: (paid, total) => `${paid} of ${total} paid`,
 		perMonth: amount => `${amount} / month`,
@@ -1439,10 +1442,22 @@ const en = {
 		taken: 'Already taken',
 	},
 
+	nudge: {
+		title: 'Ask Megu to remind people',
+		topics: { unpaid: 'People who have not paid', unanswered: 'People who have not answered', attending: 'People who are joining' },
+		note: 'Add a message (optional)',
+		noteHint: 'e.g. Please pay by Friday. It goes with the reminder',
+		send: count => `Remind ${count} ${count === 1 ? 'person' : 'people'}`,
+		cooldown: when => `Can be reminded again from ${when}`,
+		deferred: when => `Asked to wait until ${when}`,
+		unreachable: 'Not on Discord, so you will have to send the link',
+		limit: 'One person can be reminded about this activity at most once every 12 hours. Anyone with notifications off will not get a message.',
+	},
+
 	rsvp: {
-		question: name => `${name}, are you coming?`,
-		going: 'Going',
-		notGoing: 'Not going',
+		question: name => `${name}, are you joining?`,
+		going: 'Joining',
+		notGoing: 'Not joining',
 	},
 
 	// ── the four screens ────────────────────────────────────────────────────
@@ -1501,7 +1516,7 @@ const en = {
 		deferred: when => `You asked to pay later. Megu will ask again on ${when}.`,
 		vote: 'Megu is asking when everyone is free',
 		voteAction: 'Choose a time',
-		rsvp: 'Say whether you are coming',
+		rsvp: 'Say whether you are joining',
 		rsvpAction: 'Answer',
 		review: n => `${n} ${n === 1 ? 'payment is' : 'payments are'} waiting for you to check`,
 		reviewAction: 'Review them',
@@ -1519,15 +1534,15 @@ const en = {
 
 	schedule: {
 		title: 'Choose a time first',
-		ownerHint: 'Add a few options. Megu will ask everyone when they are free before anyone commits to coming.',
+		ownerHint: 'Add a few options. Megu will ask everyone when they are free before anyone commits to joining.',
 		waitingHint: 'The organizer is still choosing times. You can answer as soon as the options arrive.',
 	},
 
 	roster: {
-		titleEvent: 'Who is coming',
+		titleEvent: 'Who is joining',
 		titleRecurring: 'Members',
-		going: 'Going',
-		notGoing: 'Not going',
+		going: 'Joining',
+		notGoing: 'Not joining',
 		noAnswer: 'Has not answered',
 		notLinked: 'Has not claimed their name',
 		paidUp: 'Paid up',
@@ -1637,7 +1652,7 @@ const en = {
 		startsAtLabel: 'When it happens',
 		startsAtSave: 'Save the time',
 		startsAtHint: 'Everyone sees this on the activity page, and Megu reminds them from it.',
-		startsAtMissing: 'No time set yet; nobody can say whether they are coming until there is one.',
+		startsAtMissing: 'No time set yet; nobody can say whether they are joining until there is one.',
 		payByHint: 'On that day Megu reminds whoever has not paid, on Discord or by email, whichever each person chose.',
 		payBySave: 'Save deadline',
 		payByClear: 'Clear',

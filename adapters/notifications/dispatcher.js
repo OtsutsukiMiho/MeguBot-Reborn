@@ -31,6 +31,7 @@ function createDispatcher({ sendDiscord, sendEmail = resend.send, log = () => {}
 							defer: content.defer
 								? { ...content.defer, label: content.secondaryLabel, payLabel: content.payLabel }
 								: null,
+							rsvp: content.rsvp,
 							...(workflowDelivery ? { workflowDelivery } : {}),
 						}));
 					}

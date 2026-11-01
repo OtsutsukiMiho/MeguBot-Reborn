@@ -674,6 +674,11 @@ for (const folder of commandFolders) {
 			client.commands.set(command.data.name, command);
 			// /event sends DMs from its buttons; they go through the same guard.
 			command.useDiscordCall?.(discordCall);
+			// And its nudges are DMs of the same shape as every other notice.
+			command.useNoticeDelivery?.(notice => require('../../adapters/notifications/discord-delivery').deliverNotice(notice, {
+				users: client.users, discordCall, isBlocked: () => discordBlock.blocked(), noticeComponents,
+				wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+			}));
 			// And reads the language a server chose for its bill cards.
 			command.useServerLangReader?.(guildId => database.getGuildVar(guildId, SERVER_LANG_KEY));
 		}
@@ -697,7 +702,7 @@ for (const folder of commandFolders) {
 const DEFER_BUTTON = 'megu_defer';
 const DEFER_MODAL = 'megu_defer_modal';
 
-function noticeComponents(cta, defer) {
+function noticeComponents(cta, defer, rsvp = null) {
 	const buttons = [];
 	if (cta?.url && /^https?:\/\//i.test(String(cta.url))) {
 		buttons.push(new ButtonBuilder()
@@ -719,6 +724,13 @@ function noticeComponents(cta, defer) {
 			.setStyle(ButtonStyle.Secondary)
 			.setCustomId(`${DEFER_BUTTON}:${defer.participantId}:${defer.periodId || '-'}`)
 			.setLabel(String(defer.label || 'Not now').slice(0, 80)));
+	}
+	// Answering "are you joining" without leaving the DM. /event's router again.
+	if (rsvp?.code && /^[A-Za-z0-9_-]{1,40}$/.test(String(rsvp.code))) {
+		buttons.unshift(
+			new ButtonBuilder().setStyle(ButtonStyle.Primary).setCustomId(`evt:rsvpyes:${rsvp.code}`).setLabel(String(rsvp.yesLabel || 'Join').slice(0, 80)),
+			new ButtonBuilder().setStyle(ButtonStyle.Secondary).setCustomId(`evt:rsvpno:${rsvp.code}`).setLabel(String(rsvp.noLabel || 'Can\'t join').slice(0, 80)),
+		);
 	}
 	return buttons.length > 0 ? [new ActionRowBuilder().addComponents(buttons)] : [];
 }

@@ -314,6 +314,97 @@ export function AddExpense({ activity, participants, busy, call }) {
  * Where the activity is in its life: finding a time, confirming it, finishing
  * it — or, for a monthly agreement, opening the next month.
  */
+/**
+ * "Remind these people", the same thing the button on the Discord card does.
+ * The list comes from the server because a cooldown or a snooze decides who can
+ * be picked, and what comes back after sending is one plain report of who heard.
+ */
+export function NudgePanel({ busy, call }) {
+	const { t, fmt } = useCopy();
+	const [topics, setTopics] = useState(null);
+	const [topicKey, setTopicKey] = useState(null);
+	const [skipped, setSkipped] = useState(() => new Set());
+	const [note, setNote] = useState('');
+	const [report, setReport] = useState('');
+
+	useEffect(() => {
+		let live = true;
+		call('GET', '/nudge').then((data) => {
+			if (live) setTopics(data?.topics || []);
+		});
+		return () => {
+			live = false;
+		};
+	}, [call]);
+
+	if (!topics || topics.length === 0) return report ? <section className="panel"><p className="quiet-note" style={{ whiteSpace: 'pre-line', marginTop: 0 }}>{report}</p></section> : null;
+
+	const topic = topics.find(item => item.key === topicKey) || topics[0];
+	const chosen = topic.people.filter(person => person.state === 'ready' && !skipped.has(person.id));
+	const stateLine = (person) => {
+		if (person.state === 'cooldown') return t.nudge.cooldown(fmt.when(person.until));
+		if (person.state === 'deferred') return `${t.nudge.deferred(fmt.when(person.until, { time: false }))}: ${person.reason}`;
+		if (person.state === 'unreachable') return t.nudge.unreachable;
+		return null;
+	};
+
+	const send = async () => {
+		const result = await call('POST', '/nudge', { topic: topic.key, participantIds: chosen.map(person => person.id), note });
+		if (!result) return;
+		setReport(result.report);
+		setTopics(result.topics);
+		setNote('');
+		setSkipped(new Set());
+	};
+
+	return (
+		<section className="panel">
+			<div className="panel-head"><span className="panel-title">{t.nudge.title}</span></div>
+			<div className="stack-fields">
+				{topics.length > 1 && (
+					<div className="names">
+						{topics.map(item => (
+							<button key={item.key} type="button" className={`vote-btn ${item.key === topic.key ? 'on-yes' : ''}`} disabled={busy} onClick={() => setTopicKey(item.key)}>
+								{t.nudge.topics[item.key]}
+							</button>
+						))}
+					</div>
+				)}
+				<div>
+					{topic.people.map(person => (
+						<label key={person.id} className="row" style={{ cursor: person.state === 'ready' ? 'pointer' : 'default' }}>
+							<input
+								type="checkbox"
+								disabled={busy || person.state !== 'ready'}
+								checked={person.state === 'ready' && !skipped.has(person.id)}
+								onChange={() => setSkipped((current) => {
+									const next = new Set(current);
+									if (next.has(person.id)) next.delete(person.id);
+									else next.add(person.id);
+									return next;
+								})}
+							/>
+							<span className="row-main">
+								<span className="row-name">{person.displayName}</span>
+								{stateLine(person) && <span className="row-sub" style={{ display: 'block' }}>{stateLine(person)}</span>}
+							</span>
+						</label>
+					))}
+				</div>
+				<div>
+					<label className="field-label" htmlFor="nudge-note">{t.nudge.note}</label>
+					<textarea id="nudge-note" className="form-control" rows={2} maxLength={300} placeholder={t.nudge.noteHint} value={note} onChange={e => setNote(e.target.value)} />
+					<p className="field-hint">{t.nudge.limit}</p>
+				</div>
+				<div>
+					<button type="button" className="btn btn-primary" disabled={busy || chosen.length === 0} onClick={send}>{t.nudge.send(chosen.length)}</button>
+				</div>
+				{report && <p className="quiet-note" style={{ whiteSpace: 'pre-line', margin: 0 }}>{report}</p>}
+			</div>
+		</section>
+	);
+}
+
 export function PlanControls({ activity, busy, call }) {
 	const { t } = useCopy();
 	const recurring = activity.kind === 'recurring';

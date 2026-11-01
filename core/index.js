@@ -23,6 +23,7 @@ const teams = require('./teams.js');
 const projectReminders = require('./project-reminders.js');
 const projectChannelNotifications = require('./project-channel-notifications.js');
 const reminders = require('./reminders.js');
+const nudges = require('./nudges.js');
 const notifications = require('./notifications.js');
 const access = require('./auth/access.js');
 const tokens = require('./auth/tokens.js');
@@ -51,6 +52,7 @@ module.exports = {
 	projectReminders,
 	projectChannelNotifications,
 	reminders,
+	nudges,
 	notifications,
 	access,
 	tokens,

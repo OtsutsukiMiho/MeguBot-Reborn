@@ -19,7 +19,7 @@ async function deliverNotice(msg, { users, discordCall, isBlocked, prepareWorkfl
 		const uid = String(recipients[i]);
 		if (!/^\d{17,20}$/.test(uid) || !msg.message) continue;
 		const user = users.cache.get(uid) || await discordCall('opening a DM', () => users.fetch(uid), null);
-		let message = String(msg.message).slice(0, 1900), cta = msg.cta, defer = msg.defer;
+		let message = String(msg.message).slice(0, 1900), cta = msg.cta, defer = msg.defer, rsvp = msg.rsvp;
 		if (msg.workflowDelivery) {
 			// Lookup may wait on Discord. Recheck only after it finishes, directly
 			// before send, using the persisted delivery/lease and current identity.
@@ -28,12 +28,12 @@ async function deliverNotice(msg, { users, discordCall, isBlocked, prepareWorkfl
 			catch { return { delivered, blocked: isBlocked(), outcome: 'transient_failure' }; }
 			if (!content) { outcome = 'ineligible'; continue; }
 			message = `${content.body}\n${content.ctaUrl}`;
-			cta = { label: content.ctaLabel, url: content.ctaUrl }; defer = null;
+			cta = { label: content.ctaLabel, url: content.ctaUrl }; defer = null; rsvp = null;
 		}
 		if (!user) continue;
 		const sent = await discordCall('sending a DM', async () => {
 			try {
-				await user.send({ content: message, components: noticeComponents(cta, defer),
+				await user.send({ content: message, components: noticeComponents(cta, defer, rsvp),
 					...(msg.workflowDelivery ? { allowedMentions: { parse: [] } } : {}) });
 				return true;
 			} catch (error) {

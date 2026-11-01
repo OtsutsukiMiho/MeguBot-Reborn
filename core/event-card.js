@@ -30,7 +30,7 @@ const COPY = {
 		paid: 'จ่ายแล้ว',
 		checking: 'รอตรวจสลิป',
 		notLinked: 'ไม่ได้ใช้ Discord',
-		howTo: 'โอนแล้วกด **แนบสลิป** ได้เลย ถ้าไปด้วยแต่ไม่มีชื่อ กด **ฉันไปด้วย**',
+		howTo: 'โอนแล้วกด **แนบสลิป** ได้เลย ถ้าเข้าร่วมด้วยแต่ไม่มีชื่อ กด **เข้าร่วม** ถ้าไม่ได้ร่วมกิจกรรมนี้ กด **ไม่เข้าร่วม**',
 		noAmount: 'คนจัดใส่ยอดได้ที่ลิงก์ เมื่อรู้ยอดแล้ว',
 		settled: 'ทุกคนจ่ายครบแล้ว',
 		more: count => `…และอีก ${count} คน`,
@@ -43,9 +43,10 @@ const COPY = {
 		startsFrom: period => `(เริ่ม${period})`,
 		lastMonth: '(เดือนสุดท้าย)',
 		upcoming: (period, total, count) => `ตั้งแต่${period}: ${total}/เดือน หาร ${count} คน`,
+		declined: 'ไม่เข้าร่วม',
 		publicHeading: (title, count) => `**${title}** บิลของ ${count} คน`,
 		publicMonthly: (title, count, due) => `**${title}** บิลรายเดือนของ ${count} คน ครบกำหนด${due}`,
-		publicHowTo: 'ยอดของแต่ละคนไม่แสดงในช่องนี้ คนในบิลกด **แนบสลิป** เพื่อดูยอดของตัวเองและจ่าย ถ้าไปด้วยแต่ไม่มีชื่อ กด **ฉันไปด้วย**',
+		publicHowTo: 'ยอดของแต่ละคนไม่แสดงในช่องนี้ คนในบิลกด **แนบสลิป** เพื่อดูยอดของตัวเองและจ่าย ถ้าเข้าร่วมด้วยแต่ไม่มีชื่อ กด **เข้าร่วม** ถ้าไม่ได้ร่วมกิจกรรมนี้ กด **ไม่เข้าร่วม**',
 		publicMonthlyHowTo: 'ยอดของแต่ละคนไม่แสดงในช่องนี้ คนในบิลกด **แนบสลิป** เพื่อดูยอดของตัวเองและจ่าย',
 		shareTotal: (total, count) => `ยอดรวม ${total} หาร ${count} คน`,
 		shareMonthly: (total, count, due) => `${total}/เดือน หาร ${count} คน ครบกำหนด${due}`,
@@ -61,7 +62,7 @@ const COPY = {
 		paid: 'paid',
 		checking: 'slip being checked',
 		notLinked: 'not on Discord',
-		howTo: 'Paid? Press **Send slip**. Coming but not listed? Press **I\'m in**',
+		howTo: 'Paid? Press **Send slip**. Joining but not listed? Press **Join**. Not taking part? Press **Can\'t join**',
 		noAmount: 'The organiser can add the amount at the link once it is known',
 		settled: 'Everyone has paid',
 		more: count => `…and ${count} more`,
@@ -74,9 +75,10 @@ const COPY = {
 		startsFrom: period => `(from ${period})`,
 		lastMonth: '(last month)',
 		upcoming: (period, total, count) => `From ${period}: ${total}/month split by ${count}`,
+		declined: 'not joining',
 		publicHeading: (title, count) => `**${title}**, a bill for ${count} people`,
 		publicMonthly: (title, count, due) => `**${title}**, a monthly bill for ${count} people, due ${due}`,
-		publicHowTo: 'Amounts are not shown in this channel. If you are on the bill, press **Send slip** to see your share and pay. Coming but not listed? Press **I\'m in**',
+		publicHowTo: 'Amounts are not shown in this channel. If you are on the bill, press **Send slip** to see your share and pay. Joining but not listed? Press **Join**. Not taking part? Press **Can\'t join**',
 		publicMonthlyHowTo: 'Amounts are not shown in this channel. If you are on the bill, press **Send slip** to see your share and pay',
 		shareTotal: (total, count) => `${total} split by ${count}`,
 		shareMonthly: (total, count, due) => `${total}/month split by ${count}, due ${due}`,
@@ -196,7 +198,7 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, u
 	const label = p => (p.discordUid ? `<@${p.discordUid}>` : inert(p.displayName));
 	const lines = [monthly
 		? copy.monthly(inert(activity.title), money(total), sharers.length, formatPeriod(period?.key, lang), formatDueDay(activity.dueDay, lang), uneven)
-		: copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.length, uneven)];
+		: copy.heading(inert(activity.title), total ? money(total) : null, total ? sharers.length : activity.participants.filter(p => p.rsvp !== 'no').length, uneven)];
 
 	// A monthly card is about this month and the next. Somebody who left an
 	// earlier month has no share in either and is not listed.
@@ -217,6 +219,7 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, u
 			if (row.outstanding <= 0) parts.push(`(${copy.paid})`);
 			else if (row.pending > 0) parts.push(`(${copy.checking})`);
 		}
+		if (!monthly && p.rsvp === 'no') parts.push(`(${copy.declined})`);
 		if (!p.discordUid && !p.userId) parts.push(`_(${copy.notLinked})_`);
 		if (joining.has(p.id) && !(row.owes > 0)) parts.push(copy.startsFrom(formatPeriod(upcoming.periodKey, lang)));
 		else if (leaving.has(p.id)) parts.push(copy.lastMonth);
@@ -250,7 +253,7 @@ function eventCardMessage({ activity, settlement, payee = null, period = null, u
 
 function headcount(activity, settlement) {
 	const sharing = (settlement?.rows || []).filter(row => row.owes > 0).length;
-	return (settlement?.total || 0) > 0 && sharing > 0 ? sharing : activity.participants.length;
+	return (settlement?.total || 0) > 0 && sharing > 0 ? sharing : activity.participants.filter(p => p.rsvp !== 'no').length;
 }
 
 /**

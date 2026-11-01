@@ -60,7 +60,7 @@ async function enqueueWithClient(client, { userId, eventType, payload, dedupeKey
 				[newId('ndl'), event.rows[0].id, channel],
 			);
 		}
-		return { eventId: event.rows[0].id, created: event.rows[0].inserted === true, mode };
+		return { eventId: event.rows[0].id, created: event.rows[0].inserted === true, mode, channels: selected.length };
 }
 
 async function enqueue(options) {
@@ -258,6 +258,8 @@ function render(delivery) {
 		secondaryLabel,
 		secondaryUrl,
 		defer: p.defer || null,
+		// Discord only: answering from inside the DM. Email has the link instead.
+		rsvp: p.rsvp ? { ...p.rsvp, yesLabel: th ? 'เข้าร่วม' : 'Join', noLabel: th ? 'ไม่เข้าร่วม' : 'Can\'t join' } : null,
 		// Discord only: the button that opens the slip upload inside the DM.
 		payLabel: p.defer?.code ? (th ? 'แนบสลิป' : 'Send slip') : null,
 	};
